@@ -71,6 +71,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::ToggleFullscreen => app.toggle_fullscreen(),
             Action::OpenConfig => app.select_tab(4),
             Action::ShowLibrary => app.select_tab(0),
+            Action::Redraw => {}
             Action::Click { column, row } => {
                 let (width, height) = crossterm::terminal::size()?;
                 handle_click(Rect::new(0, 0, width, height), app, column, row);

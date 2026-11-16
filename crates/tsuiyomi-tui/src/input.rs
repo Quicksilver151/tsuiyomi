@@ -16,6 +16,7 @@ pub enum Action {
     ToggleFullscreen,
     OpenConfig,
     ShowLibrary,
+    Redraw,
     ScrollUp,
     ScrollDown,
     Click { column: u16, row: u16 },
@@ -38,6 +39,7 @@ pub fn read() -> io::Result<Option<Action>> {
                     return Ok(Some(action));
                 }
             }
+            Event::Resize(_, _) => return Ok(Some(Action::Redraw)),
             _ => {}
         }
     }
