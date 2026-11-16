@@ -34,6 +34,7 @@
                 . ./.env.local
                 set +a
               fi
+              export TSUIYOMI_DEVSHELL=1
               echo "tsuiyomi devshell: $(cargo --version)"
             '';
           };

@@ -28,10 +28,13 @@ Anime support from the original prototype is legacy and will be dropped or redes
 ```sh
 cp .env.local.example .env.local   # set TSUIYOMI_LIBRARY to your Mihon local/ folder
 direnv allow                       # or: nix develop
-cargo run
+./run.sh                           # enters the devshell automatically if needed
 ```
 
-Useful commands:
+`run.sh` uses the active devshell when it detects one, and otherwise runs
+`nix develop --command just run`. Arguments are forwarded to `just run`.
+
+Useful commands (inside the devshell):
 
 ```sh
 just run      # or: cargo run

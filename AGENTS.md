@@ -44,7 +44,8 @@ cargo clippy         # must pass with -D warnings, see justfile
 cargo test           # unit tests, especially parsers
 ```
 
-`justfile` wraps the common commands; `just` lists them.
+`justfile` wraps the common commands; `just` lists them. `./run.sh` is the user-facing
+entry point: it uses the active devshell or falls back to `nix develop --command just run`.
 
 ## Mihon compatibility contract
 
