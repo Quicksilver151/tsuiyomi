@@ -112,7 +112,11 @@ fn draw_reader_bar(frame: &mut Frame, area: Rect, app: &AppState) {
 
     let total = reader.pages.len().max(1);
     let current = (reader.page_index + 1).min(total);
-    let ratio = current as f64 / total as f64;
+    let ratio = if total > 1 {
+        reader.page_index.min(total - 1) as f64 / (total - 1) as f64
+    } else {
+        0.0
+    };
     frame.render_widget(
         Gauge::default()
             .ratio(ratio)
@@ -922,6 +926,7 @@ mod tests {
             page_index: 0,
             protocol: None,
             scroll: None,
+            pending_scroll: None,
             error: Some("Reader error".to_owned()),
         });
 

@@ -10,7 +10,7 @@ use tsuiyomi_core::{
 
 use crate::{
     layout::TAB_COUNT,
-    scroll_worker::{BuildRequest, ScrollWorker},
+    scroll_worker::{BuildRequest, BuildResult, ScrollWorker},
 };
 
 /// Lines moved per arrow/wheel step in continuous scroll mode.
@@ -63,6 +63,8 @@ pub struct ReaderState {
     pub page_index: usize,
     pub protocol: Option<StatefulProtocol>,
     pub scroll: Option<ScrollState>,
+    /// New zoom/width layout being prepared while the old one stays on screen.
+    pub pending_scroll: Option<ScrollState>,
     pub error: Option<String>,
 }
 
@@ -139,35 +141,58 @@ impl AppState {
             let Some(reader) = self.reader.as_mut() else {
                 continue;
             };
-            let Some(scroll) = reader.scroll.as_mut() else {
-                continue;
-            };
-            if result.generation != scroll.generation {
-                continue;
-            }
 
-            if let Some(requested) = scroll.requested.get_mut(result.index) {
-                *requested = false;
-            }
-            match result.result {
-                Ok(protocol) => {
-                    if let Some(slot) = scroll.protocols.get_mut(result.index) {
-                        *slot = Some(protocol);
-                    }
-                    if let Some(error) = scroll.errors.get_mut(result.index) {
-                        *error = None;
-                    }
-                    changed = true;
+            let generation = result.generation;
+            let applied = if reader
+                .pending_scroll
+                .as_ref()
+                .is_some_and(|scroll| scroll.generation == generation)
+            {
+                if let Some(scroll) = reader.pending_scroll.as_mut() {
+                    apply_scroll_result(scroll, result)
+                } else {
+                    false
                 }
-                Err(error) => {
-                    if let Some(slot) = scroll.errors.get_mut(result.index) {
-                        *slot = Some(error);
-                    }
-                    changed = true;
+            } else if reader
+                .scroll
+                .as_ref()
+                .is_some_and(|scroll| scroll.generation == generation)
+            {
+                if let Some(scroll) = reader.scroll.as_mut() {
+                    apply_scroll_result(scroll, result)
+                } else {
+                    false
                 }
+            } else {
+                false
+            };
+
+            if applied {
+                changed = true;
             }
         }
+
+        if self.try_promote_pending() {
+            changed = true;
+        }
         changed
+    }
+
+    fn try_promote_pending(&mut self) -> bool {
+        let Some(reader) = self.reader.as_mut() else {
+            return false;
+        };
+        let Some(pending) = reader.pending_scroll.as_ref() else {
+            return false;
+        };
+        if !scroll_visible_ready(pending) {
+            return false;
+        }
+
+        let pending = reader.pending_scroll.take().expect("pending checked above");
+        reader.page_index = page_at_offset(&pending);
+        reader.scroll = Some(pending);
+        true
     }
 
     fn bump_scroll_generation(&mut self) -> u64 {
@@ -492,6 +517,7 @@ impl AppState {
             page_index: start_page,
             protocol: None,
             scroll: None,
+            pending_scroll: None,
             error: None,
         });
         self.view = LibraryView::Reader;
@@ -653,7 +679,7 @@ impl AppState {
 
         if let Some(reader) = self.reader.as_mut() {
             reader.error = None;
-            reader.scroll = Some(ScrollState {
+            let state = ScrollState {
                 generation,
                 layout,
                 protocols: (0..page_count).map(|_| None).collect(),
@@ -663,7 +689,12 @@ impl AppState {
                 width: width.max(1),
                 viewport_height,
                 total_rows,
-            });
+            };
+            if reader.scroll.is_some() {
+                reader.pending_scroll = Some(state);
+            } else {
+                reader.scroll = Some(state);
+            }
         }
     }
 
@@ -696,7 +727,7 @@ impl AppState {
         let needs_rebuild = self
             .reader
             .as_ref()
-            .and_then(|reader| reader.scroll.as_ref())
+            .and_then(|reader| reader.pending_scroll.as_ref().or(reader.scroll.as_ref()))
             .is_some_and(|scroll| scroll.width != width.max(1));
         if needs_rebuild {
             self.build_scroll(width);
@@ -704,12 +735,21 @@ impl AppState {
     }
 
     pub(crate) fn ensure_scroll_view(&mut self, viewport_height: u16) {
-        let (load_start, load_end, first, last) = {
+        let (load_start, load_end, first, last, page, pending) = {
             let Some(reader) = self.reader.as_mut() else {
                 return;
             };
-            let Some(scroll) = reader.scroll.as_mut() else {
-                return;
+            let pending = reader.pending_scroll.is_some();
+            let scroll = if pending {
+                let Some(scroll) = reader.pending_scroll.as_mut() else {
+                    return;
+                };
+                scroll
+            } else {
+                let Some(scroll) = reader.scroll.as_mut() else {
+                    return;
+                };
+                scroll
             };
 
             scroll.viewport_height = viewport_height.max(1);
@@ -734,25 +774,26 @@ impl AppState {
                 .unwrap_or(first);
             let load_start = first.saturating_sub(1);
             let load_end = (last + 2).min(scroll.layout.len().saturating_sub(1));
+            let page = page_at_offset(scroll);
 
-            let page = if top >= max_scroll {
-                scroll.layout.len().saturating_sub(1)
-            } else {
-                scroll
-                    .layout
-                    .iter()
-                    .rposition(|page| page.start <= top)
-                    .unwrap_or(0)
-            };
-            reader.page_index = page;
-
-            (load_start, load_end, first, last)
+            (load_start, load_end, first, last, page, pending)
         };
+
+        if !pending {
+            if let Some(reader) = self.reader.as_mut() {
+                reader.page_index = page;
+            }
+        }
 
         let mut to_request = Vec::new();
         if let Some(reader) = self.reader.as_mut() {
             if !reader.pages.is_empty() {
-                if let Some(scroll) = reader.scroll.as_mut() {
+                let scroll = if pending {
+                    reader.pending_scroll.as_mut()
+                } else {
+                    reader.scroll.as_mut()
+                };
+                if let Some(scroll) = scroll {
                     for index in load_start..=load_end {
                         if scroll.protocols.get(index).is_some_and(Option::is_some)
                             || scroll.requested.get(index).is_some_and(|value| *value)
@@ -773,20 +814,27 @@ impl AppState {
             if let Some(worker) = self.scroll_worker.as_ref() {
                 let requests: Vec<(usize, Page, ScrollPageLayout, u64)> = match self.reader.as_ref()
                 {
-                    Some(reader) => match reader.scroll.as_ref() {
-                        Some(scroll) => to_request
-                            .iter()
-                            .filter_map(|index| {
-                                Some((
-                                    *index,
-                                    reader.pages.get(*index)?.clone(),
-                                    scroll.layout.get(*index).copied()?,
-                                    scroll.generation,
-                                ))
-                            })
-                            .collect(),
-                        None => Vec::new(),
-                    },
+                    Some(reader) => {
+                        let scroll = if pending {
+                            reader.pending_scroll.as_ref()
+                        } else {
+                            reader.scroll.as_ref()
+                        };
+                        match scroll {
+                            Some(scroll) => to_request
+                                .iter()
+                                .filter_map(|index| {
+                                    Some((
+                                        *index,
+                                        reader.pages.get(*index)?.clone(),
+                                        scroll.layout.get(*index).copied()?,
+                                        scroll.generation,
+                                    ))
+                                })
+                                .collect(),
+                            None => Vec::new(),
+                        }
+                    }
                     None => Vec::new(),
                 };
 
@@ -810,7 +858,12 @@ impl AppState {
 
         // Keep memory bounded: drop protocols far outside the viewport.
         if let Some(reader) = self.reader.as_mut() {
-            if let Some(scroll) = reader.scroll.as_mut() {
+            let scroll = if pending {
+                reader.pending_scroll.as_mut()
+            } else {
+                reader.scroll.as_mut()
+            };
+            if let Some(scroll) = scroll {
                 let keep_start = first.saturating_sub(4);
                 let keep_end = last + 4;
                 for (index, protocol) in scroll.protocols.iter_mut().enumerate() {
@@ -823,13 +876,21 @@ impl AppState {
                 }
             }
         }
+
+        self.try_promote_pending();
     }
 
     fn load_scroll_page(&mut self, index: usize) {
         let Some(reader) = self.reader.as_ref() else {
             return;
         };
-        let Some(scroll) = reader.scroll.as_ref() else {
+        let pending = reader.pending_scroll.is_some();
+        let scroll = if pending {
+            reader.pending_scroll.as_ref()
+        } else {
+            reader.scroll.as_ref()
+        };
+        let Some(scroll) = scroll else {
             return;
         };
         let Some(page) = reader.pages.get(index).cloned() else {
@@ -845,7 +906,12 @@ impl AppState {
 
         let result = build_scroll_protocol(&picker, &page, layout);
         if let Some(reader) = self.reader.as_mut() {
-            if let Some(scroll) = reader.scroll.as_mut() {
+            let scroll = if pending {
+                reader.pending_scroll.as_mut()
+            } else {
+                reader.scroll.as_mut()
+            };
+            if let Some(scroll) = scroll {
                 if let Some(requested) = scroll.requested.get_mut(index) {
                     *requested = false;
                 }
@@ -1024,6 +1090,67 @@ impl AppState {
             self.selected = self.selected.min(count - 1);
         }
     }
+}
+
+fn apply_scroll_result(scroll: &mut ScrollState, result: BuildResult) -> bool {
+    if let Some(requested) = scroll.requested.get_mut(result.index) {
+        *requested = false;
+    }
+    match result.result {
+        Ok(protocol) => {
+            if let Some(slot) = scroll.protocols.get_mut(result.index) {
+                *slot = Some(protocol);
+            }
+            if let Some(error) = scroll.errors.get_mut(result.index) {
+                *error = None;
+            }
+            true
+        }
+        Err(error) => {
+            if let Some(slot) = scroll.errors.get_mut(result.index) {
+                *slot = Some(error);
+            }
+            true
+        }
+    }
+}
+
+fn scroll_visible_ready(scroll: &ScrollState) -> bool {
+    if scroll.layout.is_empty() {
+        return true;
+    }
+
+    let top = scroll.offset;
+    let bottom = top.saturating_add(u32::from(scroll.viewport_height));
+    let first = scroll
+        .layout
+        .iter()
+        .position(|page| page.start.saturating_add(u32::from(page.rows)) > top)
+        .unwrap_or(0);
+    let last = scroll
+        .layout
+        .iter()
+        .rposition(|page| page.start < bottom)
+        .unwrap_or(first);
+
+    (first..=last).all(|index| {
+        scroll.protocols.get(index).is_some_and(Option::is_some)
+            || scroll.errors.get(index).is_some_and(Option::is_some)
+    })
+}
+
+fn page_at_offset(scroll: &ScrollState) -> usize {
+    let max_scroll = scroll
+        .total_rows
+        .saturating_sub(u32::from(scroll.viewport_height));
+    if scroll.offset >= max_scroll {
+        return scroll.layout.len().saturating_sub(1);
+    }
+    scroll
+        .layout
+        .iter()
+        .rposition(|page| page.start <= scroll.offset)
+        .unwrap_or(0)
 }
 
 pub(crate) fn build_scroll_protocol(
@@ -1265,6 +1392,39 @@ mod tests {
             app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset,
             0
         );
+
+        let old_generation = app
+            .reader
+            .as_ref()
+            .unwrap()
+            .scroll
+            .as_ref()
+            .unwrap()
+            .generation;
+        app.zoom_in();
+        assert!(app.reader.as_ref().unwrap().pending_scroll.is_some());
+        assert!(app
+            .reader
+            .as_ref()
+            .unwrap()
+            .scroll
+            .as_ref()
+            .unwrap()
+            .protocols
+            .iter()
+            .any(Option::is_some));
+        app.ensure_scroll_view(10);
+        for _ in 0..200 {
+            app.poll_scroll_results();
+            if app.reader.as_ref().unwrap().pending_scroll.is_none() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(app.reader.as_ref().unwrap().pending_scroll.is_none());
+        let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
+        assert_ne!(scroll.generation, old_generation);
+        assert!(scroll.protocols.iter().any(Option::is_some));
 
         app.toggle_reader_mode();
         assert_eq!(app.reader_mode, ReaderMode::Page);
