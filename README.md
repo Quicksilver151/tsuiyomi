@@ -94,8 +94,9 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
 
 - [x] Split the backend into a UI-agnostic core crate and a TUI crate.
 - [x] Scan a Mihon `local/` library and list chapters.
+- [x] Discover chapter pages in folders and `cbz`/`zip` archives.
 - [ ] Parse `ComicInfo.xml` (legacy `details.json` and `.desc` already work).
-- [ ] Chapter page listing and reader.
+- [ ] Terminal reader for chapter pages.
 - [ ] Import and export Mihon `.tachibk` backups.
 - [ ] Local update tracking, search, and config UI.
 - [ ] Publish to `crates.io`, release `v1.0.0`.

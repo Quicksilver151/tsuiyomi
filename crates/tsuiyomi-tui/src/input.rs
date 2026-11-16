@@ -13,9 +13,10 @@ pub enum Action {
     NextCategory,
     SelectTab(usize),
     Refresh,
+    Open,
+    Back,
     ToggleFullscreen,
     OpenConfig,
-    ShowLibrary,
     Redraw,
     ScrollUp,
     ScrollDown,
@@ -48,7 +49,8 @@ pub fn read() -> io::Result<Option<Action>> {
 fn key_action(code: KeyCode) -> Option<Action> {
     let action = match code {
         KeyCode::Char('q') => Action::Quit,
-        KeyCode::Esc => Action::ShowLibrary,
+        KeyCode::Esc => Action::Back,
+        KeyCode::Enter => Action::Open,
         KeyCode::Char('c') => Action::OpenConfig,
         KeyCode::Char('f') => Action::ToggleFullscreen,
         KeyCode::Char('r') => Action::Refresh,
@@ -91,6 +93,12 @@ mod tests {
     fn tab_keys_control_tabs() {
         assert_eq!(key_action(KeyCode::Tab), Some(Action::NextTab));
         assert_eq!(key_action(KeyCode::BackTab), Some(Action::PreviousTab));
+    }
+
+    #[test]
+    fn enter_and_escape_are_open_and_back() {
+        assert_eq!(key_action(KeyCode::Enter), Some(Action::Open));
+        assert_eq!(key_action(KeyCode::Esc), Some(Action::Back));
     }
 
     #[test]

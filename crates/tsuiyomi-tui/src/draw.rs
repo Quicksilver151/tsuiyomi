@@ -5,10 +5,10 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
-use tsuiyomi_core::{Library, Series};
+use tsuiyomi_core::{Chapter, ChapterKind, Library, Series};
 
 use crate::{
-    app::AppState,
+    app::{AppState, LibraryView},
     layout::{app_layout, library_layout, tab_layouts, TAB_NAMES},
     palette::{
         BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, RED, SUBTEXT1, SURFACE0,
@@ -120,11 +120,11 @@ fn draw_commands(frame: &mut Frame, area: Rect) {
         ("q", "quit"),
         ("↑↓", "move"),
         ("Tab", "tabs"),
-        ("r", "refresh"),
+        ("r", "rescan"),
         ("c", "config"),
         ("f", "full"),
         ("Esc", "back"),
-        ("mouse", ""),
+        ("↵", "open"),
     ];
 
     let mut spans = Vec::new();
@@ -149,21 +149,41 @@ fn draw_commands(frame: &mut Frame, area: Rect) {
 
 fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let layout = library_layout(area);
-    draw_categories(frame, layout.categories, app);
 
-    let category = app
-        .library
-        .categories
-        .get(app.category_index)
-        .map(String::as_str);
-    draw_series_list(
-        frame,
-        layout.list,
-        &app.library,
-        category,
-        &mut app.list_state,
-        app.selected,
-    );
+    match app.view {
+        LibraryView::Series => {
+            draw_categories(frame, layout.categories, app);
+            let category = app
+                .library
+                .categories
+                .get(app.category_index)
+                .map(String::as_str);
+            draw_series_list(
+                frame,
+                layout.list,
+                &app.library,
+                category,
+                &mut app.list_state,
+                app.selected,
+            );
+        }
+        LibraryView::Chapters => {
+            draw_breadcrumb(frame, layout.categories, app);
+            let (title, chapters) = app
+                .selected_series()
+                .map(|series| (series.title.clone(), series.chapters.clone()))
+                .unwrap_or_else(|| ("Series".to_owned(), Vec::new()));
+            draw_chapter_list(
+                frame,
+                layout.list,
+                &title,
+                &chapters,
+                &mut app.chapter_list_state,
+                app.chapter_index,
+            );
+        }
+    }
+
     draw_details(frame, layout.details, app);
 }
 
@@ -196,6 +216,96 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     ));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_breadcrumb(frame: &mut Frame, area: Rect, app: &AppState) {
+    let title = app
+        .selected_series()
+        .map(|series| series.title.as_str())
+        .unwrap_or("Series");
+    let line = Line::from(vec![
+        Span::raw(" "),
+        Span::styled("Library", Style::default().fg(OVERLAY1)),
+        Span::styled(" › ", Style::default().fg(OVERLAY0)),
+        Span::styled(
+            title.to_owned(),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  {} chapters", app.chapter_count()),
+            Style::default().fg(OVERLAY0),
+        ),
+        Span::styled("   ↵ open · Esc back", Style::default().fg(OVERLAY0)),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_chapter_list(
+    frame: &mut Frame,
+    area: Rect,
+    series_title: &str,
+    chapters: &[Chapter],
+    list_state: &mut ListState,
+    selected: usize,
+) {
+    let items: Vec<ListItem> = chapters
+        .iter()
+        .map(|chapter| {
+            let line = Line::from(vec![
+                Span::raw(chapter.title.clone()),
+                Span::styled(
+                    format!("  {}", chapter_number(chapter.number)),
+                    Style::default().fg(OVERLAY0),
+                ),
+            ]);
+            ListItem::new(line)
+        })
+        .collect();
+
+    let count = chapters.len();
+    if count == 0 {
+        list_state.select(None);
+    } else {
+        list_state.select(Some(selected.min(count - 1)));
+    }
+
+    let title = Line::from(vec![
+        Span::styled(
+            format!(" {series_title} · Chapters "),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!("{count} "), Style::default().fg(OVERLAY0)),
+    ]);
+
+    let list = List::new(items)
+        .block(panel(title, LAVENDER))
+        .style(Style::default().fg(TEXT))
+        .highlight_style(
+            Style::default()
+                .fg(LAVENDER)
+                .bg(SURFACE0)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+
+    frame.render_stateful_widget(list, area, list_state);
+}
+
+fn chapter_number(number: Option<f32>) -> String {
+    match number {
+        Some(number) if number.fract() == 0.0 => format!("{}", number as i64),
+        Some(number) => format!("{number}"),
+        None => "—".to_owned(),
+    }
+}
+
+fn chapter_kind_label(kind: ChapterKind) -> &'static str {
+    match kind {
+        ChapterKind::Directory => "Folder",
+        ChapterKind::Zip => "CBZ/ZIP",
+        ChapterKind::Rar => "RAR/CBR",
+        ChapterKind::Epub => "EPUB",
+    }
 }
 
 fn draw_series_list(
@@ -261,9 +371,12 @@ fn in_category(series: &Series, category: Option<&str>) -> bool {
 }
 
 fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
-    let lines = match app.selected_series() {
-        Some(series) => series_lines(series),
-        None => empty_lines(app),
+    let lines = match app.view {
+        LibraryView::Series => match app.selected_series() {
+            Some(series) => series_lines(series),
+            None => empty_lines(app),
+        },
+        LibraryView::Chapters => chapter_lines(app),
     };
 
     let paragraph = Paragraph::new(Text::from(lines))
@@ -317,6 +430,49 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
         lines.push(Line::from(Span::styled(
             format!("{} metadata warning(s)", series.warnings.len()),
             Style::default().fg(YELLOW),
+        )));
+    }
+
+    lines
+}
+
+fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
+    let Some(chapter) = app.selected_chapter() else {
+        let mut lines = vec![Line::from(Span::styled(
+            "No chapters found.",
+            Style::default().fg(SUBTEXT1),
+        ))];
+        if let Some(status) = &app.status {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                status.clone(),
+                Style::default().fg(PEACH),
+            )));
+        }
+        return lines;
+    };
+
+    let series = app
+        .selected_series()
+        .map(|series| series.title.clone())
+        .unwrap_or_default();
+    let mut lines = vec![
+        Line::from(Span::styled(
+            chapter.title.clone(),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        field("Series", &series, TEXT),
+        field("Number", &chapter_number(chapter.number), GREEN),
+        field("Type", chapter_kind_label(chapter.kind), BLUE),
+        field("Path", &chapter.path.display().to_string(), OVERLAY1),
+    ];
+
+    if let Some(status) = &app.status {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            status.clone(),
+            Style::default().fg(PEACH),
         )));
     }
 
@@ -488,8 +644,8 @@ mod tests {
         assert!(text.contains("Tsuiyomi"));
         assert!(text.contains("commands"));
         assert!(text.contains("quit"));
-        assert!(text.contains("refresh"));
-        assert!(text.contains("mouse"));
+        assert!(text.contains("rescan"));
+        assert!(text.contains("open"));
         assert!(text.contains("┬"));
         assert!(text.contains("┴"));
         assert!(text.contains("History"));
@@ -501,6 +657,18 @@ mod tests {
         assert!(!text.contains("1 Library"));
         assert!(text.contains("Test Series"));
         assert!(text.contains("Details"));
+    }
+
+    #[test]
+    fn chapter_view_renders_the_chapter_list() {
+        let mut app = test_app();
+        app.open();
+        let text = render(&mut app, 80, 24);
+
+        assert!(text.contains("Chapters"));
+        assert!(text.contains("Chapter 1"));
+        assert!(text.contains("Folder"));
+        assert!(text.contains("Esc back"));
     }
 
     #[test]

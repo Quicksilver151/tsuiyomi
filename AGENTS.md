@@ -131,16 +131,17 @@ Rules:
 
 ## Current gaps
 
-- Chapter page discovery (directories and archives) is not implemented yet.
+- Reader is not implemented; Enter on a chapter reports its page count. `rar`/`cbr` and
+  `epub` pages are not supported yet (`zip`/`cbz` and folders are).
 - `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
-- No title filter, reader, or backup support yet.
+- No title filter or backup support yet.
 - The config loader tolerates the existing on-disk schema but does not use or preserve its
   keys (`theme`, `player`, `manga_viewer`, `tty`, ...) when saving is added.
-- Core has tests for chapter parsing, config loading, and scanning; the TUI has no
-  rendering tests yet.
+- Core has tests for chapter parsing, config loading, scanning, categories, and page
+  discovery. The TUI has TestBackend rendering tests for the library and chapter views.
 
 Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 

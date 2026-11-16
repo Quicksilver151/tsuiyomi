@@ -24,4 +24,13 @@ pub enum CoreError {
         #[source]
         source: serde_json::Error,
     },
+
+    #[error("unsupported archive format: {path}")]
+    UnsupportedArchive { path: PathBuf },
+
+    #[error("failed to read archive {path}: {message}")]
+    Archive { path: PathBuf, message: String },
+
+    #[error("missing page {name} in {path}")]
+    MissingPage { path: PathBuf, name: String },
 }

@@ -1,16 +1,26 @@
 use ratatui::widgets::ListState;
-use tsuiyomi_core::{scan_library, Library, Series};
+use tsuiyomi_core::{chapter_pages, scan_library, Chapter, Library, Series};
 
 use crate::layout::TAB_COUNT;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LibraryView {
+    #[default]
+    Series,
+    Chapters,
+}
 
 #[derive(Debug, Default)]
 pub struct AppState {
     pub tab: usize,
     pub fullscreen: bool,
+    pub view: LibraryView,
     pub library: Library,
     pub category_index: usize,
     pub selected: usize,
+    pub chapter_index: usize,
     pub list_state: ListState,
+    pub chapter_list_state: ListState,
     pub status: Option<String>,
 }
 
@@ -19,10 +29,13 @@ impl AppState {
         let mut app = Self {
             tab: 0,
             fullscreen: false,
+            view: LibraryView::Series,
             library,
             category_index: 0,
             selected: 0,
+            chapter_index: 0,
             list_state: ListState::default(),
+            chapter_list_state: ListState::default(),
             status,
         };
         if app.visible_count() > 0 {
@@ -56,23 +69,82 @@ impl AppState {
             .nth(self.selected)
     }
 
+    pub fn selected_chapter(&self) -> Option<&Chapter> {
+        self.selected_series()?.chapters.get(self.chapter_index)
+    }
+
+    pub fn chapter_count(&self) -> usize {
+        self.selected_series()
+            .map_or(0, |series| series.chapters.len())
+    }
+
+    /// Enter the chapter list for the selected series, or inspect a selected chapter.
+    pub fn open(&mut self) {
+        match self.view {
+            LibraryView::Series => {
+                if self.selected_series().is_some() {
+                    self.view = LibraryView::Chapters;
+                    self.chapter_index = 0;
+                    let count = self.chapter_count();
+                    self.chapter_list_state.select((count > 0).then_some(0));
+                }
+            }
+            LibraryView::Chapters => self.inspect_chapter(),
+        }
+    }
+
+    /// Back out of the chapter list, or return to the Library tab.
+    pub fn back(&mut self) {
+        if self.view == LibraryView::Chapters {
+            self.view = LibraryView::Series;
+            self.chapter_index = 0;
+            self.chapter_list_state.select(None);
+        } else {
+            self.select_tab(0);
+        }
+    }
+
     pub fn previous(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
+        match self.view {
+            LibraryView::Series => self.selected = self.selected.saturating_sub(1),
+            LibraryView::Chapters => {
+                self.chapter_index = self.chapter_index.saturating_sub(1);
+                self.status = None;
+            }
+        }
     }
 
     pub fn next(&mut self) {
-        if let Some(last) = self.visible_count().checked_sub(1) {
-            self.selected = (self.selected + 1).min(last);
+        match self.view {
+            LibraryView::Series => {
+                if let Some(last) = self.visible_count().checked_sub(1) {
+                    self.selected = (self.selected + 1).min(last);
+                }
+            }
+            LibraryView::Chapters => {
+                if let Some(last) = self.chapter_count().checked_sub(1) {
+                    self.chapter_index = (self.chapter_index + 1).min(last);
+                    self.status = None;
+                }
+            }
         }
     }
 
     pub fn select_index(&mut self, index: usize) {
-        if index < self.visible_count() {
-            self.selected = index;
+        match self.view {
+            LibraryView::Series if index < self.visible_count() => self.selected = index,
+            LibraryView::Chapters if index < self.chapter_count() => {
+                self.chapter_index = index;
+                self.status = None;
+            }
+            _ => {}
         }
     }
 
     pub fn next_category(&mut self) {
+        if self.view != LibraryView::Series {
+            return;
+        }
         let count = self.library.categories.len();
         if count == 0 {
             return;
@@ -82,6 +154,9 @@ impl AppState {
     }
 
     pub fn previous_category(&mut self) {
+        if self.view != LibraryView::Series {
+            return;
+        }
         let count = self.library.categories.len();
         if count == 0 {
             return;
@@ -124,6 +199,9 @@ impl AppState {
         match scan_library(&self.library.root) {
             Ok(library) => {
                 self.library = library;
+                self.view = LibraryView::Series;
+                self.chapter_index = 0;
+                self.chapter_list_state.select(None);
                 self.category_index = self
                     .category_index
                     .min(self.library.categories.len().saturating_sub(1));
@@ -145,6 +223,17 @@ impl AppState {
         self.selected = 0;
         let count = self.visible_count();
         self.list_state.select((count > 0).then_some(0));
+    }
+
+    fn inspect_chapter(&mut self) {
+        let Some(chapter) = self.selected_chapter() else {
+            return;
+        };
+        let title = chapter.title.clone();
+        match chapter_pages(chapter) {
+            Ok(pages) => self.status = Some(format!("{title}: {} pages", pages.len())),
+            Err(error) => self.status = Some(error.to_string()),
+        }
     }
 
     fn clamp_selection(&mut self) {
@@ -180,13 +269,21 @@ mod tests {
         }
     }
 
+    fn chapter(title: &str) -> Chapter {
+        Chapter {
+            path: title.into(),
+            title: title.to_owned(),
+            number: Some(1.0),
+            kind: tsuiyomi_core::ChapterKind::Directory,
+        }
+    }
+
     fn library() -> Library {
+        let mut berserk = series("Berserk", &["Default", "Reading"]);
+        berserk.chapters = vec![chapter("Chapter 1"), chapter("Chapter 2")];
         Library {
             root: "/tmp/library".into(),
-            series: vec![
-                series("Azumanga", &["Default"]),
-                series("Berserk", &["Default", "Reading"]),
-            ],
+            series: vec![series("Azumanga", &["Default"]), berserk],
             categories: vec!["Default".to_owned(), "Reading".to_owned()],
             errors: Vec::new(),
         }
@@ -201,6 +298,27 @@ mod tests {
 
         app.next_tab();
         assert_eq!(app.tab, 0);
+    }
+
+    #[test]
+    fn opens_and_closes_the_chapter_view() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        assert_eq!(
+            app.selected_series().map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+
+        app.open();
+        assert_eq!(app.view, LibraryView::Chapters);
+        assert_eq!(app.chapter_count(), 2);
+        assert_eq!(app.chapter_index, 0);
+
+        app.next();
+        assert_eq!(app.chapter_index, 1);
+
+        app.back();
+        assert_eq!(app.view, LibraryView::Series);
     }
 
     #[test]

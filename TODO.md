@@ -37,15 +37,16 @@ dependency, and no `anime` identifiers remain.
 
 - [x] Define core types: `Library`, `Series`, `Chapter`, `ChapterKind`
       (directory/archive).
-- [ ] Add `SeriesId`/`ChapterId` and `Page` when the reader lands.
+- [x] Add `Page` and page discovery for folders and `zip`/`cbz` archives.
+- [ ] Add `SeriesId`/`ChapterId` when the reader lands.
 - [x] Scan `local/`: one series per direct subdirectory, skip hidden entries, sort
       case-insensitively and naturally.
 - [x] Discover chapters: subdirectories plus `.zip`/`.cbz`/`.rar`/`.cbr`/`.epub`.
 - [x] Derive chapter titles from directory names or archive stems.
 - [x] Parse chapter numbers from names (numbers, `c001`, `v2`, decimals, ranges,
       specials). Put this in its own module with heavy tests.
-- [ ] Discover pages in a directory (image extensions, natural sort).
-- [ ] List pages inside `zip`/`cbz` archives (ignore archive-internal directories).
+- [x] Discover pages in a directory (image extensions, natural sort).
+- [x] List pages inside `zip`/`cbz` archives (ignore archive-internal directories).
 - [x] Collect per-series errors instead of failing the whole scan.
 - [x] Add fixture-based tests using `tempfile`.
 
@@ -85,7 +86,8 @@ without panics.
 
 ## Phase 5 — Reader
 
-- [ ] Chapter list view per series, sorted by parsed chapter number.
+- [x] Chapter list view per series, sorted by parsed chapter number.
+- [x] Open a series with Enter, back out with Esc; Enter on a chapter reports its page count.
 - [ ] Open a chapter and build the page list from core.
 - [ ] Render images via `ratatui-image` (Kitty/Sixel/iTerm2), with a configurable fallback
       to an external opener (`xdg-open`).
