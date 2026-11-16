@@ -34,10 +34,11 @@ cargo run
 Useful commands:
 
 ```sh
-cargo check
-cargo fmt
-cargo clippy
-cargo test
+just run      # or: cargo run
+just check
+just fmt
+just clippy
+just test
 ```
 
 Machine-local paths and log settings live in `.env.local`, which is gitignored. The

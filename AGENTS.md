@@ -37,12 +37,14 @@ expected and welcome when they move the project toward the architecture below.
 Run these inside the devshell, from the repo root:
 
 ```sh
+just run             # launch the TUI (cargo run)
 cargo check          # fast feedback
-cargo run            # launch the TUI
 cargo fmt            # before committing
 cargo clippy         # keep warnings down
 cargo test           # unit tests, especially parsers
 ```
+
+`justfile` wraps the common commands; `just` lists them.
 
 ## Mihon compatibility contract
 
