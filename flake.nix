@@ -1,7 +1,7 @@
 {
   description = "tsuiyomi - a TUI manga library for Mihon-compatible local libraries";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = { nixpkgs, ... }:
     let

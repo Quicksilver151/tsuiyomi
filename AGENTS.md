@@ -19,7 +19,8 @@ expected and welcome when they move the project toward the architecture below.
 
 ## Environment
 
-- Target system is **NixOS** (25.11 at time of writing) with flakes enabled.
+- Target system is **NixOS** with flakes enabled. The devshell pins nixpkgs
+  `nixos-unstable` through `flake.lock`.
 - The devshell is defined in `flake.nix`, entered via `direnv allow` or `nix develop`.
 - Machine-local env vars live in `.env.local` (gitignored, copied from
   `.env.local.example`). `TSUIYOMI_LIBRARY` points at the Mihon `local` directory and
