@@ -12,7 +12,10 @@ use ratatui_image::{
 use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, ReadingMode, Series};
 
 use crate::{
-    app::{AppState, LibraryView, MoreSection, ReaderMode, MORE_SECTIONS, SETTING_COUNT},
+    app::{
+        AppState, LibraryView, MoreFocus, MoreRow, MoreSection, ReaderMode, MORE_SECTIONS,
+        MORE_SETTINGS_ROWS,
+    },
     layout::{
         app_layout, library_layout, more_layout, reader_bar_layout, settings_rows, tab_layouts,
         TAB_NAMES,
@@ -216,7 +219,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let items: &[(&str, &str)] = if app.view == LibraryView::Reader {
+    let items: &[(&str, &str)] = if app.tab == 0 && app.view == LibraryView::Reader {
         if app.reader_mode == ReaderMode::Scroll {
             &[
                 ("q", "quit"),
@@ -232,6 +235,23 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("←→", "page"),
                 ("f", "full"),
+                ("Esc", "back"),
+            ]
+        }
+    } else if app.tab == 4 {
+        if app.more_focus == MoreFocus::Sections {
+            &[
+                ("q", "quit"),
+                ("↑↓", "section"),
+                ("→/↵", "select"),
+                ("Esc", "back"),
+            ]
+        } else {
+            &[
+                ("q", "quit"),
+                ("↑↓", "setting"),
+                ("+/-", "change"),
+                ("←", "sections"),
                 ("Esc", "back"),
             ]
         }
@@ -771,13 +791,14 @@ fn draw_more(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_more_sections(frame: &mut Frame, area: Rect, app: &AppState) {
+    let focused = app.more_focus == MoreFocus::Sections;
     let items: Vec<ListItem> = MORE_SECTIONS
         .iter()
         .map(|section| {
             let style = if *section == app.more_section {
                 Style::default()
                     .fg(LAVENDER)
-                    .bg(SURFACE0)
+                    .bg(if focused { SURFACE0 } else { BASE })
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(SUBTEXT1)
@@ -791,7 +812,7 @@ fn draw_more_sections(frame: &mut Frame, area: Rect, app: &AppState) {
             " More ",
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )),
-        LAVENDER,
+        if focused { LAVENDER } else { SURFACE1 },
     ));
     frame.render_widget(list, area);
 }
@@ -802,71 +823,116 @@ fn draw_more_settings(frame: &mut Frame, area: Rect, app: &AppState) {
             " Settings ",
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )),
-        LAVENDER,
+        more_content_border(app),
     );
     frame.render_widget(&block, area);
 
-    let rows = settings_rows(area, SETTING_COUNT);
-    for (index, row) in rows.iter().enumerate() {
-        let selected = index == app.setting_index;
-        if selected {
-            frame.render_widget(Block::default().style(Style::default().bg(SURFACE0)), *row);
-        }
-
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(20),
-                Constraint::Min(10),
-                Constraint::Length(8),
-            ])
-            .split(*row);
-
-        let label_style = if selected {
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(SUBTEXT1)
+    let rows = settings_rows(area, MORE_SETTINGS_ROWS.len());
+    for (row_index, entry) in MORE_SETTINGS_ROWS.iter().enumerate() {
+        let Some(row) = rows.get(row_index).copied() else {
+            break;
         };
-        let value_style = if selected {
-            Style::default().fg(LAVENDER)
-        } else {
-            Style::default().fg(OVERLAY1)
-        };
-
-        let (label, value) = setting_text(app, index);
-        frame.render_widget(Paragraph::new(label).style(label_style), columns[0]);
-        frame.render_widget(
-            Paragraph::new(value)
-                .alignment(Alignment::Right)
-                .style(value_style),
-            columns[2],
-        );
-
-        if let Some((ratio, _)) = setting_slider(app, index) {
-            frame.render_widget(
-                Gauge::default()
-                    .ratio(ratio)
-                    .label("")
-                    .gauge_style(Style::default().fg(LAVENDER).bg(SURFACE0))
-                    .style(Style::default().bg(SURFACE0)),
-                columns[1],
-            );
+        match entry {
+            MoreRow::Divider(label) => draw_settings_divider(frame, row, label),
+            MoreRow::Setting(index) => draw_setting_row(frame, row, *index, app),
         }
     }
 
     let inner_area = block.inner(area);
-    if inner_area.height > SETTING_COUNT as u16 + 1 {
+    if inner_area.height > MORE_SETTINGS_ROWS.len() as u16 + 1 {
         let hint = Rect::new(
             inner_area.x,
             inner_area.y + inner_area.height - 1,
             inner_area.width,
             1,
         );
+        let text = if app.more_focus == MoreFocus::Sections {
+            "↑↓ section · →/Enter select · Esc back"
+        } else {
+            "↑↓ setting · +/- change · ← sections · Esc back"
+        };
         frame.render_widget(
-            Paragraph::new("↑↓ select · +/- change · ←→ section · click slider")
-                .style(Style::default().fg(OVERLAY0)),
+            Paragraph::new(text).style(Style::default().fg(OVERLAY0)),
             hint,
         );
+    }
+}
+
+fn draw_settings_divider(frame: &mut Frame, row: Rect, label: &str) {
+    let width = row.width as usize;
+    let text = format!(" {label} ");
+    let text_width = text.chars().count();
+    if width <= text_width + 2 {
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(OVERLAY0)),
+            row,
+        );
+        return;
+    }
+
+    let remaining = width - text_width;
+    let left = remaining / 2;
+    let right = remaining - left;
+    let line = Line::from(vec![
+        Span::styled("─".repeat(left), Style::default().fg(OVERLAY0)),
+        Span::styled(text, Style::default().fg(OVERLAY0)),
+        Span::styled("─".repeat(right), Style::default().fg(OVERLAY0)),
+    ]);
+    frame.render_widget(Paragraph::new(line), row);
+}
+
+fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) {
+    let selected = app.more_focus == MoreFocus::Content && index == app.setting_index;
+    if selected {
+        frame.render_widget(Block::default().style(Style::default().bg(SURFACE0)), row);
+    }
+
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(20),
+            Constraint::Min(10),
+            Constraint::Length(8),
+        ])
+        .split(row);
+
+    let label_style = if selected {
+        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(SUBTEXT1)
+    };
+    let value_style = if selected {
+        Style::default().fg(LAVENDER)
+    } else {
+        Style::default().fg(OVERLAY1)
+    };
+
+    let (label, value) = setting_text(app, index);
+    frame.render_widget(Paragraph::new(label).style(label_style), columns[0]);
+    frame.render_widget(
+        Paragraph::new(value)
+            .alignment(Alignment::Right)
+            .style(value_style),
+        columns[2],
+    );
+
+    if let Some((ratio, _)) = setting_slider(app, index) {
+        frame.render_widget(
+            Gauge::default()
+                .ratio(ratio)
+                .label("")
+                .gauge_style(Style::default().fg(LAVENDER).bg(SURFACE0))
+                .style(Style::default().bg(SURFACE0)),
+            columns[1],
+        );
+    }
+}
+
+fn more_content_border(app: &AppState) -> Color {
+    if app.more_focus == MoreFocus::Content {
+        LAVENDER
+    } else {
+        SURFACE1
     }
 }
 
@@ -889,6 +955,11 @@ fn setting_text(app: &AppState, index: usize) -> (String, String) {
             "Cache margin".to_owned(),
             app.scroll_cache.cache_margin.to_string(),
         ),
+        5 => (
+            "Library path".to_owned(),
+            app.library.root.display().to_string(),
+        ),
+        6 => ("Theme".to_owned(), "Catppuccin Mocha".to_owned()),
         _ => (String::new(), String::new()),
     }
 }
@@ -910,7 +981,7 @@ fn reading_mode_label(mode: ReadingMode) -> &'static str {
         ReadingMode::RightToLeft => "Right to left",
         ReadingMode::Vertical => "Vertical",
         ReadingMode::Webtoon => "Webtoon",
-        ReadingMode::ContinuousVertical => "Long strip with gaps",
+        ReadingMode::ContinuousVertical => "Long strip + gaps",
     }
 }
 
@@ -935,7 +1006,7 @@ fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
                 " Categories ",
                 Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
             )),
-            LAVENDER,
+            more_content_border(app),
         ))
         .style(Style::default().fg(SUBTEXT1))
         .wrap(Wrap { trim: true });
@@ -965,7 +1036,7 @@ fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
                 " Statistics ",
                 Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
             )),
-            LAVENDER,
+            more_content_border(app),
         ))
         .style(Style::default().fg(SUBTEXT1));
     frame.render_widget(paragraph, area);
@@ -991,7 +1062,7 @@ fn draw_more_storage(frame: &mut Frame, area: Rect, app: &AppState) {
                 " Data and storage ",
                 Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
             )),
-            LAVENDER,
+            more_content_border(app),
         ))
         .style(Style::default().fg(SUBTEXT1))
         .wrap(Wrap { trim: true });
@@ -1020,7 +1091,7 @@ fn draw_more_about(frame: &mut Frame, area: Rect, app: &AppState) {
                 " About ",
                 Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
             )),
-            LAVENDER,
+            more_content_border(app),
         ))
         .style(Style::default().fg(SUBTEXT1))
         .wrap(Wrap { trim: true });
@@ -1196,6 +1267,9 @@ mod tests {
         assert!(text.contains("Reading mode"));
         assert!(text.contains("Zoom"));
         assert!(text.contains("Prefetch behind"));
+        assert!(text.contains("Reader"));
+        assert!(text.contains("Library"));
+        assert!(text.contains("Appearance"));
         assert!(text.contains("Data and storage"));
     }
 

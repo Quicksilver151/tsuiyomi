@@ -26,7 +26,7 @@ use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
 use tsuiyomi_core::ProgressStore;
 
 use crate::{
-    app::{LibraryView, MoreSection, SETTING_COUNT},
+    app::{LibraryView, MoreFocus, MoreRow, MoreSection, MORE_SETTINGS_ROWS},
     draw::draw,
     input::Action,
     layout::{
@@ -94,28 +94,36 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Quit => return Ok(()),
             Action::Previous => {
                 if app.tab == 4 {
-                    app.previous_setting();
+                    if app.more_focus == MoreFocus::Sections {
+                        app.previous_more_section();
+                    } else {
+                        app.previous_setting();
+                    }
                 } else {
                     app.previous();
                 }
             }
             Action::Next => {
                 if app.tab == 4 {
-                    app.next_setting();
+                    if app.more_focus == MoreFocus::Sections {
+                        app.next_more_section();
+                    } else {
+                        app.next_setting();
+                    }
                 } else {
                     app.next();
                 }
             }
             Action::PreviousPage => {
                 if app.tab == 4 {
-                    app.previous_more_section();
+                    app.focus_more_sections();
                 } else {
                     app.previous_page();
                 }
             }
             Action::NextPage => {
                 if app.tab == 4 {
-                    app.next_more_section();
+                    app.focus_more_content();
                 } else {
                     app.next_page();
                 }
@@ -126,14 +134,22 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::NextChapter => app.next_chapter(),
             Action::ScrollUp => {
                 if app.tab == 4 {
-                    app.previous_setting();
+                    if app.more_focus == MoreFocus::Sections {
+                        app.previous_more_section();
+                    } else {
+                        app.previous_setting();
+                    }
                 } else {
                     app.previous();
                 }
             }
             Action::ScrollDown => {
                 if app.tab == 4 {
-                    app.next_setting();
+                    if app.more_focus == MoreFocus::Sections {
+                        app.next_more_section();
+                    } else {
+                        app.next_setting();
+                    }
                 } else {
                     app.next();
                 }
@@ -158,24 +174,42 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Refresh => app.refresh(),
             Action::Open => {
                 if app.tab == 4 {
-                    app.adjust_setting(1);
+                    if app.more_focus == MoreFocus::Sections {
+                        app.focus_more_content();
+                    } else {
+                        app.adjust_setting(1);
+                    }
                 } else {
                     app.open();
                 }
             }
-            Action::Back => app.back(),
+            Action::Back => {
+                if app.tab == 4 {
+                    app.leave_more();
+                } else {
+                    app.back();
+                }
+            }
             Action::ToggleFullscreen => app.toggle_fullscreen(),
             Action::ToggleReaderMode => app.toggle_reader_mode(),
             Action::ZoomIn => {
-                if app.tab == 4 && app.more_section == MoreSection::Settings {
-                    app.adjust_setting(1);
+                if app.tab == 4 {
+                    if app.more_focus == MoreFocus::Content
+                        && app.more_section == MoreSection::Settings
+                    {
+                        app.adjust_setting(1);
+                    }
                 } else {
                     app.zoom_in();
                 }
             }
             Action::ZoomOut => {
-                if app.tab == 4 && app.more_section == MoreSection::Settings {
-                    app.adjust_setting(-1);
+                if app.tab == 4 {
+                    if app.more_focus == MoreFocus::Content
+                        && app.more_section == MoreSection::Settings
+                    {
+                        app.adjust_setting(-1);
+                    }
                 } else {
                     app.zoom_out();
                 }
@@ -239,7 +273,7 @@ fn handle_more_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         return;
     }
 
-    for (index, setting_row) in settings_rows(layout.content, SETTING_COUNT)
+    for (row_index, setting_row) in settings_rows(layout.content, MORE_SETTINGS_ROWS.len())
         .into_iter()
         .enumerate()
     {
@@ -247,19 +281,29 @@ fn handle_more_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             continue;
         }
 
-        app.setting_index = index;
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(20),
-                Constraint::Min(10),
-                Constraint::Length(8),
-            ])
-            .split(setting_row);
-        if contains(columns[1], column, row) {
-            let width = columns[1].width.max(1);
-            let ratio = f64::from(column.saturating_sub(columns[1].x)) / f64::from(width);
-            app.set_setting_ratio(index, ratio);
+        let Some(entry) = MORE_SETTINGS_ROWS.get(row_index) else {
+            return;
+        };
+        let MoreRow::Setting(index) = entry else {
+            return;
+        };
+
+        app.focus_more_content();
+        app.setting_index = *index;
+        if (1..=4).contains(index) {
+            let columns = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length(20),
+                    Constraint::Min(10),
+                    Constraint::Length(18),
+                ])
+                .split(setting_row);
+            if contains(columns[1], column, row) {
+                let width = columns[1].width.max(1);
+                let ratio = f64::from(column.saturating_sub(columns[1].x)) / f64::from(width);
+                app.set_setting_ratio(*index, ratio);
+            }
         }
         return;
     }

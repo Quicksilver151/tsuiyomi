@@ -44,8 +44,34 @@ pub const MORE_SECTIONS: [MoreSection; 6] = [
     MoreSection::About,
 ];
 
-/// Order matches the rows rendered by the Settings section.
-pub const SETTING_COUNT: usize = 5;
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MoreFocus {
+    Sections,
+    #[default]
+    Content,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoreRow {
+    Divider(&'static str),
+    Setting(usize),
+}
+
+pub const MORE_SETTINGS_ROWS: [MoreRow; 10] = [
+    MoreRow::Divider("Reader"),
+    MoreRow::Setting(0),
+    MoreRow::Setting(1),
+    MoreRow::Setting(2),
+    MoreRow::Setting(3),
+    MoreRow::Setting(4),
+    MoreRow::Divider("Library"),
+    MoreRow::Setting(5),
+    MoreRow::Divider("Appearance"),
+    MoreRow::Setting(6),
+];
+
+/// Order matches the selectable rows rendered by the Settings section.
+pub const SETTING_COUNT: usize = 7;
 
 pub const READING_MODES: [ReadingMode; 6] = [
     ReadingMode::Default,
@@ -157,6 +183,7 @@ pub struct AppState {
     pub zoom: u16,
     pub config: Config,
     pub more_section: MoreSection,
+    pub more_focus: MoreFocus,
     pub setting_index: usize,
     pub status: Option<String>,
 }
@@ -183,6 +210,7 @@ impl AppState {
             zoom: 100,
             config: Config::default(),
             more_section: MoreSection::Settings,
+            more_focus: MoreFocus::Content,
             setting_index: 0,
             status,
         };
@@ -508,6 +536,23 @@ impl AppState {
         if let Some(section) = MORE_SECTIONS.get(index) {
             self.more_section = *section;
             self.setting_index = 0;
+            self.more_focus = MoreFocus::Content;
+        }
+    }
+
+    pub fn focus_more_sections(&mut self) {
+        self.more_focus = MoreFocus::Sections;
+    }
+
+    pub fn focus_more_content(&mut self) {
+        self.more_focus = MoreFocus::Content;
+    }
+
+    pub fn leave_more(&mut self) {
+        if self.more_focus == MoreFocus::Sections {
+            self.more_focus = MoreFocus::Content;
+        } else {
+            self.select_tab(0);
         }
     }
 
@@ -1627,6 +1672,25 @@ mod tests {
 
         app.back();
         assert_eq!(app.view, LibraryView::Chapters);
+    }
+
+    #[test]
+    fn more_focus_navigation() {
+        let mut app = AppState::default();
+        assert_eq!(app.more_focus, MoreFocus::Content);
+
+        app.focus_more_sections();
+        assert_eq!(app.more_focus, MoreFocus::Sections);
+
+        app.next_more_section();
+        assert_eq!(app.more_section, MoreSection::Downloads);
+        app.previous_more_section();
+        assert_eq!(app.more_section, MoreSection::Settings);
+
+        app.leave_more();
+        assert_eq!(app.more_focus, MoreFocus::Content);
+        app.leave_more();
+        assert_eq!(app.tab, 0);
     }
 
     #[test]
