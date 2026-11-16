@@ -44,7 +44,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
         ..Default::default()
     })
     .unwrap_or_else(|_| Picker::halfblocks());
-    app.set_picker(picker);
+    app.set_image_picker(picker);
     app.set_progress(ProgressStore::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
 
@@ -83,9 +83,24 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         if !event::poll(Duration::from_millis(30))? {
             continue;
         }
-        let Some(action) = input::read()? else {
+        let Some(action) = input::read(app.picker.is_some())? else {
             continue;
         };
+
+        if app.picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.picker_previous(),
+                Action::Next => app.picker_next(),
+                Action::Open => app.picker_confirm(),
+                Action::Back => app.picker_back(),
+                Action::Char(character) => app.picker_char(character),
+                Action::Backspace => app.picker_backspace(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
 
         match action {
             Action::Quit => return Ok(()),
@@ -177,6 +192,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.focus_more_content();
+                    } else {
+                        app.activate_setting();
                     }
                 } else {
                     app.open();
@@ -214,7 +231,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::OpenConfig => app.select_tab(4),
-            Action::Redraw => {}
+            Action::Redraw | Action::Char(_) | Action::Backspace => {}
             Action::Click { column, row } => {
                 let (width, height) = crossterm::terminal::size()?;
                 handle_click(Rect::new(0, 0, width, height), app, column, row);

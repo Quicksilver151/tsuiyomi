@@ -149,12 +149,14 @@ Rules:
 - Scanning is synchronous on refresh; move it to a background task.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
-  `scroll_prefetch_behind`, `scroll_prefetch_ahead`, and `scroll_cache_margin`, and
-  preserves unknown keys from existing files. More → Settings edits reader settings with
-  thin slider gauges; More also has Downloads (placeholder), Categories, Statistics, Data
-  and storage, and About. More has a single focus: Enter enters the selected section or
-  settings pane, Esc backs out, and left/right adjust the selected setting. Settings are
-  grouped by gray centered divider rows, not a collapsible tree.
+  `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`, and
+  `accent`, and preserves unknown keys from existing files. More → Settings edits reader
+  settings with thin slider gauges; Appearance edits the theme and accent through an
+  Enter-opened picker (named palette accents plus typed hex). More also has Downloads
+  (placeholder), Categories, Statistics, Data and storage, and About. More has a single
+  focus: Enter enters the selected section or settings pane, Esc backs out, and left/right
+  adjust the selected setting. Settings are grouped by gray centered divider rows, not a
+  collapsible tree.
 - Core has tests for chapter parsing, config loading, scanning, categories, page
   discovery, and reading progress. The TUI has TestBackend rendering tests for the library,
   chapter, and reader views.
@@ -172,9 +174,10 @@ Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 - UI tabs mirror Mihon: Library, Updates, History, Browse, More. No numeric prefixes.
   Selected tabs use lavender text only; do not fill their background. Tabs are hidden in
   the reader; the bottom bar shows prev/next chapter, a page gauge, and the mode toggle.
-- Theme: Catppuccin Mocha with lavender as the accent. Square borders, a single-row shared
-  tab bar at the bottom, a commands box below it, and colored metadata fields. Fullscreen
-  hides the title and commands boxes.
+- Default theme: Catppuccin Mocha with lavender as the accent. Other built-in themes live
+  in `palette.rs`; accents are palette colors or custom hex. Square borders, a single-row
+  shared tab bar at the bottom, a commands box below it, and colored metadata fields.
+  Fullscreen hides the title and commands boxes.
 - `rustfmt` defaults.
 - New code: explicit imports, `snake_case`, small modules, doc comments on public core
   APIs.

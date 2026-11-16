@@ -15,6 +15,28 @@ pub enum ReadingMode {
     ContinuousVertical,
 }
 
+/// Built-in color themes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    CatppuccinMocha,
+    CatppuccinMacchiato,
+    CatppuccinFrappe,
+    CatppuccinLatte,
+    Nord,
+    SolarizedDark,
+    SolarizedLight,
+    GruvboxDark,
+    GruvboxLight,
+    MaterialDark,
+    Dracula,
+    OneDark,
+    TokyoNight,
+    #[serde(other)]
+    Unknown,
+}
+
 /// Application config, stored as TOML under the XDG config directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -23,6 +45,11 @@ pub struct Config {
     pub library_path: Option<PathBuf>,
     /// Default reader mode.
     pub reading_mode: ReadingMode,
+    /// UI color theme.
+    pub theme: Theme,
+    /// Accent override: a palette name (`blue`) or hex (`#aabbcc`). `None` uses the
+    /// theme's default accent.
+    pub accent: Option<String>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -41,6 +68,8 @@ impl Default for Config {
         Self {
             library_path: default_library_path(),
             reading_mode: ReadingMode::default(),
+            theme: Theme::default(),
+            accent: None,
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,
@@ -95,12 +124,12 @@ external_mpv = ["mpv"]
 
         assert_eq!(config.library_path, Some(PathBuf::from("/tmp/manga")));
         assert_eq!(config.reading_mode, ReadingMode::Webtoon);
+        // A legacy `theme` value is now a known key; unknown names fall back.
+        assert_eq!(config.theme, Theme::Unknown);
         assert_eq!(config.reader_zoom, 100);
-        assert!(config.extra.contains_key("theme"));
         assert!(config.extra.contains_key("player"));
 
         let serialized = toml::to_string(&config).unwrap();
-        assert!(serialized.contains("theme = \"default\""));
         assert!(serialized.contains("[player]"));
     }
 
@@ -113,6 +142,23 @@ external_mpv = ["mpv"]
         assert_eq!(config.scroll_prefetch_behind, 2);
         assert_eq!(config.scroll_prefetch_ahead, 2);
         assert_eq!(config.scroll_cache_margin, 4);
+    }
+
+    #[test]
+    fn theme_and_accent_roundtrip() {
+        let config: Config = toml::from_str(
+            r##"
+theme = "tokyo_night"
+accent = "#ffcc00"
+"##,
+        )
+        .unwrap();
+        assert_eq!(config.theme, Theme::TokyoNight);
+        assert_eq!(config.accent.as_deref(), Some("#ffcc00"));
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("theme = \"tokyo_night\""));
+        assert!(serialized.contains("accent = \"#ffcc00\""));
     }
 
     #[test]

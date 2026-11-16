@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 use ratatui_image::{
@@ -13,22 +13,23 @@ use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, ReadingMode, S
 
 use crate::{
     app::{
-        AppState, LibraryView, MoreFocus, MoreRow, MoreSection, ReaderMode, MORE_SECTIONS,
-        MORE_SETTINGS_ROWS,
+        AppState, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind, PickerState,
+        ReaderMode, MORE_SECTIONS, MORE_SETTINGS_ROWS,
     },
     layout::{
         app_layout, library_layout, more_layout, reader_bar_layout, setting_columns, settings_rows,
         tab_layouts, TAB_NAMES,
     },
     palette::{
-        BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, SUBTEXT1, SURFACE0,
-        SURFACE1, TEAL, TEXT, YELLOW,
+        accent_choices, c_accent, c_base, c_blue, c_green, c_mauve, c_overlay0, c_overlay1,
+        c_peach, c_subtext1, c_surface0, c_surface1, c_teal, c_text, c_yellow, palette_for,
+        parse_hex, theme_label, THEMES,
     },
 };
 
 pub fn draw(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
-    frame.render_widget(Block::default().style(Style::default().bg(BASE)), area);
+    frame.render_widget(Block::default().style(Style::default().bg(c_base())), area);
 
     let layout = app_layout(area, app.fullscreen);
 
@@ -68,27 +69,29 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     if let Some(commands) = layout.commands {
         draw_commands(frame, commands, app);
     }
+
+    draw_picker(frame, app);
 }
 
 fn draw_header(frame: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(SURFACE1))
-        .style(Style::default().bg(BASE));
+        .border_style(Style::default().fg(c_surface1()))
+        .style(Style::default().bg(c_base()));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(
         Paragraph::new("Tsuiyomi")
             .alignment(Alignment::Center)
-            .style(Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)),
+            .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
         inner,
     );
 }
 
 fn draw_reader_bar(frame: &mut Frame, area: Rect, app: &AppState) {
     let block = panel(
-        Line::from(Span::styled(" reader ", Style::default().fg(OVERLAY1))),
-        SURFACE1,
+        Line::from(Span::styled(" reader ", Style::default().fg(c_overlay1()))),
+        c_surface1(),
     );
     frame.render_widget(block, area);
 
@@ -127,8 +130,8 @@ fn draw_reader_bar(frame: &mut Frame, area: Rect, app: &AppState) {
         Gauge::default()
             .ratio(ratio)
             .label(format!(" {current} / {total} "))
-            .gauge_style(Style::default().fg(LAVENDER).bg(SURFACE0))
-            .style(Style::default().fg(TEXT)),
+            .gauge_style(Style::default().fg(c_accent()).bg(c_surface0()))
+            .style(Style::default().fg(c_text())),
         layout.progress,
     );
 
@@ -139,9 +142,9 @@ fn draw_reader_bar(frame: &mut Frame, area: Rect, app: &AppState) {
     let mode = Line::from(vec![
         Span::styled(
             mode_key,
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {mode_label}"), Style::default().fg(OVERLAY1)),
+        Span::styled(format!(" {mode_label}"), Style::default().fg(c_overlay1())),
     ]);
     frame.render_widget(
         Paragraph::new(mode).alignment(Alignment::Right),
@@ -158,14 +161,14 @@ fn render_reader_button(
     alignment: Alignment,
 ) {
     let key_style = if enabled {
-        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(OVERLAY0)
+        Style::default().fg(c_overlay0())
     };
     let label_style = if enabled {
-        Style::default().fg(TEXT)
+        Style::default().fg(c_text())
     } else {
-        Style::default().fg(OVERLAY0)
+        Style::default().fg(c_overlay0())
     };
     let line = Line::from(vec![
         Span::styled(key, key_style),
@@ -177,8 +180,8 @@ fn render_reader_button(
 fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(SURFACE1))
-        .style(Style::default().bg(BASE));
+        .border_style(Style::default().fg(c_surface1()))
+        .style(Style::default().bg(c_base()));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -186,15 +189,15 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
     let mut spans = Vec::new();
     for (position, tab) in layouts.iter().enumerate() {
         if position > 0 {
-            spans.push(Span::styled("│", Style::default().fg(SURFACE1)));
+            spans.push(Span::styled("│", Style::default().fg(c_surface1())));
         }
 
         let label = TAB_NAMES[tab.index];
         let text = center_label(label, tab.area.width);
         let style = if tab.index == active {
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(OVERLAY1)
+            Style::default().fg(c_overlay1())
         };
         spans.push(Span::styled(text, style));
     }
@@ -213,8 +216,11 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
 
 fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     let block = panel(
-        Line::from(Span::styled(" commands ", Style::default().fg(OVERLAY1))),
-        SURFACE1,
+        Line::from(Span::styled(
+            " commands ",
+            Style::default().fg(c_overlay1()),
+        )),
+        c_surface1(),
     );
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -270,16 +276,16 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     let mut spans = Vec::new();
     for (position, (key, label)) in items.iter().enumerate() {
         if position > 0 {
-            spans.push(Span::styled(" · ", Style::default().fg(OVERLAY0)));
+            spans.push(Span::styled(" · ", Style::default().fg(c_overlay0())));
         }
         spans.push(Span::styled(
             *key,
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ));
         if !label.is_empty() {
             spans.push(Span::styled(
                 format!(" {label}"),
-                Style::default().fg(OVERLAY0),
+                Style::default().fg(c_overlay0()),
             ));
         }
     }
@@ -336,7 +342,7 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     let mut spans = vec![Span::raw(" ")];
     for (index, name) in app.library.categories.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(" · ", Style::default().fg(OVERLAY0)));
+            spans.push(Span::styled(" · ", Style::default().fg(c_overlay0())));
         }
         let count = app
             .library
@@ -345,19 +351,19 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
             .filter(|series| in_category(series, Some(name)))
             .count();
         let style = if index == app.category_index {
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(OVERLAY1)
+            Style::default().fg(c_overlay1())
         };
         spans.push(Span::styled(name.clone(), style));
         spans.push(Span::styled(
             format!(" {count}"),
-            Style::default().fg(OVERLAY0),
+            Style::default().fg(c_overlay0()),
         ));
     }
     spans.push(Span::styled(
         "   [ ] categories",
-        Style::default().fg(OVERLAY0),
+        Style::default().fg(c_overlay0()),
     ));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -389,9 +395,9 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
         Span::raw(" "),
         Span::styled(
             format!("{} › {}", reader.series_title, reader.chapter_title),
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!("   [{detail}]"), Style::default().fg(OVERLAY0)),
+        Span::styled(format!("   [{detail}]"), Style::default().fg(c_overlay0())),
     ]);
     frame.render_widget(Paragraph::new(status), chunks[0]);
 
@@ -399,7 +405,7 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
         frame.render_widget(
             Paragraph::new(error.clone())
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(PEACH)),
+                .style(Style::default().fg(c_peach())),
             chunks[1],
         );
         return;
@@ -457,7 +463,7 @@ fn placeholder_message(frame: &mut Frame, area: Rect, message: &str) {
     frame.render_widget(
         Paragraph::new(message.to_owned())
             .alignment(Alignment::Center)
-            .style(Style::default().fg(OVERLAY1)),
+            .style(Style::default().fg(c_overlay1())),
         area,
     );
 }
@@ -469,17 +475,17 @@ fn draw_breadcrumb(frame: &mut Frame, area: Rect, app: &AppState) {
         .unwrap_or("Series");
     let line = Line::from(vec![
         Span::raw(" "),
-        Span::styled("Library", Style::default().fg(OVERLAY1)),
-        Span::styled(" › ", Style::default().fg(OVERLAY0)),
+        Span::styled("Library", Style::default().fg(c_overlay1())),
+        Span::styled(" › ", Style::default().fg(c_overlay0())),
         Span::styled(
             title.to_owned(),
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("  {} chapters", app.chapter_count()),
-            Style::default().fg(OVERLAY0),
+            Style::default().fg(c_overlay0()),
         ),
-        Span::styled("   ↵ open · Esc back", Style::default().fg(OVERLAY0)),
+        Span::styled("   ↵ open · Esc back", Style::default().fg(c_overlay0())),
     ]);
     frame.render_widget(Paragraph::new(line), area);
 }
@@ -500,13 +506,13 @@ fn draw_chapter_list(
                 Span::raw(chapter.title.clone()),
                 Span::styled(
                     format!("  {}", chapter_number(chapter.number)),
-                    Style::default().fg(OVERLAY0),
+                    Style::default().fg(c_overlay0()),
                 ),
             ];
             if let Some(entry) = progress.entry(&chapter.path) {
                 spans.push(Span::styled(
                     format!("  {}/{}", entry.page + 1, entry.pages),
-                    Style::default().fg(TEAL),
+                    Style::default().fg(c_teal()),
                 ));
             }
             ListItem::new(Line::from(spans))
@@ -523,18 +529,18 @@ fn draw_chapter_list(
     let title = Line::from(vec![
         Span::styled(
             format!(" {series_title} · Chapters "),
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!("{count} "), Style::default().fg(OVERLAY0)),
+        Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
     ]);
 
     let list = List::new(items)
-        .block(panel(title, LAVENDER))
-        .style(Style::default().fg(TEXT))
+        .block(panel(title, c_accent()))
+        .style(Style::default().fg(c_text()))
         .highlight_style(
             Style::default()
-                .fg(LAVENDER)
-                .bg(SURFACE0)
+                .fg(c_accent())
+                .bg(c_surface0())
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("› ");
@@ -580,7 +586,7 @@ fn draw_series_list(
                 Span::raw(series.title.clone()),
                 Span::styled(
                     format!("  {} ch", series.chapters.len()),
-                    Style::default().fg(OVERLAY0),
+                    Style::default().fg(c_overlay0()),
                 ),
             ]);
             ListItem::new(title)
@@ -598,18 +604,18 @@ fn draw_series_list(
     let title = Line::from(vec![
         Span::styled(
             format!(" Library · {category_name} "),
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!("{count} "), Style::default().fg(OVERLAY0)),
+        Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
     ]);
 
     let list = List::new(items)
-        .block(panel(title, LAVENDER))
-        .style(Style::default().fg(TEXT))
+        .block(panel(title, c_accent()))
+        .style(Style::default().fg(c_text()))
         .highlight_style(
             Style::default()
-                .fg(LAVENDER)
-                .bg(SURFACE0)
+                .fg(c_accent())
+                .bg(c_surface0())
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("› ");
@@ -634,11 +640,11 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
         .block(panel(
             Line::from(Span::styled(
                 " Details ",
-                Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
             )),
-            SURFACE1,
+            c_surface1(),
         ))
-        .style(Style::default().fg(SUBTEXT1))
+        .style(Style::default().fg(c_subtext1()))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -647,30 +653,34 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
             series.title.clone(),
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
 
     if let Some(author) = &series.author {
-        lines.push(field("Author", author, PEACH));
+        lines.push(field("Author", author, c_peach()));
     }
     if let Some(artist) = &series.artist {
-        lines.push(field("Artist", artist, MAUVE));
+        lines.push(field("Artist", artist, c_mauve()));
     }
     if !series.tags.is_empty() {
-        lines.push(field("Tags", &series.tags.join(", "), TEAL));
+        lines.push(field("Tags", &series.tags.join(", "), c_teal()));
     }
-    lines.push(field("Chapters", &series.chapters.len().to_string(), GREEN));
+    lines.push(field(
+        "Chapters",
+        &series.chapters.len().to_string(),
+        c_green(),
+    ));
     if let Some(latest) = series.chapters.first() {
-        lines.push(field("Latest", &latest.title, BLUE));
+        lines.push(field("Latest", &latest.title, c_blue()));
     }
 
     lines.push(Line::from(""));
     if series.description.trim().is_empty() {
         lines.push(Line::from(Span::styled(
             "No description.",
-            Style::default().fg(OVERLAY1),
+            Style::default().fg(c_overlay1()),
         )));
     } else {
         lines.push(Line::from(series.description.clone()));
@@ -680,7 +690,7 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("{} metadata warning(s)", series.warnings.len()),
-            Style::default().fg(YELLOW),
+            Style::default().fg(c_yellow()),
         )));
     }
 
@@ -691,13 +701,13 @@ fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
     let Some(chapter) = app.selected_chapter() else {
         let mut lines = vec![Line::from(Span::styled(
             "No chapters found.",
-            Style::default().fg(SUBTEXT1),
+            Style::default().fg(c_subtext1()),
         ))];
         if let Some(status) = &app.status {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 status.clone(),
-                Style::default().fg(PEACH),
+                Style::default().fg(c_peach()),
             )));
         }
         return lines;
@@ -710,20 +720,20 @@ fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
             chapter.title.clone(),
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        field("Series", &series, TEXT),
-        field("Number", &chapter_number(chapter.number), GREEN),
-        field("Type", chapter_kind_label(chapter.kind), BLUE),
-        field("Path", &chapter.path.display().to_string(), OVERLAY1),
+        field("Series", &series, c_text()),
+        field("Number", &chapter_number(chapter.number), c_green()),
+        field("Type", chapter_kind_label(chapter.kind), c_blue()),
+        field("Path", &chapter.path.display().to_string(), c_overlay1()),
     ];
 
     if let Some(entry) = app.progress.entry(&chapter.path) {
         lines.push(field(
             "Progress",
             &format!("{}/{}", entry.page + 1, entry.pages),
-            TEAL,
+            c_teal(),
         ));
     }
 
@@ -731,7 +741,7 @@ fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             status.clone(),
-            Style::default().fg(PEACH),
+            Style::default().fg(c_peach()),
         )));
     }
 
@@ -741,14 +751,14 @@ fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
 fn empty_lines(app: &AppState) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(Span::styled(
         "No series found.",
-        Style::default().fg(SUBTEXT1),
+        Style::default().fg(c_subtext1()),
     ))];
 
     if let Some(status) = &app.status {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             status.clone(),
-            Style::default().fg(PEACH),
+            Style::default().fg(c_peach()),
         )));
     }
     if !app.library.root.as_os_str().is_empty() {
@@ -756,7 +766,7 @@ fn empty_lines(app: &AppState) -> Vec<Line<'static>> {
         lines.push(field(
             "Library",
             &app.library.root.display().to_string(),
-            OVERLAY1,
+            c_overlay1(),
         ));
     }
 
@@ -765,7 +775,7 @@ fn empty_lines(app: &AppState) -> Vec<Line<'static>> {
 
 fn field(label: &str, value: &str, value_color: Color) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("{label:<9}"), Style::default().fg(OVERLAY1)),
+        Span::styled(format!("{label:<9}"), Style::default().fg(c_overlay1())),
         Span::styled(value.to_owned(), Style::default().fg(value_color)),
     ])
 }
@@ -796,11 +806,11 @@ fn draw_more_sections(frame: &mut Frame, area: Rect, app: &AppState) {
         .map(|section| {
             let style = if *section == app.more_section {
                 Style::default()
-                    .fg(LAVENDER)
-                    .bg(if focused { SURFACE0 } else { BASE })
+                    .fg(c_accent())
+                    .bg(if focused { c_surface0() } else { c_base() })
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(SUBTEXT1)
+                Style::default().fg(c_subtext1())
             };
             ListItem::new(format!(" {} ", section.title())).style(style)
         })
@@ -809,9 +819,9 @@ fn draw_more_sections(frame: &mut Frame, area: Rect, app: &AppState) {
     let list = List::new(items).block(panel(
         Line::from(Span::styled(
             " More ",
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
-        if focused { LAVENDER } else { SURFACE1 },
+        if focused { c_accent() } else { c_surface1() },
     ));
     frame.render_widget(list, area);
 }
@@ -820,7 +830,7 @@ fn draw_more_settings(frame: &mut Frame, area: Rect, app: &AppState) {
     let block = panel(
         Line::from(Span::styled(
             " Settings ",
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
         more_content_border(app),
     );
@@ -848,10 +858,10 @@ fn draw_more_settings(frame: &mut Frame, area: Rect, app: &AppState) {
         let text = if app.more_focus == MoreFocus::Sections {
             "↑↓ section · Enter settings · Esc back"
         } else {
-            "↑↓ setting · ←→ change · Esc sections"
+            "↑↓ setting · ←→ change · ↵ picker · Esc back"
         };
         frame.render_widget(
-            Paragraph::new(text).style(Style::default().fg(OVERLAY0)),
+            Paragraph::new(text).style(Style::default().fg(c_overlay0())),
             hint,
         );
     }
@@ -863,7 +873,7 @@ fn draw_settings_divider(frame: &mut Frame, row: Rect, label: &str) {
     let text_width = text.chars().count();
     if width <= text_width + 2 {
         frame.render_widget(
-            Paragraph::new(text).style(Style::default().fg(OVERLAY0)),
+            Paragraph::new(text).style(Style::default().fg(c_overlay0())),
             row,
         );
         return;
@@ -873,9 +883,9 @@ fn draw_settings_divider(frame: &mut Frame, row: Rect, label: &str) {
     let left = remaining / 2;
     let right = remaining - left;
     let line = Line::from(vec![
-        Span::styled("─".repeat(left), Style::default().fg(OVERLAY0)),
-        Span::styled(text, Style::default().fg(OVERLAY0)),
-        Span::styled("─".repeat(right), Style::default().fg(OVERLAY0)),
+        Span::styled("─".repeat(left), Style::default().fg(c_overlay0())),
+        Span::styled(text, Style::default().fg(c_overlay0())),
+        Span::styled("─".repeat(right), Style::default().fg(c_overlay0())),
     ]);
     frame.render_widget(Paragraph::new(line), row);
 }
@@ -883,20 +893,23 @@ fn draw_settings_divider(frame: &mut Frame, row: Rect, label: &str) {
 fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) {
     let selected = app.more_focus == MoreFocus::Content && index == app.setting_index;
     if selected {
-        frame.render_widget(Block::default().style(Style::default().bg(SURFACE0)), row);
+        frame.render_widget(
+            Block::default().style(Style::default().bg(c_surface0())),
+            row,
+        );
     }
 
     let columns = setting_columns(row);
 
     let label_style = if selected {
-        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(SUBTEXT1)
+        Style::default().fg(c_subtext1())
     };
     let value_style = if selected {
-        Style::default().fg(LAVENDER)
+        Style::default().fg(c_accent())
     } else {
-        Style::default().fg(OVERLAY1)
+        Style::default().fg(c_overlay1())
     };
 
     let (label, value) = setting_text(app, index);
@@ -913,8 +926,8 @@ fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) 
             Gauge::default()
                 .ratio(ratio)
                 .label("")
-                .gauge_style(Style::default().fg(LAVENDER).bg(SURFACE0))
-                .style(Style::default().bg(SURFACE0)),
+                .gauge_style(Style::default().fg(c_accent()).bg(c_surface0()))
+                .style(Style::default().bg(c_surface0())),
             columns[1],
         );
     } else {
@@ -930,9 +943,9 @@ fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) 
 
 fn more_content_border(app: &AppState) -> Color {
     if app.more_focus == MoreFocus::Content {
-        LAVENDER
+        c_accent()
     } else {
-        SURFACE1
+        c_surface1()
     }
 }
 
@@ -956,7 +969,8 @@ fn setting_text(app: &AppState, index: usize) -> (String, String) {
             app.scroll_cache.cache_margin.to_string(),
         ),
         5 => ("Library path".to_owned(), display_path(&app.library.root)),
-        6 => ("Theme".to_owned(), "Catppuccin Mocha".to_owned()),
+        6 => ("Theme".to_owned(), theme_label(app.theme).to_owned()),
+        7 => ("Accent".to_owned(), app.accent_name()),
         _ => (String::new(), String::new()),
     }
 }
@@ -1003,7 +1017,7 @@ fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
             .iter()
             .filter(|series| series.categories.iter().any(|name| name == category))
             .count();
-        lines.push(field(category, &format!("{count} series"), TEXT));
+        lines.push(field(category, &format!("{count} series"), c_text()));
     }
     if lines.is_empty() {
         lines.push(Line::from("No categories found."));
@@ -1013,11 +1027,11 @@ fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
         .block(panel(
             Line::from(Span::styled(
                 " Categories ",
-                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             more_content_border(app),
         ))
-        .style(Style::default().fg(SUBTEXT1))
+        .style(Style::default().fg(c_subtext1()))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -1030,30 +1044,34 @@ fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
         .map(|series| series.chapters.len())
         .sum();
     let lines = vec![
-        field("Series", &app.library.series.len().to_string(), GREEN),
-        field("Chapters", &chapters.to_string(), GREEN),
+        field("Series", &app.library.series.len().to_string(), c_green()),
+        field("Chapters", &chapters.to_string(), c_green()),
         field(
             "Categories",
             &app.library.categories.len().to_string(),
-            GREEN,
+            c_green(),
         ),
-        field("Scan errors", &app.library.errors.len().to_string(), PEACH),
+        field(
+            "Scan errors",
+            &app.library.errors.len().to_string(),
+            c_peach(),
+        ),
     ];
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(
                 " Statistics ",
-                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             more_content_border(app),
         ))
-        .style(Style::default().fg(SUBTEXT1));
+        .style(Style::default().fg(c_subtext1()));
     frame.render_widget(paragraph, area);
 }
 
 fn draw_more_storage(frame: &mut Frame, area: Rect, app: &AppState) {
     let lines = vec![
-        field("Library", &app.library.root.display().to_string(), TEXT),
+        field("Library", &app.library.root.display().to_string(), c_text()),
         field(
             "Categories",
             &app.library
@@ -1061,19 +1079,23 @@ fn draw_more_storage(frame: &mut Frame, area: Rect, app: &AppState) {
                 .join("categories.json")
                 .display()
                 .to_string(),
-            OVERLAY1,
+            c_overlay1(),
         ),
-        field("Progress", "XDG data / tsuiyomi/progress.json", OVERLAY1),
+        field(
+            "Progress",
+            "XDG data / tsuiyomi/progress.json",
+            c_overlay1(),
+        ),
     ];
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(
                 " Data and storage ",
-                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             more_content_border(app),
         ))
-        .style(Style::default().fg(SUBTEXT1))
+        .style(Style::default().fg(c_subtext1()))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -1084,25 +1106,25 @@ fn draw_more_about(frame: &mut Frame, area: Rect, app: &AppState) {
         ReaderMode::Scroll => "scroll",
     };
     let lines = vec![
-        field("Version", env!("CARGO_PKG_VERSION"), TEXT),
-        field("Graphics", app.protocol_name(), BLUE),
-        field("Reader", mode, BLUE),
-        field("Zoom", &format!("{}%", app.zoom), GREEN),
+        field("Version", env!("CARGO_PKG_VERSION"), c_text()),
+        field("Graphics", app.protocol_name(), c_blue()),
+        field("Reader", mode, c_blue()),
+        field("Zoom", &format!("{}%", app.zoom), c_green()),
         Line::from(""),
         Line::from(Span::styled(
             "Tsuiyomi is an independent Mihon-compatible TUI.",
-            Style::default().fg(OVERLAY1),
+            Style::default().fg(c_overlay1()),
         )),
     ];
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(
                 " About ",
-                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             more_content_border(app),
         ))
-        .style(Style::default().fg(SUBTEXT1))
+        .style(Style::default().fg(c_subtext1()))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -1111,16 +1133,16 @@ fn placeholder(frame: &mut Frame, area: Rect, title: &'static str, message: &'st
     let block = panel(
         Line::from(Span::styled(
             format!(" {title} "),
-            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
-        LAVENDER,
+        c_accent(),
     );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(
         Paragraph::new(message)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(OVERLAY1)),
+            .style(Style::default().fg(c_overlay1())),
         inner,
     );
 }
@@ -1137,12 +1159,155 @@ fn center_label(label: &str, width: u16) -> String {
     format!("{}{}{}", " ".repeat(left), label, " ".repeat(right))
 }
 
+fn draw_picker(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.picker.as_ref() else {
+        return;
+    };
+    let choices = accent_choices(&palette_for(app.theme));
+    let count = match picker.kind {
+        PickerKind::Theme => THEMES.len(),
+        PickerKind::Accent => choices.len() + 1,
+    };
+
+    let area = frame.area();
+    let width = area.width.saturating_sub(4).clamp(28, 44).min(area.width);
+    let height = (count as u16 + 3).min(area.height);
+    if width < 12 || height < 4 {
+        return;
+    }
+
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let title = match picker.kind {
+        PickerKind::Theme => "Theme",
+        PickerKind::Accent => "Accent",
+    };
+    let block = panel(
+        Line::from(Span::styled(
+            format!(" {title} "),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+
+    let list_height = inner.height.saturating_sub(1) as usize;
+    let offset = if picker.selected >= list_height {
+        picker.selected + 1 - list_height
+    } else {
+        0
+    };
+    for (row_index, item_index) in (offset..count).take(list_height).enumerate() {
+        let row = Rect::new(inner.x, inner.y + row_index as u16, inner.width, 1);
+        let selected = item_index == picker.selected;
+        let style = if selected {
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_subtext1())
+        };
+        if selected {
+            frame.render_widget(Block::default().style(style), row);
+        }
+        frame.render_widget(
+            Paragraph::new(picker_item(app, picker, &choices, item_index)).style(style),
+            row,
+        );
+    }
+
+    let hint = Rect::new(
+        inner.x,
+        inner.y + inner.height.saturating_sub(1),
+        inner.width,
+        1,
+    );
+    let text = match picker.kind {
+        PickerKind::Theme => "↑↓ choose · Enter apply · Esc close",
+        PickerKind::Accent if picker.editing_custom => "hex · ⌫ delete · Enter apply · Esc back",
+        PickerKind::Accent => "↑↓ choose · Enter apply · Esc close",
+    };
+    frame.render_widget(
+        Paragraph::new(text).style(Style::default().fg(c_overlay0())),
+        hint,
+    );
+}
+
+fn picker_item(
+    app: &AppState,
+    picker: &PickerState,
+    choices: &[(&'static str, Color)],
+    index: usize,
+) -> Line<'static> {
+    match picker.kind {
+        PickerKind::Theme => {
+            let theme = THEMES[index];
+            let marker = if theme == app.theme { "●" } else { " " };
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(marker, Style::default().fg(c_accent())),
+                Span::raw(format!(" {}", theme_label(theme))),
+            ])
+        }
+        PickerKind::Accent if index < choices.len() => {
+            let (name, color) = choices[index];
+            let current = match app.accent.as_deref() {
+                None => index == 0,
+                Some(value) => name.eq_ignore_ascii_case(value),
+            };
+            let marker = if current { "●" } else { " " };
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(marker, Style::default().fg(c_accent())),
+                Span::raw(format!(" {:<10}", title_case(name))),
+                Span::styled("██", Style::default().fg(color)),
+            ])
+        }
+        PickerKind::Accent => {
+            let shown = if picker.custom.is_empty() {
+                if picker.editing_custom {
+                    "▏".to_owned()
+                } else {
+                    "#rrggbb".to_owned()
+                }
+            } else {
+                let mut text = picker.custom.clone();
+                if picker.editing_custom {
+                    text.push('▏');
+                }
+                text
+            };
+            let color = parse_hex(&picker.custom).unwrap_or(c_overlay1());
+            Line::from(vec![
+                Span::raw("   "),
+                Span::raw(format!("{:<10}", "Custom")),
+                Span::styled(shown, Style::default().fg(color)),
+            ])
+        }
+    }
+}
+
+fn title_case(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
+}
+
 fn panel(title: Line<'static>, border: Color) -> Block<'static> {
     Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
-        .style(Style::default().bg(BASE))
+        .style(Style::default().bg(c_base()))
 }
 
 #[cfg(test)]
@@ -1202,7 +1367,6 @@ mod tests {
     fn renders_header_content_tabs_and_commands() {
         let mut app = test_app();
         let text = render(&mut app, 80, 24);
-        println!("{text}");
 
         assert!(text.contains("Tsuiyomi"));
         assert!(text.contains("commands"));
@@ -1283,6 +1447,41 @@ mod tests {
     }
 
     #[test]
+    fn theme_picker_renders_all_theme_names() {
+        let mut app = test_app();
+        app.tab = 4;
+        app.more_section = MoreSection::Settings;
+        app.setting_index = 6;
+        app.activate_setting();
+
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Catppuccin Mocha"));
+        assert!(text.contains("Catppuccin Macchiato"));
+        assert!(text.contains("Solarized Dark"));
+        assert!(text.contains("Gruvbox Light"));
+        assert!(text.contains("Tokyo Night"));
+        assert!(text.contains("Enter apply"));
+    }
+
+    #[test]
+    fn accent_picker_renders_choices_and_custom_hex() {
+        let mut app = test_app();
+        app.tab = 4;
+        app.more_section = MoreSection::Settings;
+        app.setting_index = 7;
+        app.activate_setting();
+        for character in "#ff00aa".chars() {
+            app.picker_char(character);
+        }
+
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Blue"));
+        assert!(text.contains("Mauve"));
+        assert!(text.contains("Custom"));
+        assert!(text.contains("#ff00aa"));
+    }
+
+    #[test]
     fn selected_tab_uses_lavender_text_without_background() {
         let mut app = test_app();
         let backend = TestBackend::new(80, 24);
@@ -1295,12 +1494,12 @@ mod tests {
 
         let selected = tabs[0].area;
         let selected_cell = &buffer[(selected.x + selected.width / 2, selected.y)];
-        assert_eq!(selected_cell.style().fg, Some(LAVENDER));
-        assert_eq!(selected_cell.style().bg, Some(BASE));
+        assert_eq!(selected_cell.style().fg, Some(c_accent()));
+        assert_eq!(selected_cell.style().bg, Some(c_base()));
 
         let inactive = tabs[1].area;
         let inactive_cell = &buffer[(inactive.x + inactive.width / 2, inactive.y)];
-        assert_eq!(inactive_cell.style().fg, Some(OVERLAY1));
+        assert_eq!(inactive_cell.style().fg, Some(c_overlay1()));
     }
 
     #[test]

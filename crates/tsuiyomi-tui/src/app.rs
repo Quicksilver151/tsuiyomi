@@ -5,11 +5,12 @@ use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::{
     chapter_pages, read_page, save_config, scan_library, Chapter, Config, Library, Page,
-    ProgressStore, ReadingMode, Series,
+    ProgressStore, ReadingMode, Series, Theme,
 };
 
 use crate::{
     layout::TAB_COUNT,
+    palette,
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker},
 };
 
@@ -44,6 +45,20 @@ pub const MORE_SECTIONS: [MoreSection; 6] = [
     MoreSection::About,
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerKind {
+    Theme,
+    Accent,
+}
+
+#[derive(Debug, Clone)]
+pub struct PickerState {
+    pub kind: PickerKind,
+    pub selected: usize,
+    pub custom: String,
+    pub editing_custom: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MoreFocus {
     Sections,
@@ -57,7 +72,7 @@ pub enum MoreRow {
     Setting(usize),
 }
 
-pub const MORE_SETTINGS_ROWS: [MoreRow; 10] = [
+pub const MORE_SETTINGS_ROWS: [MoreRow; 11] = [
     MoreRow::Divider("Reader"),
     MoreRow::Setting(0),
     MoreRow::Setting(1),
@@ -68,10 +83,11 @@ pub const MORE_SETTINGS_ROWS: [MoreRow; 10] = [
     MoreRow::Setting(5),
     MoreRow::Divider("Appearance"),
     MoreRow::Setting(6),
+    MoreRow::Setting(7),
 ];
 
 /// Order matches the selectable rows rendered by the Settings section.
-pub const SETTING_COUNT: usize = 7;
+pub const SETTING_COUNT: usize = 8;
 
 pub const READING_MODES: [ReadingMode; 6] = [
     ReadingMode::Default,
@@ -172,7 +188,7 @@ pub struct AppState {
     pub list_state: ListState,
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
-    pub picker: Option<Picker>,
+    pub image_picker: Option<Picker>,
     pub progress: ProgressStore,
     /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
     pub(crate) scroll_worker: Option<ScrollWorker>,
@@ -185,6 +201,9 @@ pub struct AppState {
     pub more_section: MoreSection,
     pub more_focus: MoreFocus,
     pub setting_index: usize,
+    pub theme: Theme,
+    pub accent: Option<String>,
+    pub picker: Option<PickerState>,
     pub status: Option<String>,
 }
 
@@ -202,7 +221,7 @@ impl AppState {
             list_state: ListState::default(),
             chapter_list_state: ListState::default(),
             reader: None,
-            picker: None,
+            image_picker: None,
             progress: ProgressStore::default(),
             scroll_worker: None,
             scroll_generation: 0,
@@ -212,6 +231,9 @@ impl AppState {
             more_section: MoreSection::Settings,
             more_focus: MoreFocus::Content,
             setting_index: 0,
+            theme: Theme::default(),
+            accent: None,
+            picker: None,
             status,
         };
         if app.visible_count() > 0 {
@@ -220,8 +242,8 @@ impl AppState {
         app
     }
 
-    pub fn set_picker(&mut self, picker: Picker) {
-        self.picker = Some(picker);
+    pub fn set_image_picker(&mut self, picker: Picker) {
+        self.image_picker = Some(picker);
     }
 
     pub(crate) fn set_scroll_worker(&mut self, worker: ScrollWorker) {
@@ -310,7 +332,7 @@ impl AppState {
     }
 
     pub fn protocol_name(&self) -> &'static str {
-        match self.picker.as_ref().map(Picker::protocol_type) {
+        match self.image_picker.as_ref().map(Picker::protocol_type) {
             Some(ratatui_image::picker::ProtocolType::Kitty) => "Kitty",
             Some(ratatui_image::picker::ProtocolType::Sixel) => "Sixel",
             Some(ratatui_image::picker::ProtocolType::Iterm2) => "iTerm2",
@@ -496,6 +518,9 @@ impl AppState {
     pub fn set_config(&mut self, config: Config) {
         self.reader_mode = ReaderMode::Page;
         self.set_reading_mode(config.reading_mode);
+        self.theme = config.theme;
+        self.accent = config.accent.clone();
+        palette::apply(self.theme, self.accent.as_deref());
         self.zoom = config.reader_zoom.clamp(50, 300);
         self.scroll_cache = ScrollCacheConfig {
             prefetch_behind: config.scroll_prefetch_behind.min(16),
@@ -505,13 +530,212 @@ impl AppState {
         self.config = config;
     }
 
-    /// Save current reader settings back to the config file.
+    /// Save current reader and appearance settings back to the config file.
     pub fn persist_settings(&mut self) {
+        self.config.theme = self.theme;
+        self.config.accent = self.accent.clone();
         self.config.reader_zoom = self.zoom;
         self.config.scroll_prefetch_behind = self.scroll_cache.prefetch_behind;
         self.config.scroll_prefetch_ahead = self.scroll_cache.prefetch_ahead;
         self.config.scroll_cache_margin = self.scroll_cache.cache_margin;
-        save_config(&self.config);
+        // Tests must not touch the user's real config file.
+        if !cfg!(test) {
+            save_config(&self.config);
+        }
+    }
+
+    /// Apply a theme immediately and persist it.
+    pub fn apply_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+        palette::apply(self.theme, self.accent.as_deref());
+        self.persist_settings();
+    }
+
+    /// Apply an accent override (`None` = theme default) and persist it.
+    pub fn apply_accent(&mut self, accent: Option<String>) {
+        self.accent = accent;
+        palette::apply(self.theme, self.accent.as_deref());
+        self.persist_settings();
+    }
+
+    /// Human-readable label for the current accent setting.
+    pub fn accent_name(&self) -> String {
+        let Some(value) = self.accent.as_deref() else {
+            return "Default".to_owned();
+        };
+        let base = palette::palette_for(self.theme);
+        palette::accent_choices(&base)
+            .into_iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(value))
+            .map(|(name, _)| {
+                let mut chars = name.chars();
+                let first = chars
+                    .next()
+                    .map(|c| c.to_ascii_uppercase())
+                    .unwrap_or_default();
+                format!("{first}{}", chars.as_str())
+            })
+            .unwrap_or_else(|| value.to_owned())
+    }
+
+    fn accent_choice_count(&self) -> usize {
+        palette::accent_choices(&palette::palette_for(self.theme)).len() + 1
+    }
+
+    /// Open the picker for the selected Appearance setting.
+    pub fn activate_setting(&mut self) {
+        if self.more_section != MoreSection::Settings {
+            return;
+        }
+        match self.setting_index {
+            6 => self.open_theme_picker(),
+            7 => self.open_accent_picker(),
+            _ => {}
+        }
+    }
+
+    fn open_theme_picker(&mut self) {
+        let selected = palette::THEMES
+            .iter()
+            .position(|theme| *theme == self.theme)
+            .unwrap_or(0);
+        self.picker = Some(PickerState {
+            kind: PickerKind::Theme,
+            selected,
+            custom: String::new(),
+            editing_custom: false,
+        });
+    }
+
+    fn open_accent_picker(&mut self) {
+        let base = palette::palette_for(self.theme);
+        let choices = palette::accent_choices(&base);
+        let mut selected = 0;
+        let mut custom = String::new();
+        if let Some(value) = self.accent.as_deref() {
+            match choices
+                .iter()
+                .position(|(name, _)| name.eq_ignore_ascii_case(value))
+            {
+                Some(index) => selected = index,
+                None => {
+                    selected = choices.len();
+                    custom = value.to_owned();
+                }
+            }
+        }
+        self.picker = Some(PickerState {
+            kind: PickerKind::Accent,
+            selected,
+            custom,
+            editing_custom: false,
+        });
+    }
+
+    fn picker_len(&self, kind: PickerKind) -> usize {
+        match kind {
+            PickerKind::Theme => palette::THEMES.len(),
+            PickerKind::Accent => self.accent_choice_count(),
+        }
+    }
+
+    pub fn picker_previous(&mut self) {
+        self.move_picker(-1);
+    }
+
+    pub fn picker_next(&mut self) {
+        self.move_picker(1);
+    }
+
+    fn move_picker(&mut self, delta: i32) {
+        let Some(kind) = self.picker.as_ref().map(|picker| picker.kind) else {
+            return;
+        };
+        let len = self.picker_len(kind) as i32;
+        if len == 0 {
+            return;
+        }
+        if let Some(picker) = &mut self.picker {
+            picker.selected = (picker.selected as i32 + delta).rem_euclid(len) as usize;
+            picker.editing_custom = false;
+        }
+    }
+
+    pub fn picker_back(&mut self) {
+        let editing = self
+            .picker
+            .as_ref()
+            .map(|picker| picker.editing_custom)
+            .unwrap_or(false);
+        if editing {
+            if let Some(picker) = &mut self.picker {
+                picker.editing_custom = false;
+            }
+        } else {
+            self.picker = None;
+        }
+    }
+
+    pub fn picker_char(&mut self, character: char) {
+        if !character.is_ascii_hexdigit() && character != '#' {
+            return;
+        }
+        if self.picker.as_ref().map(|picker| picker.kind) != Some(PickerKind::Accent) {
+            return;
+        }
+        let custom_index = self.accent_choice_count() - 1;
+        if let Some(picker) = &mut self.picker {
+            picker.selected = custom_index;
+            picker.editing_custom = true;
+            if character == '#' {
+                if picker.custom.is_empty() {
+                    picker.custom.push('#');
+                }
+            } else if picker.custom.chars().filter(|c| *c != '#').count() < 6 {
+                picker.custom.push(character);
+            }
+        }
+    }
+
+    pub fn picker_backspace(&mut self) {
+        if self.picker.as_ref().map(|picker| picker.kind) != Some(PickerKind::Accent) {
+            return;
+        }
+        let custom_index = self.accent_choice_count() - 1;
+        if let Some(picker) = &mut self.picker {
+            picker.selected = custom_index;
+            picker.editing_custom = true;
+            picker.custom.pop();
+        }
+    }
+
+    pub fn picker_confirm(&mut self) {
+        let Some(picker) = self.picker.clone() else {
+            return;
+        };
+        match picker.kind {
+            PickerKind::Theme => {
+                if let Some(theme) = palette::THEMES.get(picker.selected).copied() {
+                    self.apply_theme(theme);
+                }
+                self.picker = None;
+            }
+            PickerKind::Accent => {
+                let choices = palette::accent_choices(&palette::palette_for(self.theme));
+                if picker.selected < choices.len() {
+                    let name = choices[picker.selected].0;
+                    let accent = (name != "default").then(|| name.to_owned());
+                    self.apply_accent(accent);
+                    self.picker = None;
+                } else if palette::parse_hex(&picker.custom).is_some() {
+                    let digits = picker.custom.trim().trim_start_matches('#');
+                    self.apply_accent(Some(format!("#{digits}")));
+                    self.picker = None;
+                } else if let Some(picker) = &mut self.picker {
+                    picker.editing_custom = true;
+                }
+            }
+        }
     }
 
     pub fn next_more_section(&mut self) {
@@ -596,6 +820,30 @@ impl AppState {
             4 => {
                 let value = (self.scroll_cache.cache_margin as i32 + delta).clamp(0, 12);
                 self.scroll_cache.cache_margin = value as usize;
+            }
+            6 => {
+                let index = palette::THEMES
+                    .iter()
+                    .position(|theme| *theme == self.theme)
+                    .unwrap_or(0);
+                let next = (index as i32 + delta).rem_euclid(palette::THEMES.len() as i32) as usize;
+                self.theme = palette::THEMES[next];
+                palette::apply(self.theme, self.accent.as_deref());
+            }
+            7 => {
+                let choices = palette::accent_choices(&palette::palette_for(self.theme));
+                let current = self
+                    .accent
+                    .as_deref()
+                    .and_then(|value| {
+                        choices
+                            .iter()
+                            .position(|(name, _)| name.eq_ignore_ascii_case(value))
+                    })
+                    .unwrap_or(0);
+                let next = (current as i32 + delta).rem_euclid(choices.len() as i32) as usize;
+                self.accent = (next != 0).then(|| choices[next].0.to_owned());
+                palette::apply(self.theme, self.accent.as_deref());
             }
             _ => {}
         }
@@ -835,7 +1083,7 @@ impl AppState {
             }
         };
 
-        let Some(picker) = self.picker.as_ref() else {
+        let Some(picker) = self.image_picker.as_ref() else {
             reader.error = Some("No terminal graphics backend.".to_owned());
             reader.protocol = None;
             return;
@@ -849,7 +1097,7 @@ impl AppState {
         let Some(pages) = self.reader.as_ref().map(|reader| reader.pages.clone()) else {
             return;
         };
-        let Some(picker) = self.picker.clone() else {
+        let Some(picker) = self.image_picker.clone() else {
             self.set_reader_error("No terminal graphics backend.");
             return;
         };
@@ -1074,7 +1322,7 @@ impl AppState {
                     None => Vec::new(),
                 };
 
-                if let Some(picker) = self.picker.clone() {
+                if let Some(picker) = self.image_picker.clone() {
                     for (index, page, layout, generation) in requests {
                         worker.request(BuildRequest {
                             generation,
@@ -1135,7 +1383,7 @@ impl AppState {
         let Some(layout) = scroll.layout.get(index).copied() else {
             return;
         };
-        let Some(picker) = self.picker.clone() else {
+        let Some(picker) = self.image_picker.clone() else {
             self.set_reader_error("No terminal graphics backend.");
             return;
         };
@@ -1544,7 +1792,7 @@ mod tests {
         };
 
         let mut app = AppState::new(library, None);
-        app.set_picker(Picker::halfblocks());
+        app.set_image_picker(Picker::halfblocks());
         let mut progress = ProgressStore::load(&root.path().join("progress.json")).unwrap();
         progress.record(root.path(), 1, 2).unwrap();
         app.set_progress(progress);
@@ -1685,6 +1933,103 @@ mod tests {
 
         app.leave_more();
         assert_eq!(app.tab, 0);
+    }
+
+    #[test]
+    fn set_config_applies_theme_and_accent() {
+        let mut app = AppState::default();
+        let config = Config {
+            theme: Theme::TokyoNight,
+            accent: Some("yellow".to_owned()),
+            ..Config::default()
+        };
+
+        app.set_config(config);
+
+        assert_eq!(app.theme, Theme::TokyoNight);
+        assert_eq!(app.accent.as_deref(), Some("yellow"));
+        assert_eq!(
+            palette::current().accent,
+            palette::palette_for(Theme::TokyoNight).yellow
+        );
+    }
+
+    #[test]
+    fn theme_picker_applies_and_persists_selection() {
+        let mut app = AppState {
+            more_section: MoreSection::Settings,
+            setting_index: 6,
+            ..AppState::default()
+        };
+
+        app.activate_setting();
+        assert_eq!(
+            app.picker.as_ref().map(|picker| picker.kind),
+            Some(PickerKind::Theme)
+        );
+
+        app.picker_next();
+        app.picker_confirm();
+        assert!(app.picker.is_none());
+
+        let expected = palette::THEMES[1];
+        assert_eq!(app.theme, expected);
+        assert_eq!(app.config.theme, expected);
+        assert_eq!(palette::current().base, palette::palette_for(expected).base);
+    }
+
+    #[test]
+    fn accent_picker_accepts_named_choice() {
+        let mut app = AppState {
+            more_section: MoreSection::Settings,
+            setting_index: 7,
+            ..AppState::default()
+        };
+
+        app.activate_setting();
+        let picker = app.picker.as_ref().unwrap();
+        assert_eq!(picker.kind, PickerKind::Accent);
+        assert_eq!(picker.selected, 0);
+        assert_eq!(app.accent_name(), "Default");
+
+        app.picker_next();
+        app.picker_confirm();
+
+        assert_eq!(app.accent.as_deref(), Some("blue"));
+        assert_eq!(app.config.accent.as_deref(), Some("blue"));
+        assert_eq!(app.accent_name(), "Blue");
+        assert_eq!(
+            palette::current().accent,
+            palette::palette_for(app.theme).blue
+        );
+    }
+
+    #[test]
+    fn accent_picker_accepts_custom_hex_with_backspace() {
+        let mut app = AppState {
+            more_section: MoreSection::Settings,
+            setting_index: 7,
+            ..AppState::default()
+        };
+        app.activate_setting();
+
+        for character in "#ff00aa".chars() {
+            app.picker_char(character);
+        }
+        app.picker_backspace();
+        // Five hex digits is incomplete, so Enter only enters edit mode.
+        app.picker_confirm();
+        assert!(app.picker.as_ref().unwrap().editing_custom);
+
+        app.picker_char('a');
+        app.picker_confirm();
+
+        assert!(app.picker.is_none());
+        assert_eq!(app.accent.as_deref(), Some("#ff00aa"));
+        assert_eq!(
+            palette::parse_hex(app.accent.as_deref().unwrap()),
+            Some(ratatui::style::Color::Rgb(255, 0, 170))
+        );
     }
 
     #[test]

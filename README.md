@@ -99,6 +99,8 @@ reader_zoom = 100
 scroll_prefetch_behind = 2
 scroll_prefetch_ahead = 2
 scroll_cache_margin = 4
+theme = "catppuccin_mocha"
+# accent = "#b4befe"   # optional palette color or hex override
 ```
 
 Reading mode, zoom, and scroll cache settings can also be changed in
@@ -110,9 +112,21 @@ pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom f
 to 300%. Only pages near the viewport are decoded and cached, and page preparation runs
 off the UI thread.
 
-- `↑↓` selects sections/settings; `Enter` enters the selected More section or settings
-  pane; `Esc` backs out; `←→` adjusts the selected setting. Clicking a section or slider
-  also works.
+- `↑↓` selects sections/settings; `Enter` enters the selected More section or opens the
+  appearance picker; `Esc` backs out; `←→` adjusts the selected setting. Clicking a
+  section or slider also works.
+
+## Themes
+
+**More → Settings → Appearance** switches between Catppuccin (Mocha, Macchiato, Frappe,
+Latte), Nord, Solarized (Dark, Light), Gruvbox (Dark, Light), Material Dark, Dracula,
+One Dark, and Tokyo Night. `theme` stores the same names in snake_case.
+
+The accent can be a palette color (`default`, `blue`, `teal`, `green`, `yellow`, `peach`,
+`mauve`) or a custom hex value (`#rgb` or `#rrggbb`). Press `Enter` on Theme or Accent to
+open the picker, use `↑↓` to select, and `Enter` to apply. In the accent picker, typing a
+hex digit jumps to the custom field; `Backspace` deletes. Themes and accents apply
+immediately and persist to `config.toml`.
 
 ## Roadmap
 

@@ -29,23 +29,39 @@ pub enum Action {
     Redraw,
     ScrollUp,
     ScrollDown,
+    Char(char),
+    Backspace,
     Click { column: u16, row: u16 },
 }
 
 /// Read one terminal event and translate it into an optional action.
 ///
 /// The event loop polls before calling this, so it never blocks indefinitely and can
-/// drain background scroll-page results between inputs.
-pub fn read() -> io::Result<Option<Action>> {
+/// drain background scroll-page results between inputs. `text_mode` routes printable
+/// keys to `Action::Char` so dialogs can accept typed input.
+pub fn read(text_mode: bool) -> io::Result<Option<Action>> {
     match event::read()? {
-        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(key_action(key.code)),
+        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(key_action(key.code, text_mode)),
         Event::Mouse(mouse) => Ok(mouse_action(mouse.kind, mouse.column, mouse.row)),
         Event::Resize(_, _) => Ok(Some(Action::Redraw)),
         _ => Ok(None),
     }
 }
 
-fn key_action(code: KeyCode) -> Option<Action> {
+fn key_action(code: KeyCode, text_mode: bool) -> Option<Action> {
+    if text_mode {
+        let action = match code {
+            KeyCode::Esc => Action::Back,
+            KeyCode::Enter => Action::Open,
+            KeyCode::Backspace => Action::Backspace,
+            KeyCode::Char(character) => Action::Char(character),
+            KeyCode::Up => Action::Previous,
+            KeyCode::Down => Action::Next,
+            _ => return None,
+        };
+        return Some(action);
+    }
+
     let action = match code {
         KeyCode::Char('q') => Action::Quit,
         KeyCode::Esc => Action::Back,
@@ -93,40 +109,75 @@ mod tests {
 
     #[test]
     fn arrows_do_not_control_tabs() {
-        assert_eq!(key_action(KeyCode::Left), Some(Action::PreviousPage));
-        assert_eq!(key_action(KeyCode::Right), Some(Action::NextPage));
+        assert_eq!(key_action(KeyCode::Left, false), Some(Action::PreviousPage));
+        assert_eq!(key_action(KeyCode::Right, false), Some(Action::NextPage));
     }
 
     #[test]
     fn page_keys() {
-        assert_eq!(key_action(KeyCode::PageUp), Some(Action::PreviousScreen));
-        assert_eq!(key_action(KeyCode::PageDown), Some(Action::NextScreen));
-        assert_eq!(key_action(KeyCode::Char(' ')), Some(Action::NextScreen));
-        assert_eq!(key_action(KeyCode::Left), Some(Action::PreviousPage));
-        assert_eq!(key_action(KeyCode::Right), Some(Action::NextPage));
-        assert_eq!(key_action(KeyCode::Char('n')), Some(Action::NextChapter));
         assert_eq!(
-            key_action(KeyCode::Char('p')),
+            key_action(KeyCode::PageUp, false),
+            Some(Action::PreviousScreen)
+        );
+        assert_eq!(
+            key_action(KeyCode::PageDown, false),
+            Some(Action::NextScreen)
+        );
+        assert_eq!(
+            key_action(KeyCode::Char(' '), false),
+            Some(Action::NextScreen)
+        );
+        assert_eq!(key_action(KeyCode::Left, false), Some(Action::PreviousPage));
+        assert_eq!(key_action(KeyCode::Right, false), Some(Action::NextPage));
+        assert_eq!(
+            key_action(KeyCode::Char('n'), false),
+            Some(Action::NextChapter)
+        );
+        assert_eq!(
+            key_action(KeyCode::Char('p'), false),
             Some(Action::PreviousChapter)
         );
         assert_eq!(
-            key_action(KeyCode::Char('m')),
+            key_action(KeyCode::Char('m'), false),
             Some(Action::ToggleReaderMode)
         );
-        assert_eq!(key_action(KeyCode::Char('+')), Some(Action::ZoomIn));
-        assert_eq!(key_action(KeyCode::Char('-')), Some(Action::ZoomOut));
+        assert_eq!(key_action(KeyCode::Char('+'), false), Some(Action::ZoomIn));
+        assert_eq!(key_action(KeyCode::Char('-'), false), Some(Action::ZoomOut));
     }
 
     #[test]
     fn tab_keys_control_tabs() {
-        assert_eq!(key_action(KeyCode::Tab), Some(Action::NextTab));
-        assert_eq!(key_action(KeyCode::BackTab), Some(Action::PreviousTab));
+        assert_eq!(key_action(KeyCode::Tab, false), Some(Action::NextTab));
+        assert_eq!(
+            key_action(KeyCode::BackTab, false),
+            Some(Action::PreviousTab)
+        );
     }
 
     #[test]
     fn enter_and_escape_are_open_and_back() {
-        assert_eq!(key_action(KeyCode::Enter), Some(Action::Open));
-        assert_eq!(key_action(KeyCode::Esc), Some(Action::Back));
+        assert_eq!(key_action(KeyCode::Enter, false), Some(Action::Open));
+        assert_eq!(key_action(KeyCode::Esc, false), Some(Action::Back));
+    }
+
+    #[test]
+    fn text_mode_routes_printable_keys_to_char() {
+        assert_eq!(
+            key_action(KeyCode::Char('f'), true),
+            Some(Action::Char('f'))
+        );
+        assert_eq!(
+            key_action(KeyCode::Char('#'), true),
+            Some(Action::Char('#'))
+        );
+        assert_eq!(
+            key_action(KeyCode::Backspace, true),
+            Some(Action::Backspace)
+        );
+        assert_eq!(key_action(KeyCode::Enter, true), Some(Action::Open));
+        assert_eq!(key_action(KeyCode::Esc, true), Some(Action::Back));
+        assert_eq!(key_action(KeyCode::Up, true), Some(Action::Previous));
+        assert_eq!(key_action(KeyCode::Down, true), Some(Action::Next));
     }
 
     #[test]
