@@ -9,6 +9,9 @@ use tsuiyomi_core::{
 
 use crate::layout::TAB_COUNT;
 
+/// Lines moved per arrow/wheel step in continuous scroll mode.
+const SCROLL_LINES: i32 = 5;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LibraryView {
     #[default]
@@ -187,7 +190,7 @@ impl AppState {
             }
             LibraryView::Reader => {
                 if self.reader_mode == ReaderMode::Scroll {
-                    self.scroll_lines(-1);
+                    self.scroll_lines(-SCROLL_LINES);
                 } else {
                     self.change_page(false);
                 }
@@ -211,7 +214,7 @@ impl AppState {
             }
             LibraryView::Reader => {
                 if self.reader_mode == ReaderMode::Scroll {
-                    self.scroll_lines(1);
+                    self.scroll_lines(SCROLL_LINES);
                 } else {
                     self.change_page(true);
                 }
