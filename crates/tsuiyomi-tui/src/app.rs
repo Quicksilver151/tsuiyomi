@@ -1,5 +1,6 @@
 use ratatui::widgets::ListState;
-use tsuiyomi_core::{chapter_pages, scan_library, Chapter, Library, Series};
+use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
+use tsuiyomi_core::{chapter_pages, read_page, scan_library, Chapter, Library, Page, Series};
 
 use crate::layout::TAB_COUNT;
 
@@ -8,9 +9,19 @@ pub enum LibraryView {
     #[default]
     Series,
     Chapters,
+    Reader,
 }
 
-#[derive(Debug, Default)]
+pub struct ReaderState {
+    pub series_title: String,
+    pub chapter_title: String,
+    pub pages: Vec<Page>,
+    pub page_index: usize,
+    pub protocol: Option<StatefulProtocol>,
+    pub error: Option<String>,
+}
+
+#[derive(Default)]
 pub struct AppState {
     pub tab: usize,
     pub fullscreen: bool,
@@ -21,6 +32,8 @@ pub struct AppState {
     pub chapter_index: usize,
     pub list_state: ListState,
     pub chapter_list_state: ListState,
+    pub reader: Option<ReaderState>,
+    pub picker: Option<Picker>,
     pub status: Option<String>,
 }
 
@@ -36,12 +49,28 @@ impl AppState {
             chapter_index: 0,
             list_state: ListState::default(),
             chapter_list_state: ListState::default(),
+            reader: None,
+            picker: None,
             status,
         };
         if app.visible_count() > 0 {
             app.list_state.select(Some(0));
         }
         app
+    }
+
+    pub fn set_picker(&mut self, picker: Picker) {
+        self.picker = Some(picker);
+    }
+
+    pub fn protocol_name(&self) -> &'static str {
+        match self.picker.as_ref().map(Picker::protocol_type) {
+            Some(ratatui_image::picker::ProtocolType::Kitty) => "Kitty",
+            Some(ratatui_image::picker::ProtocolType::Sixel) => "Sixel",
+            Some(ratatui_image::picker::ProtocolType::Iterm2) => "iTerm2",
+            Some(ratatui_image::picker::ProtocolType::Halfblocks) => "Halfblocks",
+            _ => "none",
+        }
     }
 
     pub fn category_name(&self) -> Option<&str> {
@@ -78,7 +107,7 @@ impl AppState {
             .map_or(0, |series| series.chapters.len())
     }
 
-    /// Enter the chapter list for the selected series, or inspect a selected chapter.
+    /// Enter chapters, open a chapter, or turn the page.
     pub fn open(&mut self) {
         match self.view {
             LibraryView::Series => {
@@ -90,19 +119,26 @@ impl AppState {
                     self.chapter_list_state.select((count > 0).then_some(0));
                 }
             }
-            LibraryView::Chapters => self.inspect_chapter(),
+            LibraryView::Chapters => self.open_chapter(),
+            LibraryView::Reader => self.change_page(true),
         }
     }
 
-    /// Back out of the chapter list, or return to the Library tab.
+    /// Back out of the reader/chapter list, or return to the Library tab.
     pub fn back(&mut self) {
-        if self.view == LibraryView::Chapters {
-            self.view = LibraryView::Series;
-            self.chapter_index = 0;
-            self.status = None;
-            self.chapter_list_state.select(None);
-        } else {
-            self.select_tab(0);
+        match self.view {
+            LibraryView::Reader => {
+                self.reader = None;
+                self.view = LibraryView::Chapters;
+                self.status = None;
+            }
+            LibraryView::Chapters => {
+                self.view = LibraryView::Series;
+                self.chapter_index = 0;
+                self.status = None;
+                self.chapter_list_state.select(None);
+            }
+            LibraryView::Series => self.select_tab(0),
         }
     }
 
@@ -116,6 +152,7 @@ impl AppState {
                 self.chapter_index = self.chapter_index.saturating_sub(1);
                 self.status = None;
             }
+            LibraryView::Reader => self.change_page(false),
         }
     }
 
@@ -133,7 +170,16 @@ impl AppState {
                     self.status = None;
                 }
             }
+            LibraryView::Reader => self.change_page(true),
         }
+    }
+
+    pub fn next_page(&mut self) {
+        self.change_page(true);
+    }
+
+    pub fn previous_page(&mut self) {
+        self.change_page(false);
     }
 
     pub fn select_index(&mut self, index: usize) {
@@ -148,6 +194,93 @@ impl AppState {
             }
             _ => {}
         }
+    }
+
+    fn open_chapter(&mut self) {
+        let Some(chapter) = self.selected_chapter().cloned() else {
+            return;
+        };
+        let series_title = self
+            .selected_series()
+            .map(|series| series.title.clone())
+            .unwrap_or_default();
+
+        let pages = match chapter_pages(&chapter) {
+            Ok(pages) => pages,
+            Err(error) => {
+                self.status = Some(error.to_string());
+                return;
+            }
+        };
+        if pages.is_empty() {
+            self.status = Some(format!("{} has no pages", chapter.title));
+            return;
+        }
+
+        self.reader = Some(ReaderState {
+            series_title,
+            chapter_title: chapter.title,
+            pages,
+            page_index: 0,
+            protocol: None,
+            error: None,
+        });
+        self.view = LibraryView::Reader;
+        self.status = None;
+        self.load_page();
+    }
+
+    fn change_page(&mut self, forward: bool) {
+        let Some(reader) = self.reader.as_mut() else {
+            return;
+        };
+
+        if forward {
+            if reader.page_index + 1 < reader.pages.len() {
+                reader.page_index += 1;
+            }
+        } else {
+            reader.page_index = reader.page_index.saturating_sub(1);
+        }
+
+        self.load_page();
+    }
+
+    fn load_page(&mut self) {
+        let Some(reader) = self.reader.as_mut() else {
+            return;
+        };
+        let Some(page) = reader.pages.get(reader.page_index).cloned() else {
+            reader.error = Some("Page is out of range.".to_owned());
+            reader.protocol = None;
+            return;
+        };
+
+        let bytes = match read_page(&page) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                reader.error = Some(error.to_string());
+                reader.protocol = None;
+                return;
+            }
+        };
+        let image = match image::load_from_memory(&bytes) {
+            Ok(image) => image,
+            Err(error) => {
+                reader.error = Some(format!("{}: {error}", page.name));
+                reader.protocol = None;
+                return;
+            }
+        };
+
+        let Some(picker) = self.picker.as_ref() else {
+            reader.error = Some("No terminal graphics backend.".to_owned());
+            reader.protocol = None;
+            return;
+        };
+
+        reader.protocol = Some(picker.new_resize_protocol(image));
+        reader.error = None;
     }
 
     pub fn next_category(&mut self) {
@@ -209,6 +342,7 @@ impl AppState {
             Ok(library) => {
                 self.library = library;
                 self.view = LibraryView::Series;
+                self.reader = None;
                 self.chapter_index = 0;
                 self.chapter_list_state.select(None);
                 self.category_index = self
@@ -235,17 +369,6 @@ impl AppState {
         self.list_state.select((count > 0).then_some(0));
     }
 
-    fn inspect_chapter(&mut self) {
-        let Some(chapter) = self.selected_chapter() else {
-            return;
-        };
-        let title = chapter.title.clone();
-        match chapter_pages(chapter) {
-            Ok(pages) => self.status = Some(format!("{title}: {} pages", pages.len())),
-            Err(error) => self.status = Some(error.to_string()),
-        }
-    }
-
     fn clamp_selection(&mut self) {
         let count = self.visible_count();
         if count == 0 {
@@ -263,6 +386,8 @@ fn in_category(series: &Series, category: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use ratatui_image::picker::Picker;
+
     use super::*;
 
     fn series(title: &str, categories: &[&str]) -> Series {
@@ -344,6 +469,57 @@ mod tests {
 
         app.open();
         assert!(app.status.is_none());
+    }
+
+    #[test]
+    fn opens_the_reader_and_turns_pages() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["1.png", "2.png"] {
+            let image = image::RgbImage::from_pixel(8, 8, image::Rgb([180, 190, 254]));
+            image.save(root.path().join(name)).unwrap();
+        }
+
+        let series = Series {
+            path: root.path().to_path_buf(),
+            title: "Test".to_owned(),
+            author: None,
+            artist: None,
+            description: String::new(),
+            tags: Vec::new(),
+            categories: vec!["Default".to_owned()],
+            chapters: vec![Chapter {
+                path: root.path().to_path_buf(),
+                title: "Chapter 1".to_owned(),
+                number: Some(1.0),
+                kind: tsuiyomi_core::ChapterKind::Directory,
+            }],
+            warnings: Vec::new(),
+        };
+        let library = Library {
+            root: root.path().to_path_buf(),
+            series: vec![series],
+            categories: vec!["Default".to_owned()],
+            errors: Vec::new(),
+        };
+
+        let mut app = AppState::new(library, None);
+        app.set_picker(Picker::halfblocks());
+        app.open();
+        app.open();
+
+        assert_eq!(app.view, LibraryView::Reader);
+        let reader = app.reader.as_ref().unwrap();
+        assert_eq!(reader.pages.len(), 2);
+        assert!(reader.protocol.is_some());
+
+        app.next_page();
+        assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
+
+        app.previous_page();
+        assert_eq!(app.reader.as_ref().unwrap().page_index, 0);
+
+        app.back();
+        assert_eq!(app.view, LibraryView::Chapters);
     }
 
     #[test]

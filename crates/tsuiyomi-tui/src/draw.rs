@@ -1,10 +1,11 @@
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
+use ratatui_image::{Resize, StatefulImage};
 use tsuiyomi_core::{Chapter, ChapterKind, Library, Series};
 
 use crate::{
@@ -52,7 +53,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_tabs(frame, layout.tabs, app.tab);
 
     if let Some(commands) = layout.commands {
-        draw_commands(frame, commands);
+        draw_commands(frame, commands, app);
     }
 }
 
@@ -108,7 +109,7 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
     }
 }
 
-fn draw_commands(frame: &mut Frame, area: Rect) {
+fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     let block = panel(
         Line::from(Span::styled(" commands ", Style::default().fg(OVERLAY1))),
         SURFACE1,
@@ -116,16 +117,27 @@ fn draw_commands(frame: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let items = [
-        ("q", "quit"),
-        ("↑↓", "move"),
-        ("Tab", "tabs"),
-        ("r", "rescan"),
-        ("c", "config"),
-        ("f", "full"),
-        ("Esc", "back"),
-        ("↵", "open"),
-    ];
+    let items: &[(&str, &str)] = if app.view == LibraryView::Reader {
+        &[
+            ("q", "quit"),
+            ("←→", "pages"),
+            ("Space", "next"),
+            ("f", "full"),
+            ("Esc", "back"),
+            ("Tab", "tabs"),
+        ]
+    } else {
+        &[
+            ("q", "quit"),
+            ("↑↓", "move"),
+            ("Tab", "tabs"),
+            ("r", "rescan"),
+            ("c", "config"),
+            ("f", "full"),
+            ("Esc", "back"),
+            ("↵", "open"),
+        ]
+    };
 
     let mut spans = Vec::new();
     for (position, (key, label)) in items.iter().enumerate() {
@@ -151,6 +163,10 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let layout = library_layout(area);
 
     match app.view {
+        LibraryView::Reader => {
+            draw_reader(frame, area, app);
+            return;
+        }
         LibraryView::Series => {
             draw_categories(frame, layout.categories, app);
             let category = app
@@ -216,6 +232,61 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     ));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let protocol_name = app.protocol_name();
+    let Some(reader) = app.reader.as_mut() else {
+        return;
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area);
+
+    let status = Line::from(vec![
+        Span::raw(" "),
+        Span::styled(
+            format!("{} › {}", reader.series_title, reader.chapter_title),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("   {}/{}", reader.page_index + 1, reader.pages.len()),
+            Style::default().fg(GREEN),
+        ),
+        Span::styled(
+            format!("   [{protocol_name}]"),
+            Style::default().fg(OVERLAY0),
+        ),
+        Span::styled("   ←→ page · Esc back", Style::default().fg(OVERLAY0)),
+    ]);
+    frame.render_widget(Paragraph::new(status), chunks[0]);
+
+    if let Some(error) = &reader.error {
+        frame.render_widget(
+            Paragraph::new(error.clone())
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(PEACH)),
+            chunks[1],
+        );
+        return;
+    }
+
+    if let Some(protocol) = reader.protocol.as_mut() {
+        frame.render_stateful_widget(
+            StatefulImage::new().resize(Resize::Fit(None)),
+            chunks[1],
+            protocol,
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new("Loading page…")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(OVERLAY1)),
+            chunks[1],
+        );
+    }
 }
 
 fn draw_breadcrumb(frame: &mut Frame, area: Rect, app: &AppState) {
@@ -376,7 +447,7 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
             Some(series) => series_lines(series),
             None => empty_lines(app),
         },
-        LibraryView::Chapters => chapter_lines(app),
+        LibraryView::Chapters | LibraryView::Reader => chapter_lines(app),
     };
 
     let paragraph = Paragraph::new(Text::from(lines))
@@ -589,7 +660,9 @@ mod tests {
     use std::path::PathBuf;
 
     use ratatui::{backend::TestBackend, Terminal};
-    use tsuiyomi_core::{Chapter, ChapterKind, Library, Series};
+    use tsuiyomi_core::{Chapter, ChapterKind, Library, Page, PageSource, Series};
+
+    use crate::app::ReaderState;
 
     use super::*;
 
@@ -668,6 +741,30 @@ mod tests {
         assert!(text.contains("Chapters"));
         assert!(text.contains("Chapter 1"));
         assert!(text.contains("Folder"));
+        assert!(text.contains("Esc back"));
+    }
+
+    #[test]
+    fn reader_view_renders_status_and_error() {
+        let mut app = test_app();
+        app.view = LibraryView::Reader;
+        app.reader = Some(ReaderState {
+            series_title: "Test Series".to_owned(),
+            chapter_title: "Chapter 1".to_owned(),
+            pages: vec![Page {
+                name: "1.png".to_owned(),
+                source: PageSource::File(PathBuf::from("/tmp/1.png")),
+            }],
+            page_index: 0,
+            protocol: None,
+            error: Some("Reader error".to_owned()),
+        });
+
+        let text = render(&mut app, 80, 24);
+
+        assert!(text.contains("1/1"));
+        assert!(text.contains("Reader error"));
+        assert!(text.contains("pages"));
         assert!(text.contains("Esc back"));
     }
 

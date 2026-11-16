@@ -6,5 +6,10 @@ rust-version.workspace = true
 
 [dependencies]
 crossterm.workspace = true
+image.workspace = true
 ratatui.workspace = true
+ratatui-image.workspace = true
 tsuiyomi-core.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

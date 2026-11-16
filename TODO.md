@@ -87,14 +87,14 @@ without panics.
 ## Phase 5 — Reader
 
 - [x] Chapter list view per series, sorted by parsed chapter number.
-- [x] Open a series with Enter, back out with Esc; Enter on a chapter reports its page count.
-- [ ] Open a chapter and build the page list from core.
-- [ ] Render images via `ratatui-image` (Kitty/Sixel/iTerm2), with a configurable fallback
-      to an external opener (`xdg-open`).
-- [ ] Navigation: next/previous page, next/previous chapter, quit to library.
+- [x] Open a series with Enter, open a chapter, back out with Esc.
+- [x] Open a chapter and build the page list from core.
+- [x] Render image pages with `ratatui-image` (Kitty/Sixel/iTerm2, halfblocks fallback).
+- [x] Page navigation with `←`/`→`, `PageUp`/`PageDown`, and `Space`.
+- [ ] Next/previous chapter from inside the reader.
 - [ ] Fit modes and reading direction (LTR/RTL) in config.
 - [ ] Persist last-read page per chapter after a short debounce.
-- [ ] Handle unsupported or corrupt images without aborting.
+- [x] Handle unsupported or corrupt images without aborting.
 
 **Done when:** a chapter can be read end-to-end, progress survives restart, and image
 protocol fallback works over SSH.

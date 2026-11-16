@@ -7,6 +7,8 @@ pub enum Action {
     Quit,
     Previous,
     Next,
+    PreviousPage,
+    NextPage,
     PreviousTab,
     NextTab,
     PreviousCategory,
@@ -62,6 +64,8 @@ fn key_action(code: KeyCode) -> Option<Action> {
         }
         KeyCode::Up => Action::Previous,
         KeyCode::Down => Action::Next,
+        KeyCode::Left | KeyCode::PageUp => Action::PreviousPage,
+        KeyCode::Right | KeyCode::PageDown | KeyCode::Char(' ') => Action::NextPage,
         KeyCode::Tab => Action::NextTab,
         KeyCode::BackTab => Action::PreviousTab,
         _ => return None,
@@ -85,8 +89,15 @@ mod tests {
 
     #[test]
     fn arrows_do_not_control_tabs() {
-        assert_eq!(key_action(KeyCode::Left), None);
-        assert_eq!(key_action(KeyCode::Right), None);
+        assert_eq!(key_action(KeyCode::Left), Some(Action::PreviousPage));
+        assert_eq!(key_action(KeyCode::Right), Some(Action::NextPage));
+    }
+
+    #[test]
+    fn page_keys() {
+        assert_eq!(key_action(KeyCode::PageUp), Some(Action::PreviousPage));
+        assert_eq!(key_action(KeyCode::PageDown), Some(Action::NextPage));
+        assert_eq!(key_action(KeyCode::Char(' ')), Some(Action::NextPage));
     }
 
     #[test]

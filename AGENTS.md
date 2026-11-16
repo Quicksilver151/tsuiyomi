@@ -131,8 +131,9 @@ Rules:
 
 ## Current gaps
 
-- Reader is not implemented; Enter on a chapter reports its page count. `rar`/`cbr` and
-  `epub` pages are not supported yet (`zip`/`cbz` and folders are).
+- Reader renders pages with `ratatui-image`: it auto-detects Kitty/Sixel/iTerm2 and falls
+  back to Unicode halfblocks. `rar`/`cbr` and `epub` pages are not supported yet
+  (`zip`/`cbz` and folders are). Progress is not persisted yet.
 - `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.

@@ -18,6 +18,7 @@ use crossterm::{
     execute,
 };
 use ratatui::{layout::Rect, DefaultTerminal};
+use ratatui_image::picker::Picker;
 
 use crate::{
     draw::draw,
@@ -28,6 +29,11 @@ use crate::{
 /// Run the TUI until the user quits.
 pub fn run(mut app: AppState) -> io::Result<()> {
     let mut terminal = ratatui::init();
+
+    // Queries the terminal for Kitty/Sixel/iTerm2 support and font size. Must happen
+    // before any input events are read.
+    let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+    app.set_picker(picker);
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
@@ -60,8 +66,12 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
 
         match action {
             Action::Quit => return Ok(()),
-            Action::Previous | Action::ScrollUp => app.previous(),
-            Action::Next | Action::ScrollDown => app.next(),
+            Action::Previous => app.previous(),
+            Action::Next => app.next(),
+            Action::PreviousPage => app.previous_page(),
+            Action::NextPage => app.next_page(),
+            Action::ScrollUp => app.previous(),
+            Action::ScrollDown => app.next(),
             Action::PreviousTab => app.previous_tab(),
             Action::NextTab => app.next_tab(),
             Action::PreviousCategory => app.previous_category(),
