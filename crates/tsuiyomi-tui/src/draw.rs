@@ -113,21 +113,35 @@ fn draw_commands(frame: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let line = Line::from(vec![
-        Span::raw(" "),
-        key("q"),
-        Span::raw("uit"),
-        separator(),
-        key("c"),
-        Span::raw("onfig"),
-        separator(),
-        key("f"),
-        Span::raw("ullscreen"),
-        separator(),
-        key("Esc"),
-        Span::raw("ape"),
-    ]);
-    frame.render_widget(Paragraph::new(line), inner);
+    let items = [
+        ("q", "quit"),
+        ("↑↓", "move"),
+        ("Tab", "tabs"),
+        ("r", "refresh"),
+        ("c", "config"),
+        ("f", "full"),
+        ("Esc", "back"),
+        ("mouse", ""),
+    ];
+
+    let mut spans = Vec::new();
+    for (position, (key, label)) in items.iter().enumerate() {
+        if position > 0 {
+            spans.push(Span::styled(" · ", Style::default().fg(OVERLAY0)));
+        }
+        spans.push(Span::styled(
+            *key,
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        ));
+        if !label.is_empty() {
+            spans.push(Span::styled(
+                format!(" {label}"),
+                Style::default().fg(OVERLAY0),
+            ));
+        }
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), inner);
 }
 
 fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -341,17 +355,6 @@ fn placeholder(frame: &mut Frame, area: Rect, title: &'static str, message: &'st
     );
 }
 
-fn key(text: &'static str) -> Span<'static> {
-    Span::styled(
-        text,
-        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
-    )
-}
-
-fn separator() -> Span<'static> {
-    Span::styled(" │ ", Style::default().fg(SURFACE1))
-}
-
 fn center_label(label: &str, width: u16) -> String {
     let width = width as usize;
     let length = label.chars().count();
@@ -430,7 +433,8 @@ mod tests {
         assert!(text.contains("Tsuiyomi"));
         assert!(text.contains("commands"));
         assert!(text.contains("quit"));
-        assert!(text.contains("fullscreen"));
+        assert!(text.contains("refresh"));
+        assert!(text.contains("mouse"));
         assert!(text.contains("┬"));
         assert!(text.contains("┴"));
         assert!(text.contains("Test Series"));
