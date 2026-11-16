@@ -901,14 +901,14 @@ fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) 
 
     let (label, value) = setting_text(app, index);
     frame.render_widget(Paragraph::new(label).style(label_style), columns[0]);
-    frame.render_widget(
-        Paragraph::new(value)
-            .alignment(Alignment::Right)
-            .style(value_style),
-        columns[2],
-    );
 
     if let Some((ratio, _)) = setting_slider(app, index) {
+        frame.render_widget(
+            Paragraph::new(value)
+                .alignment(Alignment::Right)
+                .style(value_style),
+            columns[2],
+        );
         frame.render_widget(
             Gauge::default()
                 .ratio(ratio)
@@ -917,6 +917,14 @@ fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) 
                 .style(Style::default().bg(SURFACE0)),
             columns[1],
         );
+    } else {
+        let value_area = Rect::new(
+            columns[1].x,
+            row.y,
+            columns[1].width.saturating_add(columns[2].width),
+            1,
+        );
+        frame.render_widget(Paragraph::new(value).style(value_style), value_area);
     }
 }
 
@@ -947,10 +955,7 @@ fn setting_text(app: &AppState, index: usize) -> (String, String) {
             "Cache margin".to_owned(),
             app.scroll_cache.cache_margin.to_string(),
         ),
-        5 => (
-            "Library path".to_owned(),
-            app.library.root.display().to_string(),
-        ),
+        5 => ("Library path".to_owned(), display_path(&app.library.root)),
         6 => ("Theme".to_owned(), "Catppuccin Mocha".to_owned()),
         _ => (String::new(), String::new()),
     }
@@ -964,6 +969,18 @@ fn setting_slider(app: &AppState, index: usize) -> Option<(f64, (u16, u16))> {
         4 => Some((app.scroll_cache.cache_margin as f64 / 12.0, (0, 12))),
         _ => None,
     }
+}
+
+fn display_path(path: &std::path::Path) -> String {
+    if let Some(home) = std::env::var_os("HOME") {
+        if let Ok(stripped) = path.strip_prefix(home) {
+            if stripped.as_os_str().is_empty() {
+                return "~".to_owned();
+            }
+            return format!("~/{}", stripped.display());
+        }
+    }
+    path.display().to_string()
 }
 
 fn reading_mode_label(mode: ReadingMode) -> &'static str {
