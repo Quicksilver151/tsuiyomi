@@ -28,15 +28,23 @@ pub enum ReaderMode {
     Scroll,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollPageLayout {
+    pub start: u32,
+    pub rows: u16,
+    pub cell_width: u16,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+}
+
 pub struct ScrollState {
-    pub protocol: SlicedProtocol,
-    /// Signed Y offset of the tall image; 0 is the top.
-    pub offset: i16,
+    pub layout: Vec<ScrollPageLayout>,
+    pub protocols: Vec<Option<SlicedProtocol>>,
+    /// First visible row.
+    pub offset: u32,
     pub width: u16,
     pub viewport_height: u16,
-    pub total_rows: u16,
-    /// Row at which each page starts. Exact, because pages are composed on row boundaries.
-    pub page_starts: Vec<u16>,
+    pub total_rows: u32,
 }
 
 pub struct ReaderState {
@@ -44,6 +52,8 @@ pub struct ReaderState {
     pub chapter_title: String,
     pub chapter_path: PathBuf,
     pub pages: Vec<Page>,
+    /// Cached pixel dimensions, filled on first scroll layout.
+    pub page_sizes: Vec<(u32, u32)>,
     pub page_index: usize,
     pub protocol: Option<StatefulProtocol>,
     pub scroll: Option<ScrollState>,
@@ -245,8 +255,8 @@ impl AppState {
                     return;
                 };
                 let page = reader.page_index;
-                let current = -(scroll.offset as i32);
-                let start = i32::from(scroll.page_starts.get(page).copied().unwrap_or(0));
+                let current = scroll.offset as i32;
+                let start = scroll.layout.get(page).map_or(0, |page| page.start) as i32;
                 (page, current <= start)
             };
             if aligned {
@@ -334,9 +344,11 @@ impl AppState {
                     return;
                 };
                 let page = page.min(reader.pages.len().saturating_sub(1));
-                let start = scroll.page_starts.get(page).copied().unwrap_or(0);
-                let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height);
-                scroll.offset = -(start.min(max_scroll) as i16);
+                let start = scroll.layout.get(page).map_or(0, |page| page.start);
+                let max_scroll = scroll
+                    .total_rows
+                    .saturating_sub(u32::from(scroll.viewport_height));
+                scroll.offset = start.min(max_scroll);
                 reader.page_index = page;
                 reader.error = None;
                 (reader.chapter_path.clone(), reader.pages.len())
@@ -407,6 +419,7 @@ impl AppState {
             chapter_title: chapter.title,
             chapter_path: chapter.path,
             pages,
+            page_sizes: Vec::new(),
             page_index: start_page,
             protocol: None,
             scroll: None,
@@ -517,93 +530,43 @@ impl AppState {
         let available_pixel_width = u32::from(width.max(1)) * font_width;
         let zoom = f64::from(self.zoom) / 100.0;
 
-        let mut page_images = Vec::with_capacity(pages.len());
-        let mut page_heights = Vec::with_capacity(pages.len());
+        let sizes = match self.page_sizes(&pages) {
+            Ok(sizes) => sizes,
+            Err(error) => {
+                self.set_reader_error(error);
+                return;
+            }
+        };
+
+        let mut layout = Vec::with_capacity(sizes.len());
         let mut total_rows = 0u32;
-        let mut canvas_width = available_pixel_width;
-
-        for page in &pages {
-            let bytes = match read_page(page) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    self.set_reader_error(error.to_string());
-                    return;
-                }
-            };
-            let image = match image::load_from_memory(&bytes) {
-                Ok(image) => image,
-                Err(error) => {
-                    self.set_reader_error(format!("{}: {error}", page.name));
-                    return;
-                }
-            };
-
-            let source_width = f64::from(image.width().max(1));
-            // Fit width for large pages, but never upscale at the default 100%.
-            let fit_scale = (f64::from(available_pixel_width) / source_width).min(1.0);
+        for (source_width, source_height) in sizes {
+            let fit_scale = (f64::from(available_pixel_width) / f64::from(source_width)).min(1.0);
             let scale = fit_scale * zoom;
-            let pixel_width = (source_width * scale).round().max(1.0) as u32;
+            let pixel_width = (f64::from(source_width) * scale).round().max(1.0) as u32;
             let rows =
-                ((f64::from(image.height()) * scale / f64::from(font_height)).ceil() as u32).max(1);
-            total_rows = total_rows.saturating_add(rows);
-            if total_rows > i16::MAX as u32 {
-                self.set_reader_error("Chapter is too tall for scroll mode.");
+                ((f64::from(source_height) * scale / f64::from(font_height)).ceil() as u32).max(1);
+            if rows > u32::from(u16::MAX) {
+                self.set_reader_error("A page is too tall for scroll mode.");
                 return;
             }
 
             let pixel_height = rows * font_height;
-            page_images.push(
-                image
-                    .resize_exact(
-                        pixel_width,
-                        pixel_height,
-                        image::imageops::FilterType::Triangle,
-                    )
-                    .to_rgba8(),
-            );
-            page_heights.push(rows as u16);
-            canvas_width = canvas_width.max(pixel_width);
-        }
-
-        let total_height = total_rows.saturating_mul(font_height);
-        if u64::from(canvas_width) * u64::from(total_height) > 64_000_000 {
-            self.set_reader_error("Chapter is too large for scroll mode.");
-            return;
-        }
-
-        let protocol_width = canvas_width.div_ceil(font_width).max(1);
-        if protocol_width > i16::MAX as u32 {
-            self.set_reader_error("Zoomed image is too wide.");
-            return;
-        }
-
-        let mut canvas = image::RgbaImage::new(canvas_width, total_height);
-        let mut page_starts = Vec::with_capacity(page_images.len());
-        let mut row = 0u16;
-        for (image, rows) in page_images.iter().zip(page_heights.iter()) {
-            page_starts.push(row);
-            let x = i64::from((canvas_width - image.width()) / 2);
-            image::imageops::overlay(
-                &mut canvas,
-                image,
-                x,
-                i64::from(u32::from(row) * font_height),
-            );
-            row += rows;
-        }
-
-        let protocol = match SlicedProtocol::new_with_resize(
-            &picker,
-            image::DynamicImage::ImageRgba8(canvas),
-            Size::new(protocol_width as u16, total_rows as u16),
-            Resize::Fit(None),
-        ) {
-            Ok(protocol) => protocol,
-            Err(error) => {
-                self.set_reader_error(error.to_string());
+            let cell_width = pixel_width.div_ceil(font_width).max(1);
+            if cell_width > u32::from(u16::MAX) {
+                self.set_reader_error("A page is too wide for scroll mode.");
                 return;
             }
-        };
+
+            layout.push(ScrollPageLayout {
+                start: total_rows,
+                rows: rows as u16,
+                cell_width: cell_width as u16,
+                pixel_width,
+                pixel_height,
+            });
+            total_rows = total_rows.saturating_add(rows);
+        }
 
         let viewport_height = self
             .reader
@@ -612,22 +575,48 @@ impl AppState {
             .map_or(10, |scroll| scroll.viewport_height)
             .max(1);
         let page_index = self.reader.as_ref().map_or(0, |reader| reader.page_index);
-        let start_row = page_starts.get(page_index).copied().unwrap_or(0);
-        let total_rows = protocol.size().height.max(1);
-        let max_scroll = total_rows.saturating_sub(viewport_height);
-        let offset = -(start_row.min(max_scroll) as i16);
+        let start_row = layout.get(page_index).map_or(0, |page| page.start);
+        let total_rows = total_rows.max(1);
+        let max_scroll = total_rows.saturating_sub(u32::from(viewport_height));
+        let offset = start_row.min(max_scroll);
+        let page_count = layout.len();
 
         if let Some(reader) = self.reader.as_mut() {
             reader.error = None;
             reader.scroll = Some(ScrollState {
-                protocol,
+                layout,
+                protocols: (0..page_count).map(|_| None).collect(),
                 offset,
                 width: width.max(1),
                 viewport_height,
                 total_rows,
-                page_starts,
             });
         }
+    }
+
+    fn page_sizes(&mut self, pages: &[Page]) -> Result<Vec<(u32, u32)>, String> {
+        if let Some(reader) = self.reader.as_ref() {
+            if reader.page_sizes.len() == pages.len() {
+                return Ok(reader.page_sizes.clone());
+            }
+        }
+
+        let mut sizes = Vec::with_capacity(pages.len());
+        for page in pages {
+            let bytes = read_page(page).map_err(|error| error.to_string())?;
+            let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+                .with_guessed_format()
+                .map_err(|error| format!("{}: {error}", page.name))?;
+            let size = reader
+                .into_dimensions()
+                .map_err(|error| format!("{}: {error}", page.name))?;
+            sizes.push(size);
+        }
+
+        if let Some(reader) = self.reader.as_mut() {
+            reader.page_sizes = sizes.clone();
+        }
+        Ok(sizes)
     }
 
     pub(crate) fn ensure_scroll_width(&mut self, width: u16) {
@@ -641,6 +630,134 @@ impl AppState {
         }
     }
 
+    pub(crate) fn ensure_scroll_view(&mut self, viewport_height: u16) {
+        let (load_start, load_end, first, last) = {
+            let Some(reader) = self.reader.as_mut() else {
+                return;
+            };
+            let Some(scroll) = reader.scroll.as_mut() else {
+                return;
+            };
+
+            scroll.viewport_height = viewport_height.max(1);
+            let max_scroll = scroll
+                .total_rows
+                .saturating_sub(u32::from(scroll.viewport_height));
+            if scroll.offset > max_scroll {
+                scroll.offset = max_scroll;
+            }
+
+            let top = scroll.offset;
+            let bottom = top.saturating_add(u32::from(scroll.viewport_height));
+            let first = scroll
+                .layout
+                .iter()
+                .position(|page| page.start.saturating_add(u32::from(page.rows)) > top)
+                .unwrap_or(0);
+            let last = scroll
+                .layout
+                .iter()
+                .rposition(|page| page.start < bottom)
+                .unwrap_or(first);
+            let load_start = first.saturating_sub(1);
+            let load_end = (last + 2).min(scroll.layout.len().saturating_sub(1));
+
+            let page = if top >= max_scroll {
+                scroll.layout.len().saturating_sub(1)
+            } else {
+                scroll
+                    .layout
+                    .iter()
+                    .rposition(|page| page.start <= top)
+                    .unwrap_or(0)
+            };
+            reader.page_index = page;
+
+            (load_start, load_end, first, last)
+        };
+
+        if self
+            .reader
+            .as_ref()
+            .is_some_and(|reader| !reader.pages.is_empty())
+        {
+            for index in load_start..=load_end {
+                let loaded = self
+                    .reader
+                    .as_ref()
+                    .and_then(|reader| reader.scroll.as_ref())
+                    .and_then(|scroll| scroll.protocols.get(index))
+                    .is_some_and(Option::is_some);
+                if !loaded {
+                    self.load_scroll_page(index);
+                }
+            }
+        }
+
+        // Keep memory bounded: drop protocols far outside the viewport.
+        if let Some(reader) = self.reader.as_mut() {
+            if let Some(scroll) = reader.scroll.as_mut() {
+                let keep_start = first.saturating_sub(4);
+                let keep_end = last + 4;
+                for (index, protocol) in scroll.protocols.iter_mut().enumerate() {
+                    if index < keep_start || index > keep_end {
+                        *protocol = None;
+                    }
+                }
+            }
+        }
+    }
+
+    fn load_scroll_page(&mut self, index: usize) {
+        let Some(reader) = self.reader.as_ref() else {
+            return;
+        };
+        let Some(scroll) = reader.scroll.as_ref() else {
+            return;
+        };
+        let Some(page) = reader.pages.get(index).cloned() else {
+            return;
+        };
+        let Some(layout) = scroll.layout.get(index).copied() else {
+            return;
+        };
+        let Some(picker) = self.picker.clone() else {
+            self.set_reader_error("No terminal graphics backend.");
+            return;
+        };
+
+        let bytes = match read_page(&page) {
+            Ok(bytes) => bytes,
+            Err(_) => return,
+        };
+        let image = match image::load_from_memory(&bytes) {
+            Ok(image) => image,
+            Err(_) => return,
+        };
+        let image = image.resize_exact(
+            layout.pixel_width,
+            layout.pixel_height,
+            image::imageops::FilterType::Triangle,
+        );
+        let protocol = match SlicedProtocol::new_with_resize(
+            &picker,
+            image,
+            Size::new(layout.cell_width, layout.rows),
+            Resize::Fit(None),
+        ) {
+            Ok(protocol) => protocol,
+            Err(_) => return,
+        };
+
+        if let Some(reader) = self.reader.as_mut() {
+            if let Some(scroll) = reader.scroll.as_mut() {
+                if let Some(slot) = scroll.protocols.get_mut(index) {
+                    *slot = Some(protocol);
+                }
+            }
+        }
+    }
+
     fn scroll_lines(&mut self, delta: i32) {
         let (changed, chapter_path, pages, page) = {
             let Some(reader) = self.reader.as_mut() else {
@@ -650,16 +767,19 @@ impl AppState {
                 return;
             };
 
-            let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height) as i32;
-            let current = -(scroll.offset as i32);
+            let max_scroll = scroll
+                .total_rows
+                .saturating_sub(u32::from(scroll.viewport_height))
+                as i32;
+            let current = scroll.offset as i32;
             let next = (current + delta).clamp(0, max_scroll);
-            scroll.offset = -(next as i16);
+            scroll.offset = next as u32;
             let at_end = next >= max_scroll;
 
             let mut page = scroll
-                .page_starts
+                .layout
                 .iter()
-                .rposition(|start| i32::from(*start) <= next)
+                .rposition(|page| page.start as i32 <= next)
                 .unwrap_or(0);
             if at_end && !reader.pages.is_empty() {
                 page = reader.pages.len() - 1;
@@ -948,10 +1068,22 @@ mod tests {
         app.toggle_reader_mode();
         assert_eq!(app.reader_mode, ReaderMode::Scroll);
         let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
-        assert_eq!(scroll.page_starts.len(), 2);
+        assert_eq!(scroll.layout.len(), 2);
         assert!(scroll.total_rows > 0);
         let offset = scroll.offset;
-        assert!(offset < 0);
+        assert!(offset > 0);
+
+        app.ensure_scroll_view(10);
+        assert!(app
+            .reader
+            .as_ref()
+            .unwrap()
+            .scroll
+            .as_ref()
+            .unwrap()
+            .protocols
+            .iter()
+            .any(Option::is_some));
 
         app.previous_page();
         assert_eq!(app.reader.as_ref().unwrap().page_index, 0);
@@ -962,14 +1094,16 @@ mod tests {
 
         app.next_page();
         let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
-        let page_two_start = scroll.page_starts[1];
-        let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height);
-        let expected = -(page_two_start.min(max_scroll) as i16);
+        let page_two_start = scroll.layout[1].start;
+        let max_scroll = scroll
+            .total_rows
+            .saturating_sub(u32::from(scroll.viewport_height));
+        let expected = page_two_start.min(max_scroll);
         assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
         assert_eq!(scroll.offset, expected);
 
         app.next();
-        assert!(app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset < expected);
+        assert!(app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset > expected);
 
         for _ in 0..100 {
             app.next();

@@ -341,6 +341,7 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let mode = app.reader_mode;
     if mode == ReaderMode::Scroll {
         app.ensure_scroll_width(area.width);
+        app.ensure_scroll_view(area.height.saturating_sub(1));
     }
 
     let protocol_name = app.protocol_name();
@@ -391,37 +392,36 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
             }
         }
         ReaderMode::Scroll => {
-            let page_count = reader.pages.len();
-            let mut at_end = false;
+            if let Some(scroll) = reader.scroll.as_ref() {
+                let area = chunks[1];
+                let offset = scroll.offset;
+                for (index, page) in scroll.layout.iter().enumerate() {
+                    let top = i64::from(page.start) - i64::from(offset);
+                    if top >= i64::from(area.height) {
+                        break;
+                    }
+                    if top + i64::from(page.rows) <= 0 {
+                        continue;
+                    }
 
-            if let Some(scroll) = reader.scroll.as_mut() {
-                scroll.viewport_height = chunks[1].height.max(1);
-                let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height) as i32;
-                let mut current = -(scroll.offset as i32);
-                if current > max_scroll {
-                    scroll.offset = -(max_scroll as i16);
-                    current = max_scroll;
+                    let Some(protocol) = scroll.protocols.get(index).and_then(Option::as_ref)
+                    else {
+                        continue;
+                    };
+                    let x = area.width.saturating_sub(page.cell_width) / 2;
+                    frame.render_widget(
+                        SlicedImage::new(
+                            protocol,
+                            SignedPosition {
+                                x: x as i16,
+                                y: top as i16,
+                            },
+                        ),
+                        area,
+                    );
                 }
-                at_end = current >= max_scroll;
-
-                let image_width = scroll.protocol.size().width;
-                let x = chunks[1].width.saturating_sub(image_width) / 2;
-                frame.render_widget(
-                    SlicedImage::new(
-                        &scroll.protocol,
-                        SignedPosition {
-                            x: x as i16,
-                            y: scroll.offset,
-                        },
-                    ),
-                    chunks[1],
-                );
             } else {
                 placeholder_message(frame, chunks[1], "Preparing scroll view…");
-            }
-
-            if at_end && page_count > 0 {
-                reader.page_index = page_count - 1;
             }
         }
     }
@@ -918,6 +918,7 @@ mod tests {
                 name: "1.png".to_owned(),
                 source: PageSource::File(PathBuf::from("/tmp/1.png")),
             }],
+            page_sizes: Vec::new(),
             page_index: 0,
             protocol: None,
             scroll: None,

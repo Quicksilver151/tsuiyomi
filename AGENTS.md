@@ -135,9 +135,11 @@ Rules:
   back to Unicode halfblocks. `rar`/`cbr` and `epub` pages are not supported yet
   (`zip`/`cbz` and folders are). `m` toggles page-turn vs continuous scroll
   (`SlicedProtocol`); left/right align page tops, space/page keys scroll a screen, and
-  `+`/`-` adjust zoom (no upscaling at 100%). Progress is stored in
-  `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction and fit modes are not
-  configurable yet.
+  `+`/`-` adjust zoom (no upscaling at 100%). Scroll mode reads page dimensions once,
+  lazily decodes only visible/nearby pages, caches their protocols, and uses Kitty shared
+  memory when available. Progress is stored in `$XDG_DATA_HOME/tsuiyomi/progress.json`.
+  Reading direction, fit modes, and retransmit-free Kitty placement zoom are not
+  implemented yet.
 - `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.

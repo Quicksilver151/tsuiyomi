@@ -18,7 +18,7 @@ use crossterm::{
     execute,
 };
 use ratatui::{layout::Rect, DefaultTerminal};
-use ratatui_image::picker::Picker;
+use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
 use tsuiyomi_core::ProgressStore;
 
 use crate::{
@@ -33,8 +33,12 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     let mut terminal = ratatui::init();
 
     // Queries the terminal for Kitty/Sixel/iTerm2 support and font size. Must happen
-    // before any input events are read.
-    let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+    // before any input events are read. Prefer Kitty shared memory for transmissions.
+    let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
+        kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
+        ..Default::default()
+    })
+    .unwrap_or_else(|_| Picker::halfblocks());
     app.set_picker(picker);
     app.set_progress(ProgressStore::load_default());
 
