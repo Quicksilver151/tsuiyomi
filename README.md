@@ -98,6 +98,7 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
 - [ ] Parse `ComicInfo.xml` (legacy `details.json` and `.desc` already work).
 - [x] Terminal reader using Kitty/Sixel/iTerm2 graphics with a halfblocks fallback.
 - [x] Page-turn and continuous vertical scroll modes (`m` toggles).
+- [x] Reader bottom bar: previous/next chapter, page gauge, and mode toggle; tabs hidden.
 - [x] Remember the last-read page and resume when a chapter is reopened.
 - [ ] Import and export Mihon `.tachibk` backups.
 - [ ] Local update tracking, search, and config UI.

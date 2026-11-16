@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 use ratatui_image::{
@@ -13,7 +13,7 @@ use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, Series};
 
 use crate::{
     app::{AppState, LibraryView, ReaderMode},
-    layout::{app_layout, library_layout, tab_layouts, TAB_NAMES},
+    layout::{app_layout, library_layout, reader_bar_layout, tab_layouts, TAB_NAMES},
     palette::{
         BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, RED, SUBTEXT1, SURFACE0,
         SURFACE1, TEAL, TEXT, YELLOW,
@@ -53,7 +53,11 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
         _ => draw_more(frame, layout.content, app),
     }
 
-    draw_tabs(frame, layout.tabs, app.tab);
+    if app.tab == 0 && app.view == LibraryView::Reader {
+        draw_reader_bar(frame, layout.tabs, app);
+    } else {
+        draw_tabs(frame, layout.tabs, app.tab);
+    }
 
     if let Some(commands) = layout.commands {
         draw_commands(frame, commands, app);
@@ -73,6 +77,91 @@ fn draw_header(frame: &mut Frame, area: Rect) {
             .style(Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)),
         inner,
     );
+}
+
+fn draw_reader_bar(frame: &mut Frame, area: Rect, app: &AppState) {
+    let block = panel(
+        Line::from(Span::styled(" reader ", Style::default().fg(OVERLAY1))),
+        SURFACE1,
+    );
+    frame.render_widget(block, area);
+
+    let Some(reader) = app.reader.as_ref() else {
+        return;
+    };
+    let layout = reader_bar_layout(area);
+
+    let previous_enabled = app.chapter_index + 1 < app.chapter_count();
+    let next_enabled = app.chapter_index > 0;
+    render_reader_button(
+        frame,
+        layout.previous,
+        "p",
+        "‹ prev",
+        previous_enabled,
+        Alignment::Center,
+    );
+    render_reader_button(
+        frame,
+        layout.next,
+        "next ›",
+        "n",
+        next_enabled,
+        Alignment::Center,
+    );
+
+    let total = reader.pages.len().max(1);
+    let current = (reader.page_index + 1).min(total);
+    let ratio = current as f64 / total as f64;
+    frame.render_widget(
+        Gauge::default()
+            .ratio(ratio)
+            .label(format!(" {current} / {total} "))
+            .gauge_style(Style::default().fg(LAVENDER).bg(SURFACE0))
+            .style(Style::default().fg(TEXT)),
+        layout.progress,
+    );
+
+    let (mode_key, mode_label) = match app.reader_mode {
+        ReaderMode::Page => ("m", "scroll"),
+        ReaderMode::Scroll => ("m", "page"),
+    };
+    let mode = Line::from(vec![
+        Span::styled(
+            mode_key,
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!(" {mode_label}"), Style::default().fg(OVERLAY1)),
+    ]);
+    frame.render_widget(
+        Paragraph::new(mode).alignment(Alignment::Right),
+        layout.mode,
+    );
+}
+
+fn render_reader_button(
+    frame: &mut Frame,
+    area: Rect,
+    key: &'static str,
+    label: &'static str,
+    enabled: bool,
+    alignment: Alignment,
+) {
+    let key_style = if enabled {
+        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(OVERLAY0)
+    };
+    let label_style = if enabled {
+        Style::default().fg(TEXT)
+    } else {
+        Style::default().fg(OVERLAY0)
+    };
+    let line = Line::from(vec![
+        Span::styled(key, key_style),
+        Span::styled(format!(" {label}"), label_style),
+    ]);
+    frame.render_widget(Paragraph::new(line).alignment(alignment), area);
 }
 
 fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
@@ -139,7 +228,6 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("m", "scroll"),
                 ("f", "full"),
                 ("Esc", "back"),
-                ("Tab", "tabs"),
             ]
         }
     } else {
@@ -850,7 +938,10 @@ mod tests {
         assert!(text.contains("1/1"));
         assert!(text.contains("Reader error"));
         assert!(text.contains("page"));
+        assert!(text.contains("prev"));
+        assert!(text.contains("next"));
         assert!(text.contains("Esc back"));
+        assert!(!text.contains("Browse"));
     }
 
     #[test]

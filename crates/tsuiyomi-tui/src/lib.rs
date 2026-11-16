@@ -22,9 +22,10 @@ use ratatui_image::picker::Picker;
 use tsuiyomi_core::ProgressStore;
 
 use crate::{
+    app::LibraryView,
     draw::draw,
     input::Action,
-    layout::{app_layout, contains, inner, library_layout, tab_layouts},
+    layout::{app_layout, contains, inner, library_layout, reader_bar_layout, tab_layouts},
 };
 
 /// Run the TUI until the user quits.
@@ -99,6 +100,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
 fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     let layout = app_layout(area, app.fullscreen);
 
+    if app.tab == 0 && app.view == LibraryView::Reader {
+        handle_reader_click(layout.tabs, app, column, row);
+        return;
+    }
+
     if contains(layout.tabs, column, row) {
         if let Some(tab) = tab_layouts(layout.tabs)
             .into_iter()
@@ -119,5 +125,39 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         let visible_row = (row - list_area.y) as usize;
         let index = app.list_state.offset() + visible_row;
         app.select_index(index);
+    }
+}
+
+fn handle_reader_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
+    let bar = reader_bar_layout(area);
+
+    if contains(bar.previous, column, row) {
+        if app.chapter_index + 1 < app.chapter_count() {
+            app.previous_chapter();
+        }
+        return;
+    }
+
+    if contains(bar.next, column, row) {
+        if app.chapter_index > 0 {
+            app.next_chapter();
+        }
+        return;
+    }
+
+    if contains(bar.mode, column, row) {
+        app.toggle_reader_mode();
+        return;
+    }
+
+    if contains(bar.progress, column, row) {
+        let width = bar.progress.width.max(1);
+        let ratio = f64::from(column.saturating_sub(bar.progress.x)) / f64::from(width);
+        let ratio = ratio.clamp(0.0, 1.0);
+        let total = app.reader.as_ref().map_or(0, |reader| reader.pages.len());
+        if total > 0 {
+            let page = ((ratio * total as f64).floor() as usize).min(total - 1);
+            app.jump_to_page(page);
+        }
     }
 }

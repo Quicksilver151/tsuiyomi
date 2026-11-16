@@ -254,6 +254,42 @@ impl AppState {
         }
     }
 
+    pub fn jump_to_page(&mut self, page: usize) {
+        if self.view != LibraryView::Reader {
+            return;
+        }
+
+        if self.reader_mode == ReaderMode::Scroll {
+            let (chapter_path, pages) = {
+                let Some(reader) = self.reader.as_mut() else {
+                    return;
+                };
+                let Some(scroll) = reader.scroll.as_mut() else {
+                    return;
+                };
+                let page = page.min(reader.pages.len().saturating_sub(1));
+                let start = scroll.page_starts.get(page).copied().unwrap_or(0);
+                let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height);
+                scroll.offset = -(start.min(max_scroll) as i16);
+                reader.page_index = page;
+                reader.error = None;
+                (reader.chapter_path.clone(), reader.pages.len())
+            };
+            let _ = self.progress.record(&chapter_path, page, pages);
+        } else {
+            let (chapter_path, pages) = {
+                let Some(reader) = self.reader.as_mut() else {
+                    return;
+                };
+                let page = page.min(reader.pages.len().saturating_sub(1));
+                reader.page_index = page;
+                (reader.chapter_path.clone(), reader.pages.len())
+            };
+            self.load_page();
+            let _ = self.progress.record(&chapter_path, page, pages);
+        }
+    }
+
     pub fn select_index(&mut self, index: usize) {
         match self.view {
             LibraryView::Series if index < self.visible_count() => {

@@ -158,7 +158,8 @@ Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 ## Style
 
 - UI tabs mirror Mihon: Library, Updates, History, Browse, More. No numeric prefixes.
-  Selected tabs use lavender text only; do not fill their background.
+  Selected tabs use lavender text only; do not fill their background. Tabs are hidden in
+  the reader; the bottom bar shows prev/next chapter, a page gauge, and the mode toggle.
 - Theme: Catppuccin Mocha with lavender as the accent. Square borders, a single-row shared
   tab bar at the bottom, a commands box below it, and colored metadata fields. Fullscreen
   hides the title and commands boxes.

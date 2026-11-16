@@ -106,6 +106,35 @@ pub fn library_layout(area: Rect) -> LibraryLayout {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ReaderBarLayout {
+    pub previous: Rect,
+    pub progress: Rect,
+    pub next: Rect,
+    pub mode: Rect,
+}
+
+/// Controls replacing the tab bar while the reader is open.
+pub fn reader_bar_layout(area: Rect) -> ReaderBarLayout {
+    let inner = inner(area);
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(14),
+            Constraint::Min(10),
+            Constraint::Length(14),
+            Constraint::Length(12),
+        ])
+        .split(inner);
+
+    ReaderBarLayout {
+        previous: chunks[0],
+        progress: chunks[1],
+        next: chunks[2],
+        mode: chunks[3],
+    }
+}
+
 /// Area inside a one-cell border.
 pub fn inner(area: Rect) -> Rect {
     Rect {

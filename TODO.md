@@ -95,6 +95,7 @@ without panics.
 - [ ] Fit modes and reading direction (LTR/RTL) in config.
 - [x] Persist last-read page per chapter and resume on reopen.
 - [x] Continuous vertical scroll mode (`m` toggles page/scroll; arrows/wheel scroll 5 lines).
+- [x] Reader bottom bar with prev/next chapter buttons and a page gauge (tabs hidden).
 - [x] Handle unsupported or corrupt images without aborting.
 
 **Done when:** a chapter can be read end-to-end, progress survives restart, and image
