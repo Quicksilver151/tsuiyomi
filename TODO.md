@@ -22,38 +22,39 @@ Principles:
 
 ## Phase 1 — Workspace split
 
-- [ ] Convert the root `Cargo.toml` into a workspace (`resolver = "2"`).
-- [ ] Create `crates/tsuiyomi-core` (library scan, metadata, config, errors).
-- [ ] Create `crates/tsuiyomi-tui` (ratatui widgets, app state, input).
-- [ ] Create `crates/tsuiyomi` (thin binary that wires core + tui).
-- [ ] Move `usr::Config` and `utils::files` into core; move `ui` into tui.
-- [ ] Rename the legacy `Anime`/`anime` identifiers to `Series`/`library`.
-- [ ] Keep behavior identical; only move code.
+- [x] Convert the root `Cargo.toml` into a workspace (`resolver = "2"`).
+- [x] Create `crates/tsuiyomi-core` (library scan, metadata, config, errors).
+- [x] Create `crates/tsuiyomi-tui` (ratatui widgets, app state, input).
+- [x] Create `crates/tsuiyomi` (thin binary that wires core + tui).
+- [x] Move `usr::Config` and `utils::files` into core; move `ui` into tui.
+- [x] Rename the legacy `Anime`/`anime` identifiers to `Series`/`library`.
+- [x] Keep behavior identical; only move code.
 
 **Done when:** `cargo run` shows the same list, `tsuiyomi-core` has no ratatui/crossterm
 dependency, and no `anime` identifiers remain.
 
 ## Phase 2 — Domain model and scanner
 
-- [ ] Define core types: `Library`, `Series`, `SeriesId`, `Chapter`, `ChapterId`,
-      `ChapterKind` (directory/archive), `Page`.
-- [ ] Scan `local/`: one series per direct subdirectory, skip hidden entries, sort
+- [x] Define core types: `Library`, `Series`, `Chapter`, `ChapterKind`
+      (directory/archive).
+- [ ] Add `SeriesId`/`ChapterId` and `Page` when the reader lands.
+- [x] Scan `local/`: one series per direct subdirectory, skip hidden entries, sort
       case-insensitively and naturally.
-- [ ] Discover chapters: subdirectories plus `.zip`/`.cbz`/`.rar`/`.cbr`/`.epub`.
-- [ ] Derive chapter titles from directory names or archive stems.
-- [ ] Parse chapter numbers from names (numbers, `c001`, `v2`, decimals, ranges,
+- [x] Discover chapters: subdirectories plus `.zip`/`.cbz`/`.rar`/`.cbr`/`.epub`.
+- [x] Derive chapter titles from directory names or archive stems.
+- [x] Parse chapter numbers from names (numbers, `c001`, `v2`, decimals, ranges,
       specials). Put this in its own module with heavy tests.
 - [ ] Discover pages in a directory (image extensions, natural sort).
 - [ ] List pages inside `zip`/`cbz` archives (ignore archive-internal directories).
-- [ ] Collect per-series errors instead of failing the whole scan.
-- [ ] Add fixture-based tests using `tempfile`.
+- [x] Collect per-series errors instead of failing the whole scan.
+- [x] Add fixture-based tests using `tempfile`.
 
 **Done when:** scanning a fixture library returns the expected series, chapters, numbers,
 and page order, and a broken folder does not abort the scan.
 
 ## Phase 3 — Metadata
 
-- [ ] Parse legacy `details.json` (`title`, `author`, `artist`, `description`, `genre`,
+- [x] Parse legacy `details.json` (`title`, `author`, `artist`, `description`, `genre`,
       `status`).
 - [ ] Parse series-level `ComicInfo.xml` with `quick-xml`.
 - [ ] Parse chapter-level `ComicInfo.xml` from folders and archives (title, number,
@@ -67,13 +68,14 @@ XML/JSON leaves the series usable.
 
 ## Phase 4 — Library UI
 
-- [ ] Replace the anime panel with a series list + detail pane (title, author, tags,
+- [x] Replace the anime panel with a series list + detail pane (title, author, tags,
       description, chapter count).
-- [ ] Add a status bar (library path, counts, errors, key hints).
+- [x] Add a status bar (library path, counts, errors, key hints).
 - [ ] Move scanning to a background thread; post results through a channel as app events.
-- [ ] Show loading, empty, and error states.
-- [ ] Add refresh (`r`) and incremental title filter (`/`).
-- [ ] Keep selection stable across refresh and filtering.
+- [x] Show loading, empty, and error states.
+- [x] Add refresh (`r`); the incremental title filter (`/`) is still missing.
+- [x] Keep selection stable across refresh.
+- [x] Mouse support: click tabs, click a series, scroll the list.
 - [ ] Snapshot-test rendering with ratatui's `TestBackend` for empty/loaded/error states.
 
 **Done when:** the TUI is responsive while scanning and handles empty or broken libraries

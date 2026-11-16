@@ -104,7 +104,7 @@ References:
 ## Architecture
 
 The backend is **data-driven and UI-agnostic**. It must be usable from a TUI today and a
-GUI, web API, or CLI later. Planned workspace layout:
+GUI, web API, or CLI later. Workspace layout:
 
 ```
 crates/
@@ -119,22 +119,21 @@ Rules:
 - Core exposes plain data types plus commands/events (or an equivalent request/response
   API). UI code never touches the filesystem directly.
 - Input handling and state updates are separate from rendering. Rendering must not mutate
-  application state.
+  application data; view state such as `ListState` scroll offset is allowed.
 - Paths come from configuration/env (`TSUIYOMI_LIBRARY`), never hardcoded. Missing or
   unreadable directories are reported, not panicked on.
 - Prefer `Result` and typed errors. No `unwrap`/`expect` on user data, filesystem, or
   network input.
 - Keep parsing logic (chapter names, `ComicInfo.xml`, `details.json`, backups) in core so
   it can be unit tested without a terminal.
-- The current `src/` tree is a single crate. Split it when starting real feature work;
-  do not half-migrate. Until then, keep it compiling.
 
 ## Current gaps
 
-- The library browser still uses the legacy "Anime" naming and reads plain directories plus
-  `.desc` files. Replace it with the Mihon series/chapter model rather than extending it.
-- No tests yet.
-- The `src/` tree is still a single crate. Split it before real feature work.
+- Chapter page discovery (directories and archives) is not implemented yet.
+- `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
+- Scanning is synchronous on refresh; move it to a background task.
+- No title filter, reader, or backup support yet.
+- Core has tests for chapter parsing and scanning; the TUI has no rendering tests yet.
 
 Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 
