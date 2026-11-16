@@ -79,11 +79,17 @@ pub fn tab_layouts(area: Rect) -> Vec<TabLayout> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct LibraryLayout {
+    pub categories: Rect,
     pub list: Rect,
     pub details: Rect,
 }
 
 pub fn library_layout(area: Rect) -> LibraryLayout {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area);
+
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -91,9 +97,10 @@ pub fn library_layout(area: Rect) -> LibraryLayout {
             Constraint::Length(1),
             Constraint::Percentage(50),
         ])
-        .split(area);
+        .split(rows[1]);
 
     LibraryLayout {
+        categories: rows[0],
         list: chunks[0],
         details: chunks[2],
     }

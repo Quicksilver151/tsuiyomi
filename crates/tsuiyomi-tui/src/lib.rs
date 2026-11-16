@@ -64,6 +64,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Next | Action::ScrollDown => app.next(),
             Action::PreviousTab => app.previous_tab(),
             Action::NextTab => app.next_tab(),
+            Action::PreviousCategory => app.previous_category(),
+            Action::NextCategory => app.next_category(),
             Action::SelectTab(index) => app.select_tab(index),
             Action::Refresh => app.refresh(),
             Action::ToggleFullscreen => app.toggle_fullscreen(),

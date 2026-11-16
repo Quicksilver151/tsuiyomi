@@ -1,0 +1,12 @@
+{
+  "categories": [
+    {
+      "name": "Reading",
+      "series": ["One Piece", "Frieren"]
+    },
+    {
+      "name": "Plan to Read",
+      "series": ["Berserk"]
+    }
+  ]
+}

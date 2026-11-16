@@ -9,6 +9,8 @@ pub enum Action {
     Next,
     PreviousTab,
     NextTab,
+    PreviousCategory,
+    NextCategory,
     SelectTab(usize),
     Refresh,
     ToggleFullscreen,
@@ -48,6 +50,8 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('c') => Action::OpenConfig,
         KeyCode::Char('f') => Action::ToggleFullscreen,
         KeyCode::Char('r') => Action::Refresh,
+        KeyCode::Char('[') => Action::PreviousCategory,
+        KeyCode::Char(']') => Action::NextCategory,
         KeyCode::Char(character) if character.is_ascii_digit() => {
             let digit = character.to_digit(10).unwrap_or(1) as usize;
             Action::SelectTab(digit.saturating_sub(1))

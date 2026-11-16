@@ -76,6 +76,7 @@ XML/JSON leaves the series usable.
 - [x] Add refresh (`r`); the incremental title filter (`/`) is still missing.
 - [x] Add `c` config shortcut and `f` fullscreen (hides title and commands boxes).
 - [x] Keep selection stable across refresh.
+- [x] Add a category tab row inside Library, navigated with `[` and `]`.
 - [x] Add mouse support: click tabs, click a series, scroll the list.
 - [x] Add TestBackend rendering tests for loaded and empty/error states.
 

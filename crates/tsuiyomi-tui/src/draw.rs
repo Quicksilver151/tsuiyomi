@@ -149,25 +149,70 @@ fn draw_commands(frame: &mut Frame, area: Rect) {
 
 fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let layout = library_layout(area);
+    draw_categories(frame, layout.categories, app);
+
+    let category = app
+        .library
+        .categories
+        .get(app.category_index)
+        .map(String::as_str);
     draw_series_list(
         frame,
         layout.list,
         &app.library,
+        category,
         &mut app.list_state,
         app.selected,
     );
     draw_details(frame, layout.details, app);
 }
 
+fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
+    let mut spans = vec![Span::raw(" ")];
+    for (index, name) in app.library.categories.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" · ", Style::default().fg(OVERLAY0)));
+        }
+        let count = app
+            .library
+            .series
+            .iter()
+            .filter(|series| in_category(series, Some(name)))
+            .count();
+        let style = if index == app.category_index {
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(OVERLAY1)
+        };
+        spans.push(Span::styled(name.clone(), style));
+        spans.push(Span::styled(
+            format!(" {count}"),
+            Style::default().fg(OVERLAY0),
+        ));
+    }
+    spans.push(Span::styled(
+        "   [ ] categories",
+        Style::default().fg(OVERLAY0),
+    ));
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
 fn draw_series_list(
     frame: &mut Frame,
     area: Rect,
     library: &Library,
+    category: Option<&str>,
     list_state: &mut ListState,
     selected: usize,
 ) {
-    let items: Vec<ListItem> = library
+    let series: Vec<&Series> = library
         .series
+        .iter()
+        .filter(|series| in_category(series, category))
+        .collect();
+
+    let items: Vec<ListItem> = series
         .iter()
         .map(|series| {
             let title = Line::from(vec![
@@ -181,16 +226,17 @@ fn draw_series_list(
         })
         .collect();
 
-    let count = library.series.len();
+    let count = series.len();
     if count == 0 {
         list_state.select(None);
     } else {
         list_state.select(Some(selected.min(count - 1)));
     }
 
+    let category_name = category.unwrap_or("All");
     let title = Line::from(vec![
         Span::styled(
-            " Library ",
+            format!(" Library · {category_name} "),
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!("{count} "), Style::default().fg(OVERLAY0)),
@@ -208,6 +254,10 @@ fn draw_series_list(
         .highlight_symbol("› ");
 
     frame.render_stateful_widget(list, area, list_state);
+}
+
+fn in_category(series: &Series, category: Option<&str>) -> bool {
+    category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
 
 fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
@@ -395,6 +445,7 @@ mod tests {
             artist: None,
             description: "A test description.".to_owned(),
             tags: vec!["fantasy".to_owned()],
+            categories: vec!["Default".to_owned()],
             chapters: vec![Chapter {
                 path: PathBuf::from("/tmp/library/Test Series/Chapter 1"),
                 title: "Chapter 1".to_owned(),
@@ -406,6 +457,7 @@ mod tests {
         let library = Library {
             root: PathBuf::from("/tmp/library"),
             series: vec![series],
+            categories: vec!["Default".to_owned()],
             errors: Vec::new(),
         };
         AppState::new(library, None)
@@ -443,6 +495,9 @@ mod tests {
         assert!(text.contains("History"));
         assert!(text.contains("Browse"));
         assert!(text.contains("More"));
+        assert!(text.contains("Default"));
+        assert!(text.contains("[ ]"));
+        assert!(text.contains("Library · Default"));
         assert!(!text.contains("1 Library"));
         assert!(text.contains("Test Series"));
         assert!(text.contains("Details"));

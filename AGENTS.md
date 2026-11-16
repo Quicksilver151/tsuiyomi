@@ -25,7 +25,7 @@ expected and welcome when they move the project toward the architecture below.
 - Machine-local env vars live in `.env.local` (gitignored, copied from
   `.env.local.example`). `TSUIYOMI_LIBRARY` overrides the library root and `TSUIYOMI_LOG`
   sets the log level. Without an override the root defaults to
-  `$XDG_DATA_HOME/tsuiyomi` (`~/.local/share/tsuiyomi`).
+  `$XDG_DATA_HOME/tsuiyomi/local` (`~/.local/share/tsuiyomi/local`).
 - **Never run Nix build commands** (`nix build`, `nix flake check`, `nix develop -c ...`).
   The user manages the devshell and builds. Dry runs and evaluation are fine
   (`nix-instantiate --parse`, `nix eval` of small pure expressions).
@@ -133,6 +133,8 @@ Rules:
 
 - Chapter page discovery (directories and archives) is not implemented yet.
 - `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
+- Categories come from `categories.json` in the library root (Mihon keeps them in its
+  database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
 - No title filter, reader, or backup support yet.
 - The config loader tolerates the existing on-disk schema but does not use or preserve its

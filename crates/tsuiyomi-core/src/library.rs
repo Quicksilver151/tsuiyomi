@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -11,11 +11,13 @@ use crate::{
     error::CoreError,
 };
 
-/// A scanned Mihon `local/` directory.
+/// A scanned library root.
 #[derive(Debug, Clone, Default)]
 pub struct Library {
     pub root: PathBuf,
     pub series: Vec<Series>,
+    /// Category names, `Default` first when it exists.
+    pub categories: Vec<String>,
     /// Series that could not be read. A broken folder never aborts the scan.
     pub errors: Vec<ScanError>,
 }
@@ -29,6 +31,8 @@ pub struct Series {
     pub artist: Option<String>,
     pub description: String,
     pub tags: Vec<String>,
+    /// Category names this series belongs to.
+    pub categories: Vec<String>,
     /// Newest first, matching Mihon.
     pub chapters: Vec<Chapter>,
     /// Non-fatal metadata problems, e.g. malformed `details.json`.
@@ -66,19 +70,103 @@ struct DetailsJson {
     genre: Option<Vec<String>>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct CategoriesFile {
+    #[serde(default)]
+    categories: Vec<CategoryEntry>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct CategoryEntry {
+    name: String,
+    #[serde(default)]
+    series: Vec<String>,
+}
+
+/// Assign categories from `categories.json` in the library root.
+///
+/// The file looks like:
+///
+/// ```json
+/// {
+///   "categories": [
+///     { "name": "Reading", "series": ["One Piece", "Frieren"] }
+///   ]
+/// }
+/// ```
+///
+/// Series not listed anywhere land in the system `Default` category, like Mihon.
+fn apply_categories(library: &mut Library) {
+    let mut categories = Vec::new();
+
+    if let Ok(text) = fs::read_to_string(library.root.join("categories.json")) {
+        if let Ok(file) = serde_json::from_str::<CategoriesFile>(&text) {
+            for entry in file.categories {
+                let name = entry.name.trim();
+                if name.is_empty() || categories.iter().any(|existing| existing == name) {
+                    continue;
+                }
+                let name = name.to_owned();
+                for title in entry.series {
+                    if let Some(series) = library
+                        .series
+                        .iter_mut()
+                        .find(|series| series.title == title)
+                    {
+                        if !series.categories.contains(&name) {
+                            series.categories.push(name.clone());
+                        }
+                    }
+                }
+                categories.push(name);
+            }
+        }
+    }
+
+    let uncategorized = library
+        .series
+        .iter()
+        .any(|series| series.categories.is_empty());
+    if categories.is_empty() || uncategorized {
+        for series in &mut library.series {
+            if series.categories.is_empty() {
+                series.categories.push("Default".to_owned());
+            }
+        }
+        if !categories.iter().any(|name| name == "Default") {
+            categories.insert(0, "Default".to_owned());
+        }
+    }
+
+    if categories.is_empty() {
+        categories.push("Default".to_owned());
+    }
+
+    library.categories = categories;
+}
+
 /// Scan every series directory under `root`.
 ///
-/// Only the root directory itself is fatal. Per-series problems are collected in
-/// [`Library::errors`] so one broken folder cannot hide the rest of the library.
+/// A missing root produces an empty library instead of an error. Per-series problems are
+/// collected in [`Library::errors`] so one broken folder cannot hide the rest.
 pub fn scan_library(root: &Path) -> Result<Library, CoreError> {
-    let entries = fs::read_dir(root).map_err(|source| CoreError::ReadDir {
-        path: root.to_path_buf(),
-        source,
-    })?;
-
     let mut library = Library {
         root: root.to_path_buf(),
         ..Library::default()
+    };
+
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            apply_categories(&mut library);
+            return Ok(library);
+        }
+        Err(source) => {
+            return Err(CoreError::ReadDir {
+                path: root.to_path_buf(),
+                source,
+            });
+        }
     };
     let mut series_paths = Vec::new();
 
@@ -94,7 +182,7 @@ pub fn scan_library(root: &Path) -> Result<Library, CoreError> {
             }
         };
         let path = entry.path();
-        if is_hidden(&path) {
+        if is_hidden(&path) || is_reserved_root_dir(&path) {
             continue;
         }
         match entry.file_type() {
@@ -118,6 +206,8 @@ pub fn scan_library(root: &Path) -> Result<Library, CoreError> {
             }),
         }
     }
+
+    apply_categories(&mut library);
 
     Ok(library)
 }
@@ -146,6 +236,7 @@ fn scan_series(path: &Path) -> Result<Series, CoreError> {
             .and_then(|details| details.genre.clone())
             .unwrap_or_default(),
         description,
+        categories: Vec::new(),
         chapters: scan_chapters(path)?,
         warnings,
     })
@@ -241,6 +332,16 @@ fn is_hidden(path: &Path) -> bool {
         .is_some_and(|name| name.to_string_lossy().starts_with('.'))
 }
 
+/// App-data folders that live next to the library but are not series.
+fn is_reserved_root_dir(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| {
+        matches!(
+            name.to_string_lossy().to_ascii_lowercase().as_str(),
+            "downloads" | "extensions"
+        )
+    })
+}
+
 fn read_optional(path: PathBuf) -> Option<String> {
     fs::read_to_string(path).ok()
 }
@@ -313,5 +414,56 @@ mod tests {
         assert_eq!(library.series.len(), 1);
         assert_eq!(library.series[0].title, "Series");
         assert_eq!(library.series[0].warnings.len(), 1);
+    }
+
+    #[test]
+    fn assigns_categories_and_default() {
+        let root = tempdir().unwrap();
+        fs::create_dir_all(root.path().join("Reading Series")).unwrap();
+        fs::create_dir_all(root.path().join("Loose Series")).unwrap();
+        fs::write(
+            root.path().join("categories.json"),
+            r#"{"categories":[{"name":"Reading","series":["Reading Series"]}]}"#,
+        )
+        .unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+
+        assert_eq!(library.categories, ["Default", "Reading"]);
+        let reading = library
+            .series
+            .iter()
+            .find(|series| series.title == "Reading Series")
+            .unwrap();
+        let loose = library
+            .series
+            .iter()
+            .find(|series| series.title == "Loose Series")
+            .unwrap();
+        assert_eq!(reading.categories, ["Reading"]);
+        assert_eq!(loose.categories, ["Default"]);
+    }
+
+    #[test]
+    fn missing_root_is_an_empty_library() {
+        let root = tempdir().unwrap();
+        let library = scan_library(&root.path().join("missing")).unwrap();
+
+        assert!(library.series.is_empty());
+        assert!(library.errors.is_empty());
+        assert_eq!(library.categories, ["Default"]);
+    }
+
+    #[test]
+    fn ignores_downloads_and_extensions_folders() {
+        let root = tempdir().unwrap();
+        fs::create_dir_all(root.path().join("downloads")).unwrap();
+        fs::create_dir_all(root.path().join("extensions")).unwrap();
+        fs::create_dir_all(root.path().join("Real Series")).unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+
+        assert_eq!(library.series.len(), 1);
+        assert_eq!(library.series[0].title, "Real Series");
     }
 }

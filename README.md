@@ -49,9 +49,10 @@ devshell sources it automatically.
 
 ## Library layout
 
-By default the library root is `$XDG_DATA_HOME/tsuiyomi` (`~/.local/share/tsuiyomi`).
-Override it with `TSUIYOMI_LIBRARY` or `library_path` in the config. To share a library
-with Mihon, point it at Mihon's `local/` folder.
+By default the library root is `$XDG_DATA_HOME/tsuiyomi/local`
+(`~/.local/share/tsuiyomi/local`). Override it with `TSUIYOMI_LIBRARY` or
+`library_path` in the config. To share a library with Mihon, point it at Mihon's
+`local/` folder.
 
 Tsuiyomi reads the same structure as Mihon's Local source:
 
@@ -67,6 +68,25 @@ Tsuiyomi reads the same structure as Mihon's Local source:
 See the [Mihon local source guide](https://mihon.app/docs/guides/local-source/) and
 [advanced metadata guide](https://mihon.app/docs/guides/local-source/advanced) for the
 full rules.
+
+### Categories
+
+Mihon keeps categories in its database. Tsuiyomi reads them from a `categories.json`
+file in the library root until the database layer exists (see
+`categories.example.json`):
+
+```json
+{
+  "categories": [
+    { "name": "Reading", "series": ["One Piece", "Frieren"] },
+    { "name": "Plan to Read", "series": ["Berserk"] }
+  ]
+}
+```
+
+Series that are not listed in any category appear in the system `Default` category.
+Switch categories with `[` and `]`. `downloads/` and `extensions/` are never treated as
+library entries.
 
 ## Roadmap
 

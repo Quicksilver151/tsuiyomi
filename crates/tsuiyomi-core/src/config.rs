@@ -18,9 +18,9 @@ impl Default for Config {
     }
 }
 
-/// `$XDG_DATA_HOME/tsuiyomi`, i.e. `~/.local/share/tsuiyomi`.
+/// `$XDG_DATA_HOME/tsuiyomi/local`, i.e. `~/.local/share/tsuiyomi/local`.
 fn default_library_path() -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|dirs| dirs.data_dir().join("tsuiyomi"))
+    directories::BaseDirs::new().map(|dirs| dirs.data_dir().join("tsuiyomi").join("local"))
 }
 
 /// Load the config. `TSUIYOMI_LIBRARY` overrides the stored path.
