@@ -1,6 +1,8 @@
 use std::io;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -29,7 +31,7 @@ pub fn read() -> io::Result<Option<Action>> {
     loop {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if let Some(action) = key_action(key.code) {
+                if let Some(action) = key_action(key.code, key.modifiers) {
                     return Ok(Some(action));
                 }
             }
@@ -43,7 +45,7 @@ pub fn read() -> io::Result<Option<Action>> {
     }
 }
 
-fn key_action(code: KeyCode) -> Option<Action> {
+fn key_action(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
     let action = match code {
         KeyCode::Char('q') => Action::Quit,
         KeyCode::Esc => Action::ShowLibrary,
@@ -58,8 +60,9 @@ fn key_action(code: KeyCode) -> Option<Action> {
         }
         KeyCode::Up => Action::Previous,
         KeyCode::Down => Action::Next,
-        KeyCode::Tab => Action::NextTab,
+        KeyCode::Tab if modifiers.contains(KeyModifiers::SHIFT) => Action::PreviousTab,
         KeyCode::BackTab => Action::PreviousTab,
+        KeyCode::Tab => Action::NextTab,
         _ => return None,
     };
     Some(action)
@@ -81,14 +84,24 @@ mod tests {
 
     #[test]
     fn arrows_do_not_control_tabs() {
-        assert_eq!(key_action(KeyCode::Left), None);
-        assert_eq!(key_action(KeyCode::Right), None);
+        assert_eq!(key_action(KeyCode::Left, KeyModifiers::NONE), None);
+        assert_eq!(key_action(KeyCode::Right, KeyModifiers::NONE), None);
     }
 
     #[test]
     fn tab_keys_control_tabs() {
-        assert_eq!(key_action(KeyCode::Tab), Some(Action::NextTab));
-        assert_eq!(key_action(KeyCode::BackTab), Some(Action::PreviousTab));
+        assert_eq!(
+            key_action(KeyCode::Tab, KeyModifiers::NONE),
+            Some(Action::NextTab)
+        );
+        assert_eq!(
+            key_action(KeyCode::Tab, KeyModifiers::SHIFT),
+            Some(Action::PreviousTab)
+        );
+        assert_eq!(
+            key_action(KeyCode::BackTab, KeyModifiers::SHIFT),
+            Some(Action::PreviousTab)
+        );
     }
 
     #[test]

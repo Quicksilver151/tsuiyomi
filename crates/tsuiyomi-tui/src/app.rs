@@ -99,11 +99,15 @@ impl AppState {
     }
 
     pub fn next_tab(&mut self) {
-        self.tab = (self.tab + 1).min(TAB_COUNT - 1);
+        self.tab = (self.tab + 1) % TAB_COUNT;
     }
 
     pub fn previous_tab(&mut self) {
-        self.tab = self.tab.saturating_sub(1);
+        self.tab = if self.tab == 0 {
+            TAB_COUNT - 1
+        } else {
+            self.tab - 1
+        };
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -186,6 +190,17 @@ mod tests {
             categories: vec!["Default".to_owned(), "Reading".to_owned()],
             errors: Vec::new(),
         }
+    }
+
+    #[test]
+    fn tabs_wrap_around() {
+        let mut app = AppState::default();
+
+        app.previous_tab();
+        assert_eq!(app.tab, TAB_COUNT - 1);
+
+        app.next_tab();
+        assert_eq!(app.tab, 0);
     }
 
     #[test]
