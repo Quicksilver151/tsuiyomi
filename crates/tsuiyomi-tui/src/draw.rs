@@ -1,24 +1,27 @@
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 use tsuiyomi_core::{Library, Series};
 
 use crate::{
     app::AppState,
-    layout::{app_layout, library_layout, tab_layouts},
+    layout::{app_layout, library_layout, tab_layouts, TAB_NAMES},
+    palette::{
+        BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, RED, SUBTEXT1, SURFACE0,
+        SURFACE1, TEAL, TEXT, YELLOW,
+    },
 };
-
-const HINTS: &str = "q quit   ↑/↓ move   ←/→ tabs   r refresh   click or scroll";
 
 pub fn draw(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
-    let layout = app_layout(area);
+    frame.render_widget(Block::default().style(Style::default().bg(BASE)), area);
 
-    draw_tabs(frame, layout.tabs, app.tab);
+    let layout = app_layout(area);
+    draw_header(frame, layout.header, app);
 
     match app.tab {
         0 => draw_library(frame, layout.content, app),
@@ -38,31 +41,65 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     }
 
     draw_footer(frame, layout.footer, app);
+    draw_tabs(frame, layout.tabs, app.tab);
+}
+
+fn draw_header(frame: &mut Frame, area: Rect, app: &AppState) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(10), Constraint::Min(0)])
+        .split(area);
+
+    let title = Line::from(Span::styled(
+        "tsuiyomi",
+        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(Paragraph::new(title), chunks[0]);
+
+    let path = if app.library.root.as_os_str().is_empty() {
+        "no library".to_owned()
+    } else {
+        app.library.root.display().to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(path)
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(OVERLAY0)),
+        chunks[1],
+    );
 }
 
 fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
-    let mut spans = Vec::new();
     for tab in tab_layouts(area) {
-        let style = if tab.index == active {
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-        spans.push(Span::styled(tab.label, style));
-        spans.push(Span::raw(" "));
-    }
-    spans.push(Span::raw("  "));
-    spans.push(Span::styled(
-        "tsuiyomi",
-        Style::default()
-            .fg(Color::DarkGray)
-            .add_modifier(Modifier::ITALIC),
-    ));
+        let selected = tab.index == active;
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if selected { LAVENDER } else { SURFACE1 }))
+            .style(Style::default().bg(if selected { LAVENDER } else { BASE }));
+        let inner = block.inner(tab.area);
+        frame.render_widget(block, tab.area);
 
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+        let label = Line::from(vec![
+            Span::styled(
+                (tab.index + 1).to_string(),
+                Style::default()
+                    .fg(if selected { BASE } else { MAUVE })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                TAB_NAMES[tab.index],
+                Style::default()
+                    .fg(if selected { BASE } else { OVERLAY1 })
+                    .add_modifier(if selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(label).alignment(Alignment::Center), inner);
+    }
 }
 
 fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -92,7 +129,7 @@ fn draw_series_list(
                 Span::raw(series.title.clone()),
                 Span::styled(
                     format!("  {} ch", series.chapters.len()),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(OVERLAY0),
                 ),
             ]);
             ListItem::new(title)
@@ -106,12 +143,21 @@ fn draw_series_list(
         list_state.select(Some(selected.min(count - 1)));
     }
 
+    let title = Line::from(vec![
+        Span::styled(
+            " Library ",
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!("{count} "), Style::default().fg(OVERLAY0)),
+    ]);
+
     let list = List::new(items)
-        .block(panel(format!(" Library ({count}) ")))
+        .block(panel(title, LAVENDER))
+        .style(Style::default().fg(TEXT))
         .highlight_style(
             Style::default()
-                .fg(Color::White)
-                .bg(Color::DarkGray)
+                .fg(LAVENDER)
+                .bg(SURFACE0)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("› ");
@@ -126,7 +172,14 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
     };
 
     let paragraph = Paragraph::new(Text::from(lines))
-        .block(panel(" Details "))
+        .block(panel(
+            Line::from(Span::styled(
+                " Details ",
+                Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+            )),
+            SURFACE1,
+        ))
+        .style(Style::default().fg(SUBTEXT1))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -135,32 +188,30 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
             series.title.clone(),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
 
     if let Some(author) = &series.author {
-        lines.push(field("Author", author));
+        lines.push(field("Author", author, PEACH));
     }
     if let Some(artist) = &series.artist {
-        lines.push(field("Artist", artist));
+        lines.push(field("Artist", artist, MAUVE));
     }
     if !series.tags.is_empty() {
-        lines.push(field("Tags", &series.tags.join(", ")));
+        lines.push(field("Tags", &series.tags.join(", "), TEAL));
     }
-    lines.push(field("Chapters", &series.chapters.len().to_string()));
+    lines.push(field("Chapters", &series.chapters.len().to_string(), GREEN));
     if let Some(latest) = series.chapters.first() {
-        lines.push(field("Latest", &latest.title));
+        lines.push(field("Latest", &latest.title, BLUE));
     }
 
     lines.push(Line::from(""));
     if series.description.trim().is_empty() {
         lines.push(Line::from(Span::styled(
             "No description.",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(OVERLAY1),
         )));
     } else {
         lines.push(Line::from(series.description.clone()));
@@ -170,7 +221,7 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("{} metadata warning(s)", series.warnings.len()),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(YELLOW),
         )));
     }
 
@@ -178,27 +229,34 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
 }
 
 fn empty_lines(app: &AppState) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from("No series found.")];
+    let mut lines = vec![Line::from(Span::styled(
+        "No series found.",
+        Style::default().fg(SUBTEXT1),
+    ))];
 
     if let Some(status) = &app.status {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             status.clone(),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(PEACH),
         )));
     }
     if !app.library.root.as_os_str().is_empty() {
         lines.push(Line::from(""));
-        lines.push(field("Library", &app.library.root.display().to_string()));
+        lines.push(field(
+            "Library",
+            &app.library.root.display().to_string(),
+            OVERLAY1,
+        ));
     }
 
     lines
 }
 
-fn field(label: &str, value: &str) -> Line<'static> {
+fn field(label: &str, value: &str, value_color: Color) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("{label:<9}"), Style::default().fg(Color::DarkGray)),
-        Span::raw(value.to_owned()),
+        Span::styled(format!("{label:<9}"), Style::default().fg(OVERLAY1)),
+        Span::styled(value.to_owned(), Style::default().fg(value_color)),
     ])
 }
 
@@ -206,55 +264,163 @@ fn draw_config(frame: &mut Frame, area: Rect, app: &AppState) {
     let mut lines = vec![
         Line::from(Span::styled(
             "Config",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        field("Library", &app.library.root.display().to_string()),
+        field("Library", &app.library.root.display().to_string(), TEXT),
         Line::from(""),
         Line::from(Span::styled(
             "Editing is not implemented yet. Set TSUIYOMI_LIBRARY for now.",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(OVERLAY1),
         )),
     ];
     if !app.library.errors.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("{} unreadable series", app.library.errors.len()),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(RED),
         )));
     }
 
     let paragraph = Paragraph::new(Text::from(lines))
-        .block(panel(" Config "))
+        .block(panel(
+            Line::from(Span::styled(
+                " Config ",
+                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            )),
+            LAVENDER,
+        ))
+        .style(Style::default().fg(SUBTEXT1))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
 
 fn placeholder(frame: &mut Frame, area: Rect, title: &'static str, message: &'static str) {
-    let block = panel(title);
+    let block = panel(
+        Line::from(Span::styled(
+            format!(" {title} "),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        )),
+        LAVENDER,
+    );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(
         Paragraph::new(message)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray)),
+            .style(Style::default().fg(OVERLAY1)),
         inner,
     );
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
-    let (text, style) = match &app.status {
-        Some(status) => (status.as_str(), Style::default().fg(Color::Yellow)),
-        None => (HINTS, Style::default().fg(Color::DarkGray)),
+    let line = match &app.status {
+        Some(status) => Line::from(vec![
+            Span::styled(" ! ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
+            Span::styled(status.clone(), Style::default().fg(PEACH)),
+        ]),
+        None => hints(),
     };
-    frame.render_widget(Paragraph::new(text).style(style), area);
+    frame.render_widget(Paragraph::new(line), area);
 }
 
-fn panel(title: impl Into<Line<'static>>) -> Block<'static> {
+fn hints() -> Line<'static> {
+    let mut spans = Vec::new();
+    for (key, label) in [
+        ("q", "quit"),
+        ("↑↓", "move"),
+        ("←→", "tabs"),
+        ("r", "refresh"),
+        ("mouse", "click/scroll"),
+    ] {
+        spans.push(Span::styled(key, Style::default().fg(LAVENDER)));
+        spans.push(Span::styled(
+            format!(" {label}   "),
+            Style::default().fg(OVERLAY0),
+        ));
+    }
+    Line::from(spans)
+}
+
+fn panel(title: Line<'static>, border: Color) -> Block<'static> {
     Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(border))
+        .style(Style::default().bg(BASE))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use ratatui::{backend::TestBackend, Terminal};
+    use tsuiyomi_core::{Chapter, ChapterKind, Library, Series};
+
+    use super::*;
+
+    fn test_app() -> AppState {
+        let series = Series {
+            path: PathBuf::from("/tmp/library/Test Series"),
+            title: "Test Series".to_owned(),
+            author: Some("Author".to_owned()),
+            artist: None,
+            description: "A test description.".to_owned(),
+            tags: vec!["fantasy".to_owned()],
+            chapters: vec![Chapter {
+                path: PathBuf::from("/tmp/library/Test Series/Chapter 1"),
+                title: "Chapter 1".to_owned(),
+                number: Some(1.0),
+                kind: ChapterKind::Directory,
+            }],
+            warnings: Vec::new(),
+        };
+        let library = Library {
+            root: PathBuf::from("/tmp/library"),
+            series: vec![series],
+            errors: Vec::new(),
+        };
+        AppState::new(library, None)
+    }
+
+    fn render(app: &mut AppState, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, app)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    #[test]
+    fn tabs_are_boxed_at_the_bottom() {
+        let mut app = test_app();
+        let text = render(&mut app, 80, 24);
+        println!("{text}");
+
+        let bottom: Vec<&str> = text.lines().rev().take(5).collect();
+        assert!(bottom.iter().any(|line| line.contains("Library")));
+        assert!(text.contains("Test Series"));
+        assert!(text.contains("Details"));
+    }
+
+    #[test]
+    fn empty_library_shows_status_without_panicking() {
+        let library = Library {
+            root: PathBuf::from("/tmp/library"),
+            ..Library::default()
+        };
+        let mut app = AppState::new(library, Some("Set TSUIYOMI_LIBRARY".to_owned()));
+        let text = render(&mut app, 80, 24);
+
+        assert!(text.contains("No series found."));
+        assert!(text.contains("Set TSUIYOMI_LIBRARY"));
+    }
 }

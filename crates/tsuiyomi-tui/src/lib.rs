@@ -7,6 +7,7 @@ mod app;
 mod draw;
 mod input;
 mod layout;
+mod palette;
 
 pub use app::AppState;
 

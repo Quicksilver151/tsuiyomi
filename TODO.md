@@ -75,8 +75,8 @@ XML/JSON leaves the series usable.
 - [x] Show loading, empty, and error states.
 - [x] Add refresh (`r`); the incremental title filter (`/`) is still missing.
 - [x] Keep selection stable across refresh.
-- [x] Mouse support: click tabs, click a series, scroll the list.
-- [ ] Snapshot-test rendering with ratatui's `TestBackend` for empty/loaded/error states.
+- [x] Add mouse support: click tabs, click a series, scroll the list.
+- [x] Add TestBackend rendering tests for loaded and empty/error states.
 
 **Done when:** the TUI is responsive while scanning and handles empty or broken libraries
 without panics.

@@ -149,6 +149,8 @@ Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 
 ## Style
 
+- UI theme: Catppuccin Mocha with lavender as the accent. Square borders, boxed tabs at the
+  bottom, and colored metadata fields.
 - `rustfmt` defaults.
 - New code: explicit imports, `snake_case`, small modules, doc comments on public core
   APIs.

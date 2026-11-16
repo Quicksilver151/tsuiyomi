@@ -5,9 +5,10 @@ pub const TAB_NAMES: [&str; TAB_COUNT] = ["Library", "Search", "Updates", "Confi
 
 #[derive(Debug, Clone, Copy)]
 pub struct AppLayout {
-    pub tabs: Rect,
+    pub header: Rect,
     pub content: Rect,
     pub footer: Rect,
+    pub tabs: Rect,
 }
 
 pub fn app_layout(area: Rect) -> AppLayout {
@@ -18,38 +19,38 @@ pub fn app_layout(area: Rect) -> AppLayout {
             Constraint::Length(1),
             Constraint::Min(0),
             Constraint::Length(1),
+            Constraint::Length(3),
         ])
         .split(area);
 
     AppLayout {
-        tabs: chunks[0],
+        header: chunks[0],
         content: chunks[1],
         footer: chunks[2],
+        tabs: chunks[3],
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TabLayout {
     pub index: usize,
-    pub label: String,
     pub area: Rect,
 }
 
-/// Geometry of the tab labels. Rendering and mouse hit-testing both use this.
+/// Boxed tab geometry. Rendering and mouse hit-testing both use this.
 pub fn tab_layouts(area: Rect) -> Vec<TabLayout> {
     let mut layouts = Vec::with_capacity(TAB_COUNT);
     let mut x = area.x;
 
     for (index, name) in TAB_NAMES.iter().enumerate() {
-        let label = format!(" {} {} ", name, index + 1);
-        let width = label.chars().count() as u16;
+        // `N Name` plus one cell of padding and the two border cells.
+        let width = format!("{} {name}", index + 1).chars().count() as u16 + 4;
         if x + width > area.x + area.width {
             break;
         }
         layouts.push(TabLayout {
             index,
-            label,
-            area: Rect::new(x, area.y, width, 1),
+            area: Rect::new(x, area.y, width, 3),
         });
         x += width + 1;
     }
