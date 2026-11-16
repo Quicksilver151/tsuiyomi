@@ -26,7 +26,7 @@ Anime support from the original prototype is legacy and will be dropped or redes
 ## Development
 
 ```sh
-cp .env.local.example .env.local   # set TSUIYOMI_LIBRARY to your Mihon local/ folder
+cp .env.local.example .env.local   # adjust TSUIYOMI_LIBRARY if needed
 direnv allow                       # or: nix develop
 ./run.sh                           # enters the devshell automatically if needed
 ```
@@ -48,6 +48,10 @@ Machine-local paths and log settings live in `.env.local`, which is gitignored. 
 devshell sources it automatically.
 
 ## Library layout
+
+By default the library root is `$XDG_DATA_HOME/tsuiyomi` (`~/.local/share/tsuiyomi`).
+Override it with `TSUIYOMI_LIBRARY` or `library_path` in the config. To share a library
+with Mihon, point it at Mihon's `local/` folder.
 
 Tsuiyomi reads the same structure as Mihon's Local source:
 

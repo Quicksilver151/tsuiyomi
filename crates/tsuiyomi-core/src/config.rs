@@ -3,11 +3,24 @@ use std::{env, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Application config, stored as TOML under the XDG config directory.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Root of the Mihon `local/` library.
+    /// Root of the library, containing one directory per series.
     pub library_path: Option<PathBuf>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            library_path: default_library_path(),
+        }
+    }
+}
+
+/// `$XDG_DATA_HOME/tsuiyomi`, i.e. `~/.local/share/tsuiyomi`.
+fn default_library_path() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| dirs.data_dir().join("tsuiyomi"))
 }
 
 /// Load the config. `TSUIYOMI_LIBRARY` overrides the stored path.
@@ -38,6 +51,6 @@ mod tests {
     #[test]
     fn missing_keys_use_defaults() {
         let config: Config = serde_json::from_str(r#"{"theme":"default"}"#).unwrap();
-        assert!(config.library_path.is_none());
+        assert_eq!(config.library_path, Config::default().library_path);
     }
 }

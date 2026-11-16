@@ -6,6 +6,7 @@ use crate::layout::TAB_COUNT;
 #[derive(Debug, Default)]
 pub struct AppState {
     pub tab: usize,
+    pub fullscreen: bool,
     pub library: Library,
     pub selected: usize,
     pub list_state: ListState,
@@ -21,6 +22,7 @@ impl AppState {
 
         Self {
             tab: 0,
+            fullscreen: false,
             library,
             selected: 0,
             list_state,
@@ -58,6 +60,10 @@ impl AppState {
 
     pub fn previous_tab(&mut self) {
         self.tab = self.tab.saturating_sub(1);
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
+        self.fullscreen = !self.fullscreen;
     }
 
     /// Rescan the library root, keeping the selection if possible.

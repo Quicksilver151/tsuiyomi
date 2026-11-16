@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
@@ -20,8 +20,11 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(BASE)), area);
 
-    let layout = app_layout(area);
-    draw_header(frame, layout.header, app);
+    let layout = app_layout(area, app.fullscreen);
+
+    if let Some(header) = layout.header {
+        draw_header(frame, header);
+    }
 
     match app.tab {
         0 => draw_library(frame, layout.content, app),
@@ -40,66 +43,81 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
         _ => draw_config(frame, layout.content, app),
     }
 
-    draw_footer(frame, layout.footer, app);
     draw_tabs(frame, layout.tabs, app.tab);
+
+    if let Some(commands) = layout.commands {
+        draw_commands(frame, commands);
+    }
 }
 
-fn draw_header(frame: &mut Frame, area: Rect, app: &AppState) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(10), Constraint::Min(0)])
-        .split(area);
-
-    let title = Line::from(Span::styled(
-        "tsuiyomi",
-        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
-    ));
-    frame.render_widget(Paragraph::new(title), chunks[0]);
-
-    let path = if app.library.root.as_os_str().is_empty() {
-        "no library".to_owned()
-    } else {
-        app.library.root.display().to_string()
-    };
+fn draw_header(frame: &mut Frame, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(SURFACE1))
+        .style(Style::default().bg(BASE));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
     frame.render_widget(
-        Paragraph::new(path)
-            .alignment(Alignment::Right)
-            .style(Style::default().fg(OVERLAY0)),
-        chunks[1],
+        Paragraph::new("Tsuiyomi")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)),
+        inner,
     );
 }
 
 fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
-    for tab in tab_layouts(area) {
-        let selected = tab.index == active;
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if selected { LAVENDER } else { SURFACE1 }))
-            .style(Style::default().bg(if selected { LAVENDER } else { BASE }));
-        let inner = block.inner(tab.area);
-        frame.render_widget(block, tab.area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(SURFACE1))
+        .style(Style::default().bg(BASE));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
-        let label = Line::from(vec![
-            Span::styled(
-                (tab.index + 1).to_string(),
-                Style::default()
-                    .fg(if selected { BASE } else { MAUVE })
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                TAB_NAMES[tab.index],
-                Style::default()
-                    .fg(if selected { BASE } else { OVERLAY1 })
-                    .add_modifier(if selected {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::empty()
-                    }),
-            ),
-        ]);
-        frame.render_widget(Paragraph::new(label).alignment(Alignment::Center), inner);
+    let mut spans = Vec::new();
+    for (position, tab) in tab_layouts(area).into_iter().enumerate() {
+        if position > 0 {
+            spans.push(Span::styled("│", Style::default().fg(SURFACE1)));
+        }
+
+        let label = format!("{} {}", tab.index + 1, TAB_NAMES[tab.index]);
+        let text = center_label(&label, tab.area.width);
+        let style = if tab.index == active {
+            Style::default()
+                .fg(BASE)
+                .bg(LAVENDER)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(OVERLAY1)
+        };
+        spans.push(Span::styled(text, style));
     }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), inner);
+}
+
+fn draw_commands(frame: &mut Frame, area: Rect) {
+    let block = panel(
+        Line::from(Span::styled(" commands ", Style::default().fg(OVERLAY1))),
+        SURFACE1,
+    );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let line = Line::from(vec![
+        Span::raw(" "),
+        key("q"),
+        Span::raw("uit"),
+        separator(),
+        key("c"),
+        Span::raw("onfig"),
+        separator(),
+        key("f"),
+        Span::raw("ullscreen"),
+        separator(),
+        key("Esc"),
+        Span::raw("ape"),
+    ]);
+    frame.render_widget(Paragraph::new(line), inner);
 }
 
 fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -313,33 +331,27 @@ fn placeholder(frame: &mut Frame, area: Rect, title: &'static str, message: &'st
     );
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
-    let line = match &app.status {
-        Some(status) => Line::from(vec![
-            Span::styled(" ! ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
-            Span::styled(status.clone(), Style::default().fg(PEACH)),
-        ]),
-        None => hints(),
-    };
-    frame.render_widget(Paragraph::new(line), area);
+fn key(text: &'static str) -> Span<'static> {
+    Span::styled(
+        text,
+        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+    )
 }
 
-fn hints() -> Line<'static> {
-    let mut spans = Vec::new();
-    for (key, label) in [
-        ("q", "quit"),
-        ("↑↓", "move"),
-        ("←→", "tabs"),
-        ("r", "refresh"),
-        ("mouse", "click/scroll"),
-    ] {
-        spans.push(Span::styled(key, Style::default().fg(LAVENDER)));
-        spans.push(Span::styled(
-            format!(" {label}   "),
-            Style::default().fg(OVERLAY0),
-        ));
+fn separator() -> Span<'static> {
+    Span::styled(" │ ", Style::default().fg(SURFACE1))
+}
+
+fn center_label(label: &str, width: u16) -> String {
+    let width = width as usize;
+    let length = label.chars().count();
+    if length >= width {
+        return label.chars().take(width).collect();
     }
-    Line::from(spans)
+
+    let left = (width - length) / 2;
+    let right = width - length - left;
+    format!("{}{}{}", " ".repeat(left), label, " ".repeat(right))
 }
 
 fn panel(title: Line<'static>, border: Color) -> Block<'static> {
@@ -400,15 +412,28 @@ mod tests {
     }
 
     #[test]
-    fn tabs_are_boxed_at_the_bottom() {
+    fn renders_header_content_tabs_and_commands() {
         let mut app = test_app();
         let text = render(&mut app, 80, 24);
         println!("{text}");
 
-        let bottom: Vec<&str> = text.lines().rev().take(5).collect();
-        assert!(bottom.iter().any(|line| line.contains("Library")));
+        assert!(text.contains("Tsuiyomi"));
+        assert!(text.contains("commands"));
+        assert!(text.contains("quit"));
+        assert!(text.contains("fullscreen"));
         assert!(text.contains("Test Series"));
         assert!(text.contains("Details"));
+    }
+
+    #[test]
+    fn fullscreen_hides_header_and_commands() {
+        let mut app = test_app();
+        app.toggle_fullscreen();
+        let text = render(&mut app, 80, 24);
+
+        assert!(!text.contains("Tsuiyomi"));
+        assert!(!text.contains("commands"));
+        assert!(text.contains("Library"));
     }
 
     #[test]

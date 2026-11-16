@@ -66,6 +66,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::NextTab => app.next_tab(),
             Action::SelectTab(index) => app.select_tab(index),
             Action::Refresh => app.refresh(),
+            Action::ToggleFullscreen => app.toggle_fullscreen(),
+            Action::OpenConfig => app.select_tab(3),
+            Action::ShowLibrary => app.select_tab(0),
             Action::Click { column, row } => {
                 let (width, height) = crossterm::terminal::size()?;
                 handle_click(Rect::new(0, 0, width, height), app, column, row);
@@ -75,7 +78,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
 }
 
 fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
-    let layout = app_layout(area);
+    let layout = app_layout(area, app.fullscreen);
 
     if contains(layout.tabs, column, row) {
         if let Some(tab) = tab_layouts(layout.tabs)

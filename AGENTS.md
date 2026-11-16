@@ -23,8 +23,9 @@ expected and welcome when they move the project toward the architecture below.
   `nixos-unstable` through `flake.lock`.
 - The devshell is defined in `flake.nix`, entered via `direnv allow` or `nix develop`.
 - Machine-local env vars live in `.env.local` (gitignored, copied from
-  `.env.local.example`). `TSUIYOMI_LIBRARY` points at the Mihon `local` directory and
-  `TSUIYOMI_LOG` sets the log level.
+  `.env.local.example`). `TSUIYOMI_LIBRARY` overrides the library root and `TSUIYOMI_LOG`
+  sets the log level. Without an override the root defaults to
+  `$XDG_DATA_HOME/tsuiyomi` (`~/.local/share/tsuiyomi`).
 - **Never run Nix build commands** (`nix build`, `nix flake check`, `nix develop -c ...`).
   The user manages the devshell and builds. Dry runs and evaluation are fine
   (`nix-instantiate --parse`, `nix eval` of small pure expressions).
@@ -149,8 +150,9 @@ Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 
 ## Style
 
-- UI theme: Catppuccin Mocha with lavender as the accent. Square borders, boxed tabs at the
-  bottom, and colored metadata fields.
+- UI theme: Catppuccin Mocha with lavender as the accent. Square borders, a single-row
+  shared tab bar at the bottom, a commands box below it, and colored metadata fields.
+  Fullscreen hides the title and commands boxes.
 - `rustfmt` defaults.
 - New code: explicit imports, `snake_case`, small modules, doc comments on public core
   APIs.

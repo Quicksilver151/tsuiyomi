@@ -74,6 +74,7 @@ XML/JSON leaves the series usable.
 - [ ] Move scanning to a background thread; post results through a channel as app events.
 - [x] Show loading, empty, and error states.
 - [x] Add refresh (`r`); the incremental title filter (`/`) is still missing.
+- [x] Add `c` config shortcut and `f` fullscreen (hides title and commands boxes).
 - [x] Keep selection stable across refresh.
 - [x] Add mouse support: click tabs, click a series, scroll the list.
 - [x] Add TestBackend rendering tests for loaded and empty/error states.

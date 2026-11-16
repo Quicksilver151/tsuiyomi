@@ -5,29 +5,43 @@ pub const TAB_NAMES: [&str; TAB_COUNT] = ["Library", "Search", "Updates", "Confi
 
 #[derive(Debug, Clone, Copy)]
 pub struct AppLayout {
-    pub header: Rect,
+    /// Hidden in fullscreen mode.
+    pub header: Option<Rect>,
     pub content: Rect,
-    pub footer: Rect,
     pub tabs: Rect,
+    /// Hidden in fullscreen mode.
+    pub commands: Option<Rect>,
 }
 
-pub fn app_layout(area: Rect) -> AppLayout {
+pub fn app_layout(area: Rect, fullscreen: bool) -> AppLayout {
+    if fullscreen {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(3)])
+            .split(area);
+        return AppLayout {
+            header: None,
+            content: chunks[0],
+            tabs: chunks[1],
+            commands: None,
+        };
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(1)
         .constraints([
-            Constraint::Length(1),
+            Constraint::Length(3),
             Constraint::Min(0),
-            Constraint::Length(1),
+            Constraint::Length(3),
             Constraint::Length(3),
         ])
         .split(area);
 
     AppLayout {
-        header: chunks[0],
+        header: Some(chunks[0]),
         content: chunks[1],
-        footer: chunks[2],
-        tabs: chunks[3],
+        tabs: chunks[2],
+        commands: Some(chunks[3]),
     }
 }
 
@@ -37,22 +51,27 @@ pub struct TabLayout {
     pub area: Rect,
 }
 
-/// Boxed tab geometry. Rendering and mouse hit-testing both use this.
+/// Equal-width tab segments inside the tab bar, with columns reserved for separators.
 pub fn tab_layouts(area: Rect) -> Vec<TabLayout> {
-    let mut layouts = Vec::with_capacity(TAB_COUNT);
-    let mut x = area.x;
+    let inner = inner(area);
+    if inner.width == 0 || inner.height == 0 {
+        return Vec::new();
+    }
 
-    for (index, name) in TAB_NAMES.iter().enumerate() {
-        // `N Name` plus one cell of padding and the two border cells.
-        let width = format!("{} {name}", index + 1).chars().count() as u16 + 4;
-        if x + width > area.x + area.width {
-            break;
-        }
+    let separators = TAB_COUNT as u16 - 1;
+    let usable = inner.width.saturating_sub(separators);
+    let base = usable / TAB_COUNT as u16;
+    let extra = usable % TAB_COUNT as u16;
+
+    let mut layouts = Vec::with_capacity(TAB_COUNT);
+    let mut x = inner.x;
+    for index in 0..TAB_COUNT {
+        let width = base + u16::from((index as u16) < extra);
         layouts.push(TabLayout {
             index,
-            area: Rect::new(x, area.y, width, 3),
+            area: Rect::new(x, inner.y, width, 1),
         });
-        x += width + 1;
+        x += width + u16::from(index + 1 < TAB_COUNT);
     }
 
     layouts

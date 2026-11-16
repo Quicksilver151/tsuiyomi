@@ -11,6 +11,9 @@ pub enum Action {
     NextTab,
     SelectTab(usize),
     Refresh,
+    ToggleFullscreen,
+    OpenConfig,
+    ShowLibrary,
     ScrollUp,
     ScrollDown,
     Click { column: u16, row: u16 },
@@ -40,7 +43,10 @@ pub fn read() -> io::Result<Option<Action>> {
 
 fn key_action(code: KeyCode) -> Option<Action> {
     let action = match code {
-        KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
+        KeyCode::Char('q') => Action::Quit,
+        KeyCode::Esc => Action::ShowLibrary,
+        KeyCode::Char('c') => Action::OpenConfig,
+        KeyCode::Char('f') => Action::ToggleFullscreen,
         KeyCode::Char('r') => Action::Refresh,
         KeyCode::Char(character) if character.is_ascii_digit() => {
             let digit = character.to_digit(10).unwrap_or(1) as usize;
