@@ -325,6 +325,9 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 if current > max_scroll {
                     scroll.offset = -(max_scroll as i16);
                 }
+                if current >= max_scroll && !reader.pages.is_empty() {
+                    reader.page_index = reader.pages.len() - 1;
+                }
 
                 let image_width = scroll.protocol.size().width;
                 let x = chunks[1].width.saturating_sub(image_width) / 2;

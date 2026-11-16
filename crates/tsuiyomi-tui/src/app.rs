@@ -529,12 +529,17 @@ impl AppState {
             let current = -(scroll.offset as i32);
             let next = (current + delta).clamp(0, max_scroll);
             scroll.offset = -(next as i16);
+            let at_end = next >= max_scroll;
 
-            let page = scroll
+            let mut page = scroll
                 .page_starts
                 .iter()
                 .rposition(|start| i32::from(*start) <= next)
                 .unwrap_or(0);
+            if at_end && !reader.pages.is_empty() {
+                page = reader.pages.len() - 1;
+            }
+            page = page.min(reader.pages.len().saturating_sub(1));
             let changed = reader.page_index != page;
             reader.page_index = page;
             reader.error = None;
@@ -825,6 +830,11 @@ mod tests {
 
         app.next();
         assert!(app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset < offset);
+
+        for _ in 0..100 {
+            app.next();
+        }
+        assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
 
         app.toggle_reader_mode();
         assert_eq!(app.reader_mode, ReaderMode::Page);
