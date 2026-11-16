@@ -1,15 +1,28 @@
-[package]
-name = "tsuiyomi"
+[workspace]
+members = [
+    "crates/tsuiyomi-core",
+    "crates/tsuiyomi-tui",
+    "crates/tsuiyomi",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.88"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[profile.release]
-strip = true
+[workspace.dependencies]
+tsuiyomi-core = { path = "crates/tsuiyomi-core" }
+tsuiyomi-tui = { path = "crates/tsuiyomi-tui" }
 
-[dependencies]
 confy = "2.0.0"
 crossterm = "0.29.0"
+natord = "1.0.9"
 ratatui = { version = "0.30.2", features = ["crossterm"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.16.0"
+thiserror = "2.0.21"
+
+[profile.release]
+strip = true

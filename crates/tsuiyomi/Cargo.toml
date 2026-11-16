@@ -1,0 +1,13 @@
+[package]
+name = "tsuiyomi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "tsuiyomi"
+path = "src/main.rs"
+
+[dependencies]
+tsuiyomi-core.workspace = true
+tsuiyomi-tui.workspace = true
