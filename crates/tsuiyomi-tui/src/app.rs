@@ -85,6 +85,7 @@ impl AppState {
                 if self.selected_series().is_some() {
                     self.view = LibraryView::Chapters;
                     self.chapter_index = 0;
+                    self.status = None;
                     let count = self.chapter_count();
                     self.chapter_list_state.select((count > 0).then_some(0));
                 }
@@ -98,6 +99,7 @@ impl AppState {
         if self.view == LibraryView::Chapters {
             self.view = LibraryView::Series;
             self.chapter_index = 0;
+            self.status = None;
             self.chapter_list_state.select(None);
         } else {
             self.select_tab(0);
@@ -106,7 +108,10 @@ impl AppState {
 
     pub fn previous(&mut self) {
         match self.view {
-            LibraryView::Series => self.selected = self.selected.saturating_sub(1),
+            LibraryView::Series => {
+                self.selected = self.selected.saturating_sub(1);
+                self.status = None;
+            }
             LibraryView::Chapters => {
                 self.chapter_index = self.chapter_index.saturating_sub(1);
                 self.status = None;
@@ -119,6 +124,7 @@ impl AppState {
             LibraryView::Series => {
                 if let Some(last) = self.visible_count().checked_sub(1) {
                     self.selected = (self.selected + 1).min(last);
+                    self.status = None;
                 }
             }
             LibraryView::Chapters => {
@@ -132,7 +138,10 @@ impl AppState {
 
     pub fn select_index(&mut self, index: usize) {
         match self.view {
-            LibraryView::Series if index < self.visible_count() => self.selected = index,
+            LibraryView::Series if index < self.visible_count() => {
+                self.selected = index;
+                self.status = None;
+            }
             LibraryView::Chapters if index < self.chapter_count() => {
                 self.chapter_index = index;
                 self.status = None;
@@ -221,6 +230,7 @@ impl AppState {
 
     fn reset_selection(&mut self) {
         self.selected = 0;
+        self.status = None;
         let count = self.visible_count();
         self.list_state.select((count > 0).then_some(0));
     }
@@ -319,6 +329,21 @@ mod tests {
 
         app.back();
         assert_eq!(app.view, LibraryView::Series);
+    }
+
+    #[test]
+    fn chapter_status_does_not_leak_between_series() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.open();
+        app.open();
+        assert!(app.status.is_some());
+
+        app.back();
+        assert!(app.status.is_none());
+
+        app.open();
+        assert!(app.status.is_none());
     }
 
     #[test]
