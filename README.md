@@ -63,14 +63,13 @@ full rules.
 
 ## Roadmap
 
+See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
+
 - [ ] Split the backend into a UI-agnostic core crate and a TUI crate.
 - [ ] Scan and cache a Mihon `local/` library.
 - [ ] Parse `ComicInfo.xml` and `details.json`.
 - [ ] Chapter list per series, with natural sorting and chapter-number parsing.
 - [ ] Read chapters in a TUI reader.
-- [ ] Import Mihon `.tachibk` backups.
-- [ ] Export Mihon-compatible backups.
-- [ ] Search and update tracking.
-- [ ] Config UI.
-- [ ] Remove or redesign the legacy anime code.
+- [ ] Import and export Mihon `.tachibk` backups.
+- [ ] Local update tracking and config UI.
 - [ ] Publish to `crates.io`, release `v1.0.0`.
