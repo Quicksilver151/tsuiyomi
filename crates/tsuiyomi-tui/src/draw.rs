@@ -73,8 +73,9 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    let layouts = tab_layouts(area);
     let mut spans = Vec::new();
-    for (position, tab) in tab_layouts(area).into_iter().enumerate() {
+    for (position, tab) in layouts.iter().enumerate() {
         if position > 0 {
             spans.push(Span::styled("│", Style::default().fg(SURFACE1)));
         }
@@ -93,6 +94,15 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
+
+    // Join the tab separators into the top and bottom borders.
+    let buffer = frame.buffer_mut();
+    let bottom = area.y + area.height - 1;
+    for tab in layouts.iter().skip(1) {
+        let x = tab.area.x - 1;
+        buffer[(x, area.y)].set_symbol("┬");
+        buffer[(x, bottom)].set_symbol("┴");
+    }
 }
 
 fn draw_commands(frame: &mut Frame, area: Rect) {
@@ -421,6 +431,8 @@ mod tests {
         assert!(text.contains("commands"));
         assert!(text.contains("quit"));
         assert!(text.contains("fullscreen"));
+        assert!(text.contains("┬"));
+        assert!(text.contains("┴"));
         assert!(text.contains("Test Series"));
         assert!(text.contains("Details"));
     }

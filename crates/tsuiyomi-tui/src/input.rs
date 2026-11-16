@@ -54,8 +54,8 @@ fn key_action(code: KeyCode) -> Option<Action> {
         }
         KeyCode::Up => Action::Previous,
         KeyCode::Down => Action::Next,
-        KeyCode::Left | KeyCode::BackTab => Action::PreviousTab,
-        KeyCode::Right | KeyCode::Tab => Action::NextTab,
+        KeyCode::Tab => Action::NextTab,
+        KeyCode::BackTab => Action::PreviousTab,
         _ => return None,
     };
     Some(action)
@@ -69,4 +69,38 @@ fn mouse_action(kind: MouseEventKind, column: u16, row: u16) -> Option<Action> {
         _ => return None,
     };
     Some(action)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arrows_do_not_control_tabs() {
+        assert_eq!(key_action(KeyCode::Left), None);
+        assert_eq!(key_action(KeyCode::Right), None);
+    }
+
+    #[test]
+    fn tab_keys_control_tabs() {
+        assert_eq!(key_action(KeyCode::Tab), Some(Action::NextTab));
+        assert_eq!(key_action(KeyCode::BackTab), Some(Action::PreviousTab));
+    }
+
+    #[test]
+    fn mouse_actions() {
+        assert_eq!(
+            mouse_action(MouseEventKind::Down(MouseButton::Left), 4, 7),
+            Some(Action::Click { column: 4, row: 7 })
+        );
+        assert_eq!(
+            mouse_action(MouseEventKind::ScrollUp, 0, 0),
+            Some(Action::ScrollUp)
+        );
+        assert_eq!(
+            mouse_action(MouseEventKind::ScrollDown, 0, 0),
+            Some(Action::ScrollDown)
+        );
+        assert_eq!(mouse_action(MouseEventKind::Moved, 0, 0), None);
+    }
 }
