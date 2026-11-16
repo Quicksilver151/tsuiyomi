@@ -1052,8 +1052,14 @@ impl AppState {
             if self.more_section == MoreSection::Settings
                 && self.settings_page != SettingsPage::Main
             {
+                // Return to the category that opened this page instead of the top.
+                if let Some(index) = SETTINGS_PAGES
+                    .iter()
+                    .position(|page| *page == self.settings_page)
+                {
+                    self.setting_index = index;
+                }
                 self.settings_page = SettingsPage::Main;
-                self.setting_index = 0;
             } else {
                 self.more_focus = MoreFocus::Sections;
             }
@@ -2333,6 +2339,8 @@ mod tests {
         app.leave_more();
         assert_eq!(app.settings_page, SettingsPage::Main);
         assert_eq!(app.more_focus, MoreFocus::Content);
+        // The category that was entered stays selected.
+        assert_eq!(app.setting_index, 2);
 
         app.leave_more();
         assert_eq!(app.more_focus, MoreFocus::Sections);
