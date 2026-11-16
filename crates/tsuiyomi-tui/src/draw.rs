@@ -215,8 +215,6 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "scroll"),
                 ("Space", "page"),
-                ("n/p", "chapter"),
-                ("m", "pages"),
                 ("f", "full"),
                 ("Esc", "back"),
             ]
@@ -224,8 +222,6 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             &[
                 ("q", "quit"),
                 ("←→", "page"),
-                ("n/p", "chapter"),
-                ("m", "scroll"),
                 ("f", "full"),
                 ("Esc", "back"),
             ]
@@ -366,18 +362,7 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("   {}/{}", reader.page_index + 1, reader.pages.len()),
-            Style::default().fg(GREEN),
-        ),
-        Span::styled(
             format!("   [{protocol_name} {mode_label}]"),
-            Style::default().fg(OVERLAY0),
-        ),
-        Span::styled(
-            match mode {
-                ReaderMode::Page => "   ←→ page · Esc back",
-                ReaderMode::Scroll => "   ↑↓ scroll · Space page · Esc back",
-            },
             Style::default().fg(OVERLAY0),
         ),
     ]);
@@ -935,7 +920,7 @@ mod tests {
 
         let text = render(&mut app, 80, 24);
 
-        assert!(text.contains("1/1"));
+        assert!(text.contains("1 / 1"));
         assert!(text.contains("Reader error"));
         assert!(text.contains("page"));
         assert!(text.contains("prev"));

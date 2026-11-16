@@ -4,7 +4,8 @@ use crossterm::terminal;
 use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::{
-    chapter_pages, read_page, scan_library, Chapter, Library, Page, ProgressStore, Series,
+    chapter_pages, read_page, scan_library, Chapter, Library, Page, ProgressStore, ReadingMode,
+    Series,
 };
 
 use crate::layout::TAB_COUNT;
@@ -236,6 +237,17 @@ impl AppState {
         } else {
             self.change_page(false);
         }
+    }
+
+    pub fn set_reading_mode(&mut self, mode: ReadingMode) {
+        self.reader_mode = match mode {
+            ReadingMode::LeftToRight | ReadingMode::RightToLeft | ReadingMode::Vertical => {
+                ReaderMode::Page
+            }
+            ReadingMode::Default | ReadingMode::Webtoon | ReadingMode::ContinuousVertical => {
+                ReaderMode::Scroll
+            }
+        };
     }
 
     pub fn toggle_reader_mode(&mut self) {

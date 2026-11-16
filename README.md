@@ -88,6 +88,20 @@ Series that are not listed in any category appear in the system `Default` catego
 Switch categories with `[` and `]`. `downloads/` and `extensions/` are never treated as
 library entries.
 
+## Reader mode
+
+The default is `webtoon` (continuous vertical scroll). Set it in
+`~/.config/tsuiyomi/config.toml`:
+
+```toml
+reading_mode = "webtoon"
+```
+
+Valid values follow Mihon's reading modes: `default`, `left_to_right`,
+`right_to_left`, `vertical`, `webtoon`, `continuous_vertical`. Page-turn modes open
+single pages; `webtoon` and `continuous_vertical` open in scroll mode. `m` switches
+between page and scroll for the current session.
+
 ## Roadmap
 
 See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:

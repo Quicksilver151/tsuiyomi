@@ -5,6 +5,7 @@ use tsuiyomi_tui::AppState;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let config = load_config();
+    let reading_mode = config.reading_mode;
 
     let (library, status) = match config.library_path {
         Some(path) => {
@@ -26,7 +27,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         ),
     };
 
-    tsuiyomi_tui::run(AppState::new(library, status))?;
+    let mut app = AppState::new(library, status);
+    app.set_reading_mode(reading_mode);
+    tsuiyomi_tui::run(app)?;
     Ok(())
 }
 

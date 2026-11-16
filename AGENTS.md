@@ -141,8 +141,9 @@ Rules:
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
 - No title filter or backup support yet.
-- The config loader tolerates the existing on-disk schema but does not use or preserve its
-  keys (`theme`, `player`, `manga_viewer`, `tty`, ...) when saving is added.
+- The config loader tolerates the existing on-disk schema. `reading_mode` is used
+  (`webtoon` by default); other keys (`theme`, `player`, `manga_viewer`, `tty`, ...) are
+  not applied yet and must be preserved when saving is added.
 - Core has tests for chapter parsing, config loading, scanning, categories, page
   discovery, and reading progress. The TUI has TestBackend rendering tests for the library,
   chapter, and reader views.
