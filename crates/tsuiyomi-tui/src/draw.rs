@@ -5,11 +5,14 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
-use ratatui_image::{Resize, StatefulImage};
+use ratatui_image::{
+    sliced::{SignedPosition, SlicedImage},
+    Resize, StatefulImage,
+};
 use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, Series};
 
 use crate::{
-    app::{AppState, LibraryView},
+    app::{AppState, LibraryView, ReaderMode},
     layout::{app_layout, library_layout, tab_layouts, TAB_NAMES},
     palette::{
         BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, RED, SUBTEXT1, SURFACE0,
@@ -118,15 +121,27 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     frame.render_widget(block, area);
 
     let items: &[(&str, &str)] = if app.view == LibraryView::Reader {
-        &[
-            ("q", "quit"),
-            ("←→", "pages"),
-            ("Space", "next"),
-            ("n/p", "chapter"),
-            ("f", "full"),
-            ("Esc", "back"),
-            ("Tab", "tabs"),
-        ]
+        if app.reader_mode == ReaderMode::Scroll {
+            &[
+                ("q", "quit"),
+                ("↑↓", "scroll"),
+                ("Space", "page"),
+                ("n/p", "chapter"),
+                ("m", "pages"),
+                ("f", "full"),
+                ("Esc", "back"),
+            ]
+        } else {
+            &[
+                ("q", "quit"),
+                ("←→", "page"),
+                ("n/p", "chapter"),
+                ("m", "scroll"),
+                ("f", "full"),
+                ("Esc", "back"),
+                ("Tab", "tabs"),
+            ]
+        }
     } else {
         &[
             ("q", "quit"),
@@ -237,6 +252,11 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let mode = app.reader_mode;
+    if mode == ReaderMode::Scroll {
+        app.ensure_scroll_width(area.width);
+    }
+
     let protocol_name = app.protocol_name();
     let Some(reader) = app.reader.as_mut() else {
         return;
@@ -247,6 +267,10 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(area);
 
+    let mode_label = match mode {
+        ReaderMode::Page => "page",
+        ReaderMode::Scroll => "scroll",
+    };
     let status = Line::from(vec![
         Span::raw(" "),
         Span::styled(
@@ -258,10 +282,16 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
             Style::default().fg(GREEN),
         ),
         Span::styled(
-            format!("   [{protocol_name}]"),
+            format!("   [{protocol_name} {mode_label}]"),
             Style::default().fg(OVERLAY0),
         ),
-        Span::styled("   ←→ page · Esc back", Style::default().fg(OVERLAY0)),
+        Span::styled(
+            match mode {
+                ReaderMode::Page => "   ←→ page · Esc back",
+                ReaderMode::Scroll => "   ↑↓ scroll · Space page · Esc back",
+            },
+            Style::default().fg(OVERLAY0),
+        ),
     ]);
     frame.render_widget(Paragraph::new(status), chunks[0]);
 
@@ -275,20 +305,53 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
         return;
     }
 
-    if let Some(protocol) = reader.protocol.as_mut() {
-        frame.render_stateful_widget(
-            StatefulImage::new().resize(Resize::Fit(None)),
-            chunks[1],
-            protocol,
-        );
-    } else {
-        frame.render_widget(
-            Paragraph::new("Loading page…")
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(OVERLAY1)),
-            chunks[1],
-        );
+    match mode {
+        ReaderMode::Page => {
+            if let Some(protocol) = reader.protocol.as_mut() {
+                frame.render_stateful_widget(
+                    StatefulImage::new().resize(Resize::Fit(None)),
+                    chunks[1],
+                    protocol,
+                );
+            } else {
+                placeholder_message(frame, chunks[1], "Loading page…");
+            }
+        }
+        ReaderMode::Scroll => {
+            if let Some(scroll) = reader.scroll.as_mut() {
+                scroll.viewport_height = chunks[1].height.max(1);
+                let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height) as i32;
+                let current = -(scroll.offset as i32);
+                if current > max_scroll {
+                    scroll.offset = -(max_scroll as i16);
+                }
+
+                let image_width = scroll.protocol.size().width;
+                let x = chunks[1].width.saturating_sub(image_width) / 2;
+                frame.render_widget(
+                    SlicedImage::new(
+                        &scroll.protocol,
+                        SignedPosition {
+                            x: x as i16,
+                            y: scroll.offset,
+                        },
+                    ),
+                    chunks[1],
+                );
+            } else {
+                placeholder_message(frame, chunks[1], "Preparing scroll view…");
+            }
+        }
     }
+}
+
+fn placeholder_message(frame: &mut Frame, area: Rect, message: &str) {
+    frame.render_widget(
+        Paragraph::new(message.to_owned())
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(OVERLAY1)),
+        area,
+    );
 }
 
 fn draw_breadcrumb(frame: &mut Frame, area: Rect, app: &AppState) {
@@ -775,6 +838,7 @@ mod tests {
             }],
             page_index: 0,
             protocol: None,
+            scroll: None,
             error: Some("Reader error".to_owned()),
         });
 
@@ -782,7 +846,7 @@ mod tests {
 
         assert!(text.contains("1/1"));
         assert!(text.contains("Reader error"));
-        assert!(text.contains("pages"));
+        assert!(text.contains("page"));
         assert!(text.contains("Esc back"));
     }
 

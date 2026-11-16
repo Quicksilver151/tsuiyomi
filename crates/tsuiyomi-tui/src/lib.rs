@@ -85,6 +85,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Open => app.open(),
             Action::Back => app.back(),
             Action::ToggleFullscreen => app.toggle_fullscreen(),
+            Action::ToggleReaderMode => app.toggle_reader_mode(),
             Action::OpenConfig => app.select_tab(4),
             Action::Redraw => {}
             Action::Click { column, row } => {

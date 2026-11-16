@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use ratatui::widgets::ListState;
-use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
+use crossterm::terminal;
+use ratatui::{layout::Size, widgets::ListState};
+use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::{
     chapter_pages, read_page, scan_library, Chapter, Library, Page, ProgressStore, Series,
 };
@@ -16,6 +17,24 @@ pub enum LibraryView {
     Reader,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReaderMode {
+    #[default]
+    Page,
+    Scroll,
+}
+
+pub struct ScrollState {
+    pub protocol: SlicedProtocol,
+    /// Signed Y offset of the tall image; 0 is the top.
+    pub offset: i16,
+    pub width: u16,
+    pub viewport_height: u16,
+    pub total_rows: u16,
+    /// Row at which each page starts.
+    pub page_starts: Vec<u16>,
+}
+
 pub struct ReaderState {
     pub series_title: String,
     pub chapter_title: String,
@@ -23,6 +42,7 @@ pub struct ReaderState {
     pub pages: Vec<Page>,
     pub page_index: usize,
     pub protocol: Option<StatefulProtocol>,
+    pub scroll: Option<ScrollState>,
     pub error: Option<String>,
 }
 
@@ -31,6 +51,7 @@ pub struct AppState {
     pub tab: usize,
     pub fullscreen: bool,
     pub view: LibraryView,
+    pub reader_mode: ReaderMode,
     pub library: Library,
     pub category_index: usize,
     pub selected: usize,
@@ -49,6 +70,7 @@ impl AppState {
             tab: 0,
             fullscreen: false,
             view: LibraryView::Series,
+            reader_mode: ReaderMode::Page,
             library,
             category_index: 0,
             selected: 0,
@@ -131,7 +153,7 @@ impl AppState {
                 }
             }
             LibraryView::Chapters => self.open_chapter(),
-            LibraryView::Reader => self.change_page(true),
+            LibraryView::Reader => self.next_page(),
         }
     }
 
@@ -163,7 +185,13 @@ impl AppState {
                 self.chapter_index = self.chapter_index.saturating_sub(1);
                 self.status = None;
             }
-            LibraryView::Reader => self.change_page(false),
+            LibraryView::Reader => {
+                if self.reader_mode == ReaderMode::Scroll {
+                    self.scroll_lines(-1);
+                } else {
+                    self.change_page(false);
+                }
+            }
         }
     }
 
@@ -181,16 +209,46 @@ impl AppState {
                     self.status = None;
                 }
             }
-            LibraryView::Reader => self.change_page(true),
+            LibraryView::Reader => {
+                if self.reader_mode == ReaderMode::Scroll {
+                    self.scroll_lines(1);
+                } else {
+                    self.change_page(true);
+                }
+            }
         }
     }
 
     pub fn next_page(&mut self) {
-        self.change_page(true);
+        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+            self.scroll_lines(self.scroll_page_step());
+        } else {
+            self.change_page(true);
+        }
     }
 
     pub fn previous_page(&mut self) {
-        self.change_page(false);
+        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+            self.scroll_lines(-self.scroll_page_step());
+        } else {
+            self.change_page(false);
+        }
+    }
+
+    pub fn toggle_reader_mode(&mut self) {
+        self.reader_mode = match self.reader_mode {
+            ReaderMode::Page => ReaderMode::Scroll,
+            ReaderMode::Scroll => ReaderMode::Page,
+        };
+
+        if self.view != LibraryView::Reader {
+            return;
+        }
+
+        match self.reader_mode {
+            ReaderMode::Page => self.load_page(),
+            ReaderMode::Scroll => self.build_scroll(terminal_width()),
+        }
     }
 
     pub fn select_index(&mut self, index: usize) {
@@ -246,6 +304,7 @@ impl AppState {
             pages,
             page_index: start_page,
             protocol: None,
+            scroll: None,
             error: None,
         });
         self.view = LibraryView::Reader;
@@ -255,7 +314,10 @@ impl AppState {
                 self.progress
                     .record(&reader.chapter_path, reader.page_index, reader.pages.len());
         }
-        self.load_page();
+        match self.reader_mode {
+            ReaderMode::Page => self.load_page(),
+            ReaderMode::Scroll => self.build_scroll(terminal_width()),
+        }
     }
 
     fn change_page(&mut self, forward: bool) {
@@ -333,6 +395,175 @@ impl AppState {
 
         reader.protocol = Some(picker.new_resize_protocol(image));
         reader.error = None;
+    }
+
+    fn build_scroll(&mut self, width: u16) {
+        let Some(pages) = self.reader.as_ref().map(|reader| reader.pages.clone()) else {
+            return;
+        };
+        let Some(picker) = self.picker.clone() else {
+            self.set_reader_error("No terminal graphics backend.");
+            return;
+        };
+
+        let font = picker.font_size();
+        let font_width = u32::from(font.width.max(1));
+        let font_height = u32::from(font.height.max(1));
+
+        let mut images = Vec::with_capacity(pages.len());
+        let mut max_width = 1u32;
+        let mut total_height = 0u32;
+        for page in &pages {
+            let bytes = match read_page(page) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    self.set_reader_error(error.to_string());
+                    return;
+                }
+            };
+            let image = match image::load_from_memory(&bytes) {
+                Ok(image) => image,
+                Err(error) => {
+                    self.set_reader_error(format!("{}: {error}", page.name));
+                    return;
+                }
+            };
+            max_width = max_width.max(image.width());
+            total_height = total_height.saturating_add(image.height());
+            images.push(image);
+        }
+
+        // Keep a sanity cap; a 100-page chapter at full resolution is not viable yet.
+        if total_height > 64_000_000 {
+            self.set_reader_error("Chapter is too large for scroll mode.");
+            return;
+        }
+
+        let mut canvas = image::RgbaImage::new(max_width, total_height);
+        let mut starts_px = Vec::with_capacity(images.len());
+        let mut y = 0;
+        for image in &images {
+            starts_px.push(y);
+            image::imageops::overlay(&mut canvas, &image.to_rgba8(), 0, i64::from(y));
+            y += image.height();
+        }
+
+        let target_width = u32::from(width.max(1));
+        let scale = (target_width as f32 * font_width as f32) / max_width as f32;
+        let scaled_height = (total_height as f32 * scale).ceil() as u32;
+        let total_rows = scaled_height.div_ceil(font_height).max(1);
+        if total_rows > i16::MAX as u32 {
+            self.set_reader_error("Chapter is too tall for scroll mode.");
+            return;
+        }
+
+        let page_pixels: Vec<u32> = starts_px;
+
+        let image = image::DynamicImage::ImageRgba8(canvas);
+        let protocol = match SlicedProtocol::new_with_resize(
+            &picker,
+            image,
+            Size::new(target_width as u16, total_rows as u16),
+            Resize::Fit(None),
+        ) {
+            Ok(protocol) => protocol,
+            Err(error) => {
+                self.set_reader_error(error.to_string());
+                return;
+            }
+        };
+
+        let total_rows = protocol.size().height.max(1);
+        let page_starts: Vec<u16> = page_pixels
+            .iter()
+            .map(|pixels| ((*pixels as f32 / total_height as f32) * f32::from(total_rows)) as u16)
+            .collect();
+        let viewport_height = self
+            .reader
+            .as_ref()
+            .and_then(|reader| reader.scroll.as_ref())
+            .map_or(10, |scroll| scroll.viewport_height)
+            .max(1);
+        let page_index = self.reader.as_ref().map_or(0, |reader| reader.page_index);
+        let start_row = page_starts.get(page_index).copied().unwrap_or(0);
+        let max_scroll = total_rows.saturating_sub(viewport_height);
+        let offset = -(start_row.min(max_scroll) as i16);
+
+        if let Some(reader) = self.reader.as_mut() {
+            reader.error = None;
+            reader.scroll = Some(ScrollState {
+                protocol,
+                offset,
+                width: width.max(1),
+                viewport_height,
+                total_rows,
+                page_starts,
+            });
+        }
+    }
+
+    pub(crate) fn ensure_scroll_width(&mut self, width: u16) {
+        let needs_rebuild = self
+            .reader
+            .as_ref()
+            .and_then(|reader| reader.scroll.as_ref())
+            .is_some_and(|scroll| scroll.width != width.max(1));
+        if needs_rebuild {
+            self.build_scroll(width);
+        }
+    }
+
+    fn scroll_lines(&mut self, delta: i32) {
+        let (changed, chapter_path, pages, page) = {
+            let Some(reader) = self.reader.as_mut() else {
+                return;
+            };
+            let Some(scroll) = reader.scroll.as_mut() else {
+                return;
+            };
+
+            let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height) as i32;
+            let current = -(scroll.offset as i32);
+            let next = (current + delta).clamp(0, max_scroll);
+            scroll.offset = -(next as i16);
+
+            let page = scroll
+                .page_starts
+                .iter()
+                .rposition(|start| i32::from(*start) <= next)
+                .unwrap_or(0);
+            let changed = reader.page_index != page;
+            reader.page_index = page;
+            reader.error = None;
+
+            (
+                changed,
+                reader.chapter_path.clone(),
+                reader.pages.len(),
+                page,
+            )
+        };
+
+        if changed {
+            let _ = self.progress.record(&chapter_path, page, pages);
+        }
+    }
+
+    fn scroll_page_step(&self) -> i32 {
+        self.reader
+            .as_ref()
+            .and_then(|reader| reader.scroll.as_ref())
+            .map_or(10, |scroll| {
+                i32::from(scroll.viewport_height.saturating_sub(2).max(1))
+            })
+    }
+
+    fn set_reader_error(&mut self, message: impl Into<String>) {
+        if let Some(reader) = self.reader.as_mut() {
+            reader.error = Some(message.into());
+            reader.protocol = None;
+            reader.scroll = None;
+        }
     }
 
     pub fn next_category(&mut self) {
@@ -436,6 +667,12 @@ fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
 
+fn terminal_width() -> u16 {
+    terminal::size()
+        .map(|(width, _)| width.max(1))
+        .unwrap_or(80)
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui_image::picker::Picker;
@@ -527,7 +764,7 @@ mod tests {
     fn opens_the_reader_and_turns_pages() {
         let root = tempfile::tempdir().unwrap();
         for name in ["1.png", "2.png"] {
-            let image = image::RgbImage::from_pixel(8, 8, image::Rgb([180, 190, 254]));
+            let image = image::RgbImage::from_pixel(100, 400, image::Rgb([180, 190, 254]));
             image.save(root.path().join(name)).unwrap();
         }
 
@@ -574,6 +811,21 @@ mod tests {
 
         app.next_page();
         assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
+
+        app.toggle_reader_mode();
+        assert_eq!(app.reader_mode, ReaderMode::Scroll);
+        let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
+        assert_eq!(scroll.page_starts.len(), 2);
+        assert!(scroll.total_rows > 0);
+        let offset = scroll.offset;
+        assert!(offset < 0);
+
+        app.next();
+        assert!(app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset < offset);
+
+        app.toggle_reader_mode();
+        assert_eq!(app.reader_mode, ReaderMode::Page);
+        assert!(app.reader.as_ref().unwrap().protocol.is_some());
 
         app.back();
         assert_eq!(app.view, LibraryView::Chapters);
