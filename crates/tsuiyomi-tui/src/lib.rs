@@ -73,6 +73,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Next => app.next(),
             Action::PreviousPage => app.previous_page(),
             Action::NextPage => app.next_page(),
+            Action::PreviousScreen => app.previous_screen(),
+            Action::NextScreen => app.next_screen(),
             Action::PreviousChapter => app.previous_chapter(),
             Action::NextChapter => app.next_chapter(),
             Action::ScrollUp => app.previous(),

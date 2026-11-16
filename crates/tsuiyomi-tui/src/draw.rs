@@ -214,7 +214,8 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             &[
                 ("q", "quit"),
                 ("↑↓", "scroll"),
-                ("Space", "page"),
+                ("←→", "page"),
+                ("Space", "screen"),
                 ("f", "full"),
                 ("Esc", "back"),
             ]

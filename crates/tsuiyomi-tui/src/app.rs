@@ -225,13 +225,46 @@ impl AppState {
 
     pub fn next_page(&mut self) {
         if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
-            self.scroll_lines(self.scroll_page_step());
+            let page = self.reader.as_ref().map_or(0, |reader| reader.page_index);
+            self.jump_to_page(page + 1);
         } else {
             self.change_page(true);
         }
     }
 
     pub fn previous_page(&mut self) {
+        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+            let (page, aligned) = {
+                let Some(reader) = self.reader.as_ref() else {
+                    return;
+                };
+                let Some(scroll) = reader.scroll.as_ref() else {
+                    return;
+                };
+                let page = reader.page_index;
+                let current = -(scroll.offset as i32);
+                let start = i32::from(scroll.page_starts.get(page).copied().unwrap_or(0));
+                (page, current <= start)
+            };
+            if aligned {
+                self.jump_to_page(page.saturating_sub(1));
+            } else {
+                self.jump_to_page(page);
+            }
+        } else {
+            self.change_page(false);
+        }
+    }
+
+    pub fn next_screen(&mut self) {
+        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+            self.scroll_lines(self.scroll_page_step());
+        } else {
+            self.change_page(true);
+        }
+    }
+
+    pub fn previous_screen(&mut self) {
         if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
             self.scroll_lines(-self.scroll_page_step());
         } else {
@@ -876,13 +909,41 @@ mod tests {
         let offset = scroll.offset;
         assert!(offset < 0);
 
+        app.previous_page();
+        assert_eq!(app.reader.as_ref().unwrap().page_index, 0);
+        assert_eq!(
+            app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset,
+            0
+        );
+
+        app.next_page();
+        let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
+        let page_two_start = scroll.page_starts[1];
+        let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height);
+        let expected = -(page_two_start.min(max_scroll) as i16);
+        assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
+        assert_eq!(scroll.offset, expected);
+
         app.next();
-        assert!(app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset < offset);
+        assert!(app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset < expected);
 
         for _ in 0..100 {
             app.next();
         }
         assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
+
+        app.previous_page();
+        assert_eq!(
+            app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset,
+            expected
+        );
+
+        app.previous_page();
+        assert_eq!(app.reader.as_ref().unwrap().page_index, 0);
+        assert_eq!(
+            app.reader.as_ref().unwrap().scroll.as_ref().unwrap().offset,
+            0
+        );
 
         app.toggle_reader_mode();
         assert_eq!(app.reader_mode, ReaderMode::Page);

@@ -9,6 +9,8 @@ pub enum Action {
     Next,
     PreviousPage,
     NextPage,
+    PreviousScreen,
+    NextScreen,
     PreviousChapter,
     NextChapter,
     PreviousTab,
@@ -70,8 +72,10 @@ fn key_action(code: KeyCode) -> Option<Action> {
         }
         KeyCode::Up => Action::Previous,
         KeyCode::Down => Action::Next,
-        KeyCode::Left | KeyCode::PageUp => Action::PreviousPage,
-        KeyCode::Right | KeyCode::PageDown | KeyCode::Char(' ') => Action::NextPage,
+        KeyCode::Left => Action::PreviousPage,
+        KeyCode::Right => Action::NextPage,
+        KeyCode::PageUp => Action::PreviousScreen,
+        KeyCode::PageDown | KeyCode::Char(' ') => Action::NextScreen,
         KeyCode::Tab => Action::NextTab,
         KeyCode::BackTab => Action::PreviousTab,
         _ => return None,
@@ -101,9 +105,11 @@ mod tests {
 
     #[test]
     fn page_keys() {
-        assert_eq!(key_action(KeyCode::PageUp), Some(Action::PreviousPage));
-        assert_eq!(key_action(KeyCode::PageDown), Some(Action::NextPage));
-        assert_eq!(key_action(KeyCode::Char(' ')), Some(Action::NextPage));
+        assert_eq!(key_action(KeyCode::PageUp), Some(Action::PreviousScreen));
+        assert_eq!(key_action(KeyCode::PageDown), Some(Action::NextScreen));
+        assert_eq!(key_action(KeyCode::Char(' ')), Some(Action::NextScreen));
+        assert_eq!(key_action(KeyCode::Left), Some(Action::PreviousPage));
+        assert_eq!(key_action(KeyCode::Right), Some(Action::NextPage));
         assert_eq!(key_action(KeyCode::Char('n')), Some(Action::NextChapter));
         assert_eq!(
             key_action(KeyCode::Char('p')),
