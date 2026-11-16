@@ -392,31 +392,47 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
             }
         }
         ReaderMode::Scroll => {
+            let page_count = reader.pages.len();
+            let mut at_end = false;
+
             if let Some(scroll) = reader.scroll.as_mut() {
                 scroll.viewport_height = chunks[1].height.max(1);
                 let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height) as i32;
-                let current = -(scroll.offset as i32);
+                let mut current = -(scroll.offset as i32);
                 if current > max_scroll {
                     scroll.offset = -(max_scroll as i16);
+                    current = max_scroll;
                 }
-                if current >= max_scroll && !reader.pages.is_empty() {
-                    reader.page_index = reader.pages.len() - 1;
-                }
+                at_end = current >= max_scroll;
 
-                let image_width = scroll.protocol.size().width;
-                let x = chunks[1].width.saturating_sub(image_width) / 2;
-                frame.render_widget(
-                    SlicedImage::new(
-                        &scroll.protocol,
-                        SignedPosition {
-                            x: x as i16,
-                            y: scroll.offset,
-                        },
-                    ),
-                    chunks[1],
-                );
+                let area = chunks[1];
+                for page in &scroll.pages {
+                    let top = i32::from(page.start) - current;
+                    if top >= i32::from(area.height) {
+                        break;
+                    }
+                    if top + i32::from(page.rows) <= 0 {
+                        continue;
+                    }
+
+                    let x = area.width.saturating_sub(page.width) / 2;
+                    frame.render_widget(
+                        SlicedImage::new(
+                            &page.protocol,
+                            SignedPosition {
+                                x: x as i16,
+                                y: top as i16,
+                            },
+                        ),
+                        area,
+                    );
+                }
             } else {
                 placeholder_message(frame, chunks[1], "Preparing scroll view…");
+            }
+
+            if at_end && page_count > 0 {
+                reader.page_index = page_count - 1;
             }
         }
     }
