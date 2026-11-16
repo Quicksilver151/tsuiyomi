@@ -99,6 +99,9 @@ protocol fallback works over SSH.
 
 - [ ] Define the config schema (library path, reader, theme, log level) and store it under
       the XDG config dir.
+- [ ] Preserve the config keys already present on user machines (`theme`,
+      `max_http_requests_per_sec`, `player.*`, `manga_viewer`, `tty.graphics`) and map them
+      to the reader/player settings. Never drop unknown keys on save.
 - [ ] Add CLI flags with `clap`: `--library`, `--config`, `--version`.
 - [ ] Precedence: CLI > env (`TSUIYOMI_LIBRARY`) > config file > default.
 - [ ] Add an editable config tab with validation.
