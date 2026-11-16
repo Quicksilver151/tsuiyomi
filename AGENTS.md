@@ -40,7 +40,7 @@ Run these inside the devshell, from the repo root:
 just run             # launch the TUI (cargo run)
 cargo check          # fast feedback
 cargo fmt            # before committing
-cargo clippy         # keep warnings down
+cargo clippy         # must pass with -D warnings, see justfile
 cargo test           # unit tests, especially parsers
 ```
 
@@ -129,20 +129,20 @@ Rules:
 - The current `src/` tree is a single crate. Split it when starting real feature work;
   do not half-migrate. Until then, keep it compiling.
 
-## Known landmines in the legacy code
+## Current gaps
 
-Do not copy these patterns. Fix them when you touch the surrounding code:
+- The library browser still uses the legacy "Anime" naming and reads plain directories plus
+  `.desc` files. Replace it with the Mihon series/chapter model rather than extending it.
+- No tests yet.
+- The `src/` tree is still a single crate. Split it before real feature work.
 
-- `utils/files.rs` hardcodes `/home/renderinguser/Videos/Anime/` and uses `expect`.
-- `main.rs` calls `dbg!(config, usr_dat)` before entering the alternate screen, which
-  corrupts the TUI.
-- `ui/anime.rs` mutates `anime_state.current` inside the render function and indexes the
-  list without an empty check, so an empty library panics.
-- `main.rs` re-exports every crate via `pub use` and every module does `use crate::*`.
-  New code should use explicit imports.
-- `ui/mod.rs` derives tab highlighting from string splitting (`separator`). Replace with
-  real `Span`s when the tab bar is next touched.
-- `tui 0.19` is deprecated; migrate to `ratatui` rather than extending it.
+Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
+
+- Hardcoded personal library paths and `expect` on filesystem access.
+- `dbg!` output before entering the alternate screen.
+- State mutation inside render functions.
+- `pub use` crate prelude plus `use crate::*` everywhere.
+- Deriving tab highlighting from string splitting.
 
 ## Style
 

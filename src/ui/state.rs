@@ -1,65 +1,26 @@
-use crate::*;
-
-#[derive(Debug, Default)]
-pub struct Tab {
-    pub name: String,
-    pub index: u8,
-}
+use crate::utils::files::Anime;
 
 #[derive(Debug, Default)]
 pub struct AppState {
-    pub tabs: Tab,
-    pub input: char,
-    pub anime: anime::AnimeState,
-    pub input_map: InputMap,
+    pub tab: usize,
+    pub anime: AnimeState,
 }
-impl AppState {}
 
 #[derive(Debug, Default)]
-pub struct InputMap {
-    pub rename: bool,
-    pub quit: bool,
-    pub shrink: bool,
-
-    pub next: bool,
-    pub prev: bool,
-
-    pub enter: bool,
-    pub back: bool,
-
-    pub up: bool,
-    pub down: bool,
-
-    pub tab: u8,
-    pub charachter: char,
+pub struct AnimeState {
+    pub current: usize,
+    pub list: Vec<Anime>,
+    pub status: Option<String>,
 }
-impl InputMap {
-    // Mutates the value
-    pub fn process_input_events() -> Result<InputMap, std::io::Error> {
-        let mut input_map = InputMap::default();
-        if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => input_map.quit = true,
-                KeyCode::Char('r') => input_map.rename = true,
 
-                KeyCode::Char(x) => {
-                    if x.is_numeric() {
-                        input_map.tab = x.to_digit(10).unwrap() as u8;
-                    } else {
-                        input_map.charachter = x;
-                    }
-                }
+impl AnimeState {
+    pub fn previous(&mut self) {
+        self.current = self.current.saturating_sub(1);
+    }
 
-                KeyCode::Right | KeyCode::Enter => input_map.enter = true,
-                KeyCode::Left | KeyCode::Esc => input_map.back = true,
-
-                KeyCode::Up | KeyCode::BackTab => input_map.up = true,
-                KeyCode::Down | KeyCode::Tab => input_map.down = true,
-
-                _ => {}
-            }
+    pub fn next(&mut self) {
+        if let Some(last) = self.list.len().checked_sub(1) {
+            self.current = (self.current + 1).min(last);
         }
-
-        Ok(input_map)
     }
 }
