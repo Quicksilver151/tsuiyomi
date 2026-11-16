@@ -65,6 +65,8 @@ pub struct AppState {
     pub reader: Option<ReaderState>,
     pub picker: Option<Picker>,
     pub progress: ProgressStore,
+    /// Scroll-mode zoom percentage. 100 = fit width without upscaling.
+    pub zoom: u16,
     pub status: Option<String>,
 }
 
@@ -84,6 +86,7 @@ impl AppState {
             reader: None,
             picker: None,
             progress: ProgressStore::default(),
+            zoom: 100,
             status,
         };
         if app.visible_count() > 0 {
@@ -281,6 +284,24 @@ impl AppState {
                 ReaderMode::Scroll
             }
         };
+    }
+
+    pub fn zoom_in(&mut self) {
+        self.set_zoom(self.zoom.saturating_add(10).min(300));
+    }
+
+    pub fn zoom_out(&mut self) {
+        self.set_zoom(self.zoom.saturating_sub(10).max(50));
+    }
+
+    fn set_zoom(&mut self, zoom: u16) {
+        if self.zoom == zoom {
+            return;
+        }
+        self.zoom = zoom;
+        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+            self.build_scroll(terminal_width());
+        }
     }
 
     pub fn toggle_reader_mode(&mut self) {
@@ -493,11 +514,13 @@ impl AppState {
         let font = picker.font_size();
         let font_width = u32::from(font.width.max(1));
         let font_height = u32::from(font.height.max(1));
-        let target_pixel_width = u32::from(width.max(1)) * font_width;
+        let available_pixel_width = u32::from(width.max(1)) * font_width;
+        let zoom = f64::from(self.zoom) / 100.0;
 
         let mut page_images = Vec::with_capacity(pages.len());
         let mut page_heights = Vec::with_capacity(pages.len());
         let mut total_rows = 0u32;
+        let mut canvas_width = available_pixel_width;
 
         for page in &pages {
             let bytes = match read_page(page) {
@@ -515,12 +538,13 @@ impl AppState {
                 }
             };
 
-            let source_width = image.width().max(1);
-            let rows = ((f64::from(image.height()) * f64::from(target_pixel_width)
-                / f64::from(source_width))
-                / f64::from(font_height))
-            .ceil() as u32;
-            let rows = rows.max(1);
+            let source_width = f64::from(image.width().max(1));
+            // Fit width for large pages, but never upscale at the default 100%.
+            let fit_scale = (f64::from(available_pixel_width) / source_width).min(1.0);
+            let scale = fit_scale * zoom;
+            let pixel_width = (source_width * scale).round().max(1.0) as u32;
+            let rows =
+                ((f64::from(image.height()) * scale / f64::from(font_height)).ceil() as u32).max(1);
             total_rows = total_rows.saturating_add(rows);
             if total_rows > i16::MAX as u32 {
                 self.set_reader_error("Chapter is too tall for scroll mode.");
@@ -531,30 +555,38 @@ impl AppState {
             page_images.push(
                 image
                     .resize_exact(
-                        target_pixel_width,
+                        pixel_width,
                         pixel_height,
                         image::imageops::FilterType::Triangle,
                     )
                     .to_rgba8(),
             );
             page_heights.push(rows as u16);
+            canvas_width = canvas_width.max(pixel_width);
         }
 
         let total_height = total_rows.saturating_mul(font_height);
-        if u64::from(target_pixel_width) * u64::from(total_height) > 64_000_000 {
+        if u64::from(canvas_width) * u64::from(total_height) > 64_000_000 {
             self.set_reader_error("Chapter is too large for scroll mode.");
             return;
         }
 
-        let mut canvas = image::RgbaImage::new(target_pixel_width, total_height);
+        let protocol_width = canvas_width.div_ceil(font_width).max(1);
+        if protocol_width > i16::MAX as u32 {
+            self.set_reader_error("Zoomed image is too wide.");
+            return;
+        }
+
+        let mut canvas = image::RgbaImage::new(canvas_width, total_height);
         let mut page_starts = Vec::with_capacity(page_images.len());
         let mut row = 0u16;
         for (image, rows) in page_images.iter().zip(page_heights.iter()) {
             page_starts.push(row);
+            let x = i64::from((canvas_width - image.width()) / 2);
             image::imageops::overlay(
                 &mut canvas,
                 image,
-                0,
+                x,
                 i64::from(u32::from(row) * font_height),
             );
             row += rows;
@@ -563,7 +595,7 @@ impl AppState {
         let protocol = match SlicedProtocol::new_with_resize(
             &picker,
             image::DynamicImage::ImageRgba8(canvas),
-            Size::new(width.max(1), total_rows as u16),
+            Size::new(protocol_width as u16, total_rows as u16),
             Resize::Fit(None),
         ) {
             Ok(protocol) => protocol,

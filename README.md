@@ -100,7 +100,8 @@ reading_mode = "webtoon"
 Valid values follow Mihon's reading modes: `default`, `left_to_right`,
 `right_to_left`, `vertical`, `webtoon`, `continuous_vertical`. Page-turn modes open
 single pages; `webtoon` and `continuous_vertical` open in scroll mode. `m` switches
-between page and scroll for the current session.
+between page and scroll for the current session. Scroll mode fits pages to the terminal
+width without upscaling by default; `+`/`-` adjusts zoom from 50% to 300%.
 
 ## Roadmap
 

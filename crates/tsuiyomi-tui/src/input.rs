@@ -23,6 +23,8 @@ pub enum Action {
     Back,
     ToggleFullscreen,
     ToggleReaderMode,
+    ZoomIn,
+    ZoomOut,
     OpenConfig,
     Redraw,
     ScrollUp,
@@ -61,6 +63,8 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('c') => Action::OpenConfig,
         KeyCode::Char('f') => Action::ToggleFullscreen,
         KeyCode::Char('m') => Action::ToggleReaderMode,
+        KeyCode::Char('+' | '=') => Action::ZoomIn,
+        KeyCode::Char('-' | '_') => Action::ZoomOut,
         KeyCode::Char('r') => Action::Refresh,
         KeyCode::Char('[') => Action::PreviousCategory,
         KeyCode::Char(']') => Action::NextCategory,
@@ -119,6 +123,8 @@ mod tests {
             key_action(KeyCode::Char('m')),
             Some(Action::ToggleReaderMode)
         );
+        assert_eq!(key_action(KeyCode::Char('+')), Some(Action::ZoomIn));
+        assert_eq!(key_action(KeyCode::Char('-')), Some(Action::ZoomOut));
     }
 
     #[test]

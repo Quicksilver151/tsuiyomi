@@ -134,9 +134,10 @@ Rules:
 - Reader renders pages with `ratatui-image`: it auto-detects Kitty/Sixel/iTerm2 and falls
   back to Unicode halfblocks. `rar`/`cbr` and `epub` pages are not supported yet
   (`zip`/`cbz` and folders are). `m` toggles page-turn vs continuous scroll
-  (`SlicedProtocol`); left/right align page tops, space/page keys scroll a screen. Progress
-  is stored in `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction and fit modes are
-  not configurable yet.
+  (`SlicedProtocol`); left/right align page tops, space/page keys scroll a screen, and
+  `+`/`-` adjust zoom (no upscaling at 100%). Progress is stored in
+  `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction and fit modes are not
+  configurable yet.
 - `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.

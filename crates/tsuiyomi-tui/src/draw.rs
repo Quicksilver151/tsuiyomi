@@ -216,6 +216,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓", "scroll"),
                 ("←→", "page"),
                 ("Space", "screen"),
+                ("+/-", "zoom"),
                 ("f", "full"),
                 ("Esc", "back"),
             ]
@@ -343,6 +344,7 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
     }
 
     let protocol_name = app.protocol_name();
+    let zoom = app.zoom;
     let Some(reader) = app.reader.as_mut() else {
         return;
     };
@@ -352,9 +354,9 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(area);
 
-    let mode_label = match mode {
-        ReaderMode::Page => "page",
-        ReaderMode::Scroll => "scroll",
+    let detail = match mode {
+        ReaderMode::Page => protocol_name.to_owned(),
+        ReaderMode::Scroll => format!("{protocol_name} {zoom}%"),
     };
     let status = Line::from(vec![
         Span::raw(" "),
@@ -362,10 +364,7 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
             format!("{} › {}", reader.series_title, reader.chapter_title),
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            format!("   [{protocol_name} {mode_label}]"),
-            Style::default().fg(OVERLAY0),
-        ),
+        Span::styled(format!("   [{detail}]"), Style::default().fg(OVERLAY0)),
     ]);
     frame.render_widget(Paragraph::new(status), chunks[0]);
 
