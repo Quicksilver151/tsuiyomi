@@ -282,6 +282,7 @@ fn handle_more_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     let sections = inner(layout.sections);
     if contains(sections, column, row) {
         app.set_more_section((row - sections.y) as usize);
+        app.focus_more_content();
         return;
     }
 

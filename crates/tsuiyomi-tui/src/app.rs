@@ -1039,7 +1039,6 @@ impl AppState {
             self.more_section = *section;
             self.settings_page = SettingsPage::Main;
             self.setting_index = 0;
-            self.more_focus = MoreFocus::Content;
         }
     }
 
@@ -2297,8 +2296,11 @@ mod tests {
 
         app.next_more_section();
         assert_eq!(app.more_section, MoreSection::Downloads);
+        // Browsing the section list must not enter the section.
+        assert_eq!(app.more_focus, MoreFocus::Sections);
         app.previous_more_section();
         assert_eq!(app.more_section, MoreSection::Settings);
+        assert_eq!(app.more_focus, MoreFocus::Sections);
 
         app.leave_more();
         assert_eq!(app.tab, 0);
