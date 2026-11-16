@@ -8,13 +8,14 @@ mod draw;
 mod input;
 mod layout;
 mod palette;
+mod scroll_worker;
 
 pub use app::AppState;
 
-use std::io;
+use std::{io, time::Duration};
 
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
 };
 use ratatui::{layout::Rect, DefaultTerminal};
@@ -26,6 +27,7 @@ use crate::{
     draw::draw,
     input::Action,
     layout::{app_layout, contains, inner, library_layout, reader_bar_layout, tab_layouts},
+    scroll_worker::ScrollWorker,
 };
 
 /// Run the TUI until the user quits.
@@ -41,6 +43,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     .unwrap_or_else(|_| Picker::halfblocks());
     app.set_picker(picker);
     app.set_progress(ProgressStore::load_default());
+    app.set_scroll_worker(ScrollWorker::spawn());
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
@@ -64,9 +67,19 @@ pub fn run(mut app: AppState) -> io::Result<()> {
 }
 
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<()> {
+    let mut needs_draw = true;
     loop {
-        terminal.draw(|frame| draw(frame, app))?;
+        if app.poll_scroll_results() {
+            needs_draw = true;
+        }
+        if needs_draw {
+            terminal.draw(|frame| draw(frame, app))?;
+            needs_draw = false;
+        }
 
+        if !event::poll(Duration::from_millis(30))? {
+            continue;
+        }
         let Some(action) = input::read()? else {
             continue;
         };
@@ -102,6 +115,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 handle_click(Rect::new(0, 0, width, height), app, column, row);
             }
         }
+        needs_draw = true;
     }
 }
 

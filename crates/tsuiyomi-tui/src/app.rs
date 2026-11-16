@@ -8,7 +8,10 @@ use tsuiyomi_core::{
     Series,
 };
 
-use crate::layout::TAB_COUNT;
+use crate::{
+    layout::TAB_COUNT,
+    scroll_worker::{BuildRequest, ScrollWorker},
+};
 
 /// Lines moved per arrow/wheel step in continuous scroll mode.
 const SCROLL_LINES: i32 = 5;
@@ -38,8 +41,11 @@ pub struct ScrollPageLayout {
 }
 
 pub struct ScrollState {
+    pub generation: u64,
     pub layout: Vec<ScrollPageLayout>,
     pub protocols: Vec<Option<SlicedProtocol>>,
+    pub requested: Vec<bool>,
+    pub errors: Vec<Option<String>>,
     /// First visible row.
     pub offset: u32,
     pub width: u16,
@@ -75,6 +81,9 @@ pub struct AppState {
     pub reader: Option<ReaderState>,
     pub picker: Option<Picker>,
     pub progress: ProgressStore,
+    /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
+    pub(crate) scroll_worker: Option<ScrollWorker>,
+    pub scroll_generation: u64,
     /// Scroll-mode zoom percentage. 100 = fit width without upscaling.
     pub zoom: u16,
     pub status: Option<String>,
@@ -96,6 +105,8 @@ impl AppState {
             reader: None,
             picker: None,
             progress: ProgressStore::default(),
+            scroll_worker: None,
+            scroll_generation: 0,
             zoom: 100,
             status,
         };
@@ -107,6 +118,64 @@ impl AppState {
 
     pub fn set_picker(&mut self, picker: Picker) {
         self.picker = Some(picker);
+    }
+
+    pub(crate) fn set_scroll_worker(&mut self, worker: ScrollWorker) {
+        worker.set_generation(self.scroll_generation);
+        self.scroll_worker = Some(worker);
+    }
+
+    /// Apply any scroll page built by the worker. Returns whether the UI changed.
+    pub fn poll_scroll_results(&mut self) -> bool {
+        let mut changed = false;
+        loop {
+            let Some(result) = self
+                .scroll_worker
+                .as_ref()
+                .and_then(ScrollWorker::try_result)
+            else {
+                break;
+            };
+            let Some(reader) = self.reader.as_mut() else {
+                continue;
+            };
+            let Some(scroll) = reader.scroll.as_mut() else {
+                continue;
+            };
+            if result.generation != scroll.generation {
+                continue;
+            }
+
+            if let Some(requested) = scroll.requested.get_mut(result.index) {
+                *requested = false;
+            }
+            match result.result {
+                Ok(protocol) => {
+                    if let Some(slot) = scroll.protocols.get_mut(result.index) {
+                        *slot = Some(protocol);
+                    }
+                    if let Some(error) = scroll.errors.get_mut(result.index) {
+                        *error = None;
+                    }
+                    changed = true;
+                }
+                Err(error) => {
+                    if let Some(slot) = scroll.errors.get_mut(result.index) {
+                        *slot = Some(error);
+                    }
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    fn bump_scroll_generation(&mut self) -> u64 {
+        self.scroll_generation = self.scroll_generation.wrapping_add(1);
+        if let Some(worker) = self.scroll_worker.as_ref() {
+            worker.set_generation(self.scroll_generation);
+        }
+        self.scroll_generation
     }
 
     pub fn set_progress(&mut self, progress: ProgressStore) {
@@ -580,12 +649,16 @@ impl AppState {
         let max_scroll = total_rows.saturating_sub(u32::from(viewport_height));
         let offset = start_row.min(max_scroll);
         let page_count = layout.len();
+        let generation = self.bump_scroll_generation();
 
         if let Some(reader) = self.reader.as_mut() {
             reader.error = None;
             reader.scroll = Some(ScrollState {
+                generation,
                 layout,
                 protocols: (0..page_count).map(|_| None).collect(),
+                requested: vec![false; page_count],
+                errors: vec![None; page_count],
                 offset,
                 width: width.max(1),
                 viewport_height,
@@ -676,19 +749,60 @@ impl AppState {
             (load_start, load_end, first, last)
         };
 
-        if self
-            .reader
-            .as_ref()
-            .is_some_and(|reader| !reader.pages.is_empty())
-        {
-            for index in load_start..=load_end {
-                let loaded = self
-                    .reader
-                    .as_ref()
-                    .and_then(|reader| reader.scroll.as_ref())
-                    .and_then(|scroll| scroll.protocols.get(index))
-                    .is_some_and(Option::is_some);
-                if !loaded {
+        let mut to_request = Vec::new();
+        if let Some(reader) = self.reader.as_mut() {
+            if !reader.pages.is_empty() {
+                if let Some(scroll) = reader.scroll.as_mut() {
+                    for index in load_start..=load_end {
+                        if scroll.protocols.get(index).is_some_and(Option::is_some)
+                            || scroll.requested.get(index).is_some_and(|value| *value)
+                            || scroll.errors.get(index).is_some_and(Option::is_some)
+                        {
+                            continue;
+                        }
+                        if let Some(requested) = scroll.requested.get_mut(index) {
+                            *requested = true;
+                        }
+                        to_request.push(index);
+                    }
+                }
+            }
+        }
+
+        if !to_request.is_empty() {
+            if let Some(worker) = self.scroll_worker.as_ref() {
+                let requests: Vec<(usize, Page, ScrollPageLayout, u64)> = match self.reader.as_ref()
+                {
+                    Some(reader) => match reader.scroll.as_ref() {
+                        Some(scroll) => to_request
+                            .iter()
+                            .filter_map(|index| {
+                                Some((
+                                    *index,
+                                    reader.pages.get(*index)?.clone(),
+                                    scroll.layout.get(*index).copied()?,
+                                    scroll.generation,
+                                ))
+                            })
+                            .collect(),
+                        None => Vec::new(),
+                    },
+                    None => Vec::new(),
+                };
+
+                if let Some(picker) = self.picker.clone() {
+                    for (index, page, layout, generation) in requests {
+                        worker.request(BuildRequest {
+                            generation,
+                            index,
+                            page,
+                            layout,
+                            picker: picker.clone(),
+                        });
+                    }
+                }
+            } else {
+                for index in to_request {
                     self.load_scroll_page(index);
                 }
             }
@@ -702,6 +816,9 @@ impl AppState {
                 for (index, protocol) in scroll.protocols.iter_mut().enumerate() {
                     if index < keep_start || index > keep_end {
                         *protocol = None;
+                        if let Some(requested) = scroll.requested.get_mut(index) {
+                            *requested = false;
+                        }
                     }
                 }
             }
@@ -726,33 +843,26 @@ impl AppState {
             return;
         };
 
-        let bytes = match read_page(&page) {
-            Ok(bytes) => bytes,
-            Err(_) => return,
-        };
-        let image = match image::load_from_memory(&bytes) {
-            Ok(image) => image,
-            Err(_) => return,
-        };
-        let image = image.resize_exact(
-            layout.pixel_width,
-            layout.pixel_height,
-            image::imageops::FilterType::Triangle,
-        );
-        let protocol = match SlicedProtocol::new_with_resize(
-            &picker,
-            image,
-            Size::new(layout.cell_width, layout.rows),
-            Resize::Fit(None),
-        ) {
-            Ok(protocol) => protocol,
-            Err(_) => return,
-        };
-
+        let result = build_scroll_protocol(&picker, &page, layout);
         if let Some(reader) = self.reader.as_mut() {
             if let Some(scroll) = reader.scroll.as_mut() {
-                if let Some(slot) = scroll.protocols.get_mut(index) {
-                    *slot = Some(protocol);
+                if let Some(requested) = scroll.requested.get_mut(index) {
+                    *requested = false;
+                }
+                match result {
+                    Ok(protocol) => {
+                        if let Some(slot) = scroll.protocols.get_mut(index) {
+                            *slot = Some(protocol);
+                        }
+                        if let Some(error) = scroll.errors.get_mut(index) {
+                            *error = None;
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(slot) = scroll.errors.get_mut(index) {
+                            *slot = Some(error);
+                        }
+                    }
                 }
             }
         }
@@ -916,6 +1026,28 @@ impl AppState {
     }
 }
 
+pub(crate) fn build_scroll_protocol(
+    picker: &Picker,
+    page: &Page,
+    layout: ScrollPageLayout,
+) -> Result<SlicedProtocol, String> {
+    let bytes = read_page(page).map_err(|error| error.to_string())?;
+    let image =
+        image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?;
+    let image = image.resize_exact(
+        layout.pixel_width,
+        layout.pixel_height,
+        image::imageops::FilterType::Triangle,
+    );
+    SlicedProtocol::new_with_resize(
+        picker,
+        image,
+        Size::new(layout.cell_width, layout.rows),
+        Resize::Fit(None),
+    )
+    .map_err(|error| error.to_string())
+}
+
 fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
@@ -928,7 +1060,11 @@ fn terminal_width() -> u16 {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use ratatui_image::picker::Picker;
+
+    use crate::scroll_worker::ScrollWorker;
 
     use super::*;
 
@@ -1073,7 +1209,14 @@ mod tests {
         let offset = scroll.offset;
         assert!(offset > 0);
 
+        app.set_scroll_worker(ScrollWorker::spawn());
         app.ensure_scroll_view(10);
+        for _ in 0..200 {
+            if app.poll_scroll_results() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert!(app
             .reader
             .as_ref()

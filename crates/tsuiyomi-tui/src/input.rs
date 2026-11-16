@@ -32,26 +32,16 @@ pub enum Action {
     Click { column: u16, row: u16 },
 }
 
-/// Block until a meaningful input event arrives.
+/// Read one terminal event and translate it into an optional action.
 ///
-/// Mouse move and resize events are consumed without returning an action so the UI is only
-/// redrawn when something changes.
+/// The event loop polls before calling this, so it never blocks indefinitely and can
+/// drain background scroll-page results between inputs.
 pub fn read() -> io::Result<Option<Action>> {
-    loop {
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if let Some(action) = key_action(key.code) {
-                    return Ok(Some(action));
-                }
-            }
-            Event::Mouse(mouse) => {
-                if let Some(action) = mouse_action(mouse.kind, mouse.column, mouse.row) {
-                    return Ok(Some(action));
-                }
-            }
-            Event::Resize(_, _) => return Ok(Some(Action::Redraw)),
-            _ => {}
-        }
+    match event::read()? {
+        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(key_action(key.code)),
+        Event::Mouse(mouse) => Ok(mouse_action(mouse.kind, mouse.column, mouse.row)),
+        Event::Resize(_, _) => Ok(Some(Action::Redraw)),
+        _ => Ok(None),
     }
 }
 

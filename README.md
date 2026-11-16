@@ -102,7 +102,7 @@ Valid values follow Mihon's reading modes: `default`, `left_to_right`,
 single pages; `webtoon` and `continuous_vertical` open in scroll mode. `m` switches
 between page and scroll for the current session. Scroll mode fits pages to the terminal
 width without upscaling by default; `+`/`-` adjusts zoom from 50% to 300%. Only pages near
-the viewport are decoded and cached.
+the viewport are decoded and cached, and page preparation runs off the UI thread.
 
 ## Roadmap
 
