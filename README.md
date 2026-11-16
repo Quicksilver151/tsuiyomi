@@ -101,6 +101,7 @@ scroll_prefetch_ahead = 2
 scroll_cache_margin = 4
 theme = "catppuccin_mocha"
 # accent = "#b4befe"   # optional palette color or hex override
+fullscreen = false      # start with the title and commands boxes hidden
 ```
 
 Reading mode, zoom, and scroll cache settings can also be changed in
@@ -124,9 +125,14 @@ One Dark, and Tokyo Night. `theme` stores the same names in snake_case.
 
 The accent can be a palette color (`default`, `blue`, `teal`, `green`, `yellow`, `peach`,
 `mauve`) or a custom hex value (`#rgb` or `#rrggbb`). Press `Enter` on Theme or Accent to
-open the picker, use `↑↓` to select, and `Enter` to apply. In the accent picker, typing a
-hex digit jumps to the custom field; `Backspace` deletes. Themes and accents apply
-immediately and persist to `config.toml`.
+open the picker, use `↑↓` to select, and `Enter` to apply. Selections preview live while
+you move; `Esc` restores the saved theme. Each theme row shows the same set of palette
+swatches on the right. In the accent picker, typing a hex digit jumps to the custom field;
+`Backspace` deletes. Themes and accents persist to `config.toml`.
+
+**Fullscreen** (`config.toml` key `fullscreen`, or the setting under Appearance) starts
+the app with the title and commands boxes hidden. `f` toggles it for the current session
+without changing the saved default.
 
 ## Roadmap
 

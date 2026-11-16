@@ -72,7 +72,7 @@ pub enum MoreRow {
     Setting(usize),
 }
 
-pub const MORE_SETTINGS_ROWS: [MoreRow; 11] = [
+pub const MORE_SETTINGS_ROWS: [MoreRow; 12] = [
     MoreRow::Divider("Reader"),
     MoreRow::Setting(0),
     MoreRow::Setting(1),
@@ -84,10 +84,11 @@ pub const MORE_SETTINGS_ROWS: [MoreRow; 11] = [
     MoreRow::Divider("Appearance"),
     MoreRow::Setting(6),
     MoreRow::Setting(7),
+    MoreRow::Setting(8),
 ];
 
 /// Order matches the selectable rows rendered by the Settings section.
-pub const SETTING_COUNT: usize = 8;
+pub const SETTING_COUNT: usize = 9;
 
 pub const READING_MODES: [ReadingMode; 6] = [
     ReadingMode::Default,
@@ -521,6 +522,7 @@ impl AppState {
         self.theme = config.theme;
         self.accent = config.accent.clone();
         palette::apply(self.theme, self.accent.as_deref());
+        self.fullscreen = config.fullscreen;
         self.zoom = config.reader_zoom.clamp(50, 300);
         self.scroll_cache = ScrollCacheConfig {
             prefetch_behind: config.scroll_prefetch_behind.min(16),
@@ -590,6 +592,11 @@ impl AppState {
         match self.setting_index {
             6 => self.open_theme_picker(),
             7 => self.open_accent_picker(),
+            8 => {
+                self.config.fullscreen = !self.config.fullscreen;
+                self.fullscreen = self.config.fullscreen;
+                self.persist_settings();
+            }
             _ => {}
         }
     }
@@ -659,6 +666,37 @@ impl AppState {
             picker.selected = (picker.selected as i32 + delta).rem_euclid(len) as usize;
             picker.editing_custom = false;
         }
+        self.preview_picker();
+    }
+
+    /// Apply the highlighted picker choice to the palette without persisting it.
+    fn preview_picker(&self) {
+        let Some(picker) = self.picker.as_ref() else {
+            palette::apply(self.theme, self.accent.as_deref());
+            return;
+        };
+        match picker.kind {
+            PickerKind::Theme => {
+                let theme = palette::THEMES
+                    .get(picker.selected)
+                    .copied()
+                    .unwrap_or(self.theme);
+                palette::apply(theme, self.accent.as_deref());
+            }
+            PickerKind::Accent => {
+                let base = palette::palette_for(self.theme);
+                let choices = palette::accent_choices(&base);
+                if picker.selected < choices.len() {
+                    let name = choices[picker.selected].0;
+                    let accent = (name != "default").then(|| name.to_owned());
+                    palette::apply(self.theme, accent.as_deref());
+                } else if palette::parse_hex(&picker.custom).is_some() {
+                    palette::apply(self.theme, Some(picker.custom.as_str()));
+                } else {
+                    palette::apply(self.theme, self.accent.as_deref());
+                }
+            }
+        }
     }
 
     pub fn picker_back(&mut self) {
@@ -671,8 +709,10 @@ impl AppState {
             if let Some(picker) = &mut self.picker {
                 picker.editing_custom = false;
             }
+            self.preview_picker();
         } else {
             self.picker = None;
+            palette::apply(self.theme, self.accent.as_deref());
         }
     }
 
@@ -695,6 +735,7 @@ impl AppState {
                 picker.custom.push(character);
             }
         }
+        self.preview_picker();
     }
 
     pub fn picker_backspace(&mut self) {
@@ -707,6 +748,7 @@ impl AppState {
             picker.editing_custom = true;
             picker.custom.pop();
         }
+        self.preview_picker();
     }
 
     pub fn picker_confirm(&mut self) {
@@ -844,6 +886,10 @@ impl AppState {
                 let next = (current as i32 + delta).rem_euclid(choices.len() as i32) as usize;
                 self.accent = (next != 0).then(|| choices[next].0.to_owned());
                 palette::apply(self.theme, self.accent.as_deref());
+            }
+            8 => {
+                self.config.fullscreen = !self.config.fullscreen;
+                self.fullscreen = self.config.fullscreen;
             }
             _ => {}
         }
@@ -1979,6 +2025,46 @@ mod tests {
     }
 
     #[test]
+    fn theme_picker_previews_and_restores_on_cancel() {
+        let mut app = AppState {
+            more_section: MoreSection::Settings,
+            setting_index: 6,
+            ..AppState::default()
+        };
+        app.activate_setting();
+
+        let original = app.theme;
+        let original_base = palette::palette_for(original).base;
+        app.picker_next();
+        let preview = palette::THEMES[1];
+        assert_eq!(palette::current().base, palette::palette_for(preview).base);
+        assert_eq!(app.theme, original);
+
+        app.picker_back();
+        assert!(app.picker.is_none());
+        assert_eq!(app.theme, original);
+        assert_eq!(palette::current().base, original_base);
+    }
+
+    #[test]
+    fn fullscreen_setting_controls_the_startup_default() {
+        let mut app = AppState {
+            more_section: MoreSection::Settings,
+            setting_index: 8,
+            ..AppState::default()
+        };
+        assert!(!app.config.fullscreen);
+
+        app.activate_setting();
+        assert!(app.config.fullscreen);
+        assert!(app.fullscreen);
+
+        app.adjust_setting(1);
+        assert!(!app.config.fullscreen);
+        assert!(!app.fullscreen);
+    }
+
+    #[test]
     fn accent_picker_accepts_named_choice() {
         let mut app = AppState {
             more_section: MoreSection::Settings,
@@ -1993,6 +2079,10 @@ mod tests {
         assert_eq!(app.accent_name(), "Default");
 
         app.picker_next();
+        assert_eq!(
+            palette::current().accent,
+            palette::palette_for(app.theme).blue
+        );
         app.picker_confirm();
 
         assert_eq!(app.accent.as_deref(), Some("blue"));

@@ -9,7 +9,7 @@ use ratatui_image::{
     sliced::{SignedPosition, SlicedImage},
     Resize, StatefulImage,
 };
-use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, ReadingMode, Series};
+use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, ReadingMode, Series, Theme};
 
 use crate::{
     app::{
@@ -971,6 +971,10 @@ fn setting_text(app: &AppState, index: usize) -> (String, String) {
         5 => ("Library path".to_owned(), display_path(&app.library.root)),
         6 => ("Theme".to_owned(), theme_label(app.theme).to_owned()),
         7 => ("Accent".to_owned(), app.accent_name()),
+        8 => (
+            "Fullscreen".to_owned(),
+            if app.config.fullscreen { "Yes" } else { "No" }.to_owned(),
+        ),
         _ => (String::new(), String::new()),
     }
 }
@@ -1218,7 +1222,8 @@ fn draw_picker(frame: &mut Frame, app: &AppState) {
             frame.render_widget(Block::default().style(style), row);
         }
         frame.render_widget(
-            Paragraph::new(picker_item(app, picker, &choices, item_index)).style(style),
+            Paragraph::new(picker_item(app, picker, &choices, item_index, inner.width))
+                .style(style),
             row,
         );
     }
@@ -1245,16 +1250,22 @@ fn picker_item(
     picker: &PickerState,
     choices: &[(&'static str, Color)],
     index: usize,
+    width: u16,
 ) -> Line<'static> {
     match picker.kind {
         PickerKind::Theme => {
             let theme = THEMES[index];
             let marker = if theme == app.theme { "●" } else { " " };
-            Line::from(vec![
-                Span::raw(" "),
-                Span::styled(marker, Style::default().fg(c_accent())),
-                Span::raw(format!(" {}", theme_label(theme))),
-            ])
+            let label = format!(" {marker} {}", theme_label(theme));
+            let swatches = theme_swatches(theme);
+            let used = label.chars().count() + swatches.len();
+            let pad = (width as usize).saturating_sub(used + 1);
+            let mut spans = vec![Span::raw(label), Span::raw(" ".repeat(pad))];
+            for color in swatches {
+                spans.push(Span::styled("■", Style::default().fg(color)));
+            }
+            spans.push(Span::raw(" "));
+            Line::from(spans)
         }
         PickerKind::Accent if index < choices.len() => {
             let (name, color) = choices[index];
@@ -1292,6 +1303,20 @@ fn picker_item(
             ])
         }
     }
+}
+
+/// The theme's chromatic palette, shown as swatches in the theme picker.
+fn theme_swatches(theme: Theme) -> [Color; 7] {
+    let palette = palette_for(theme);
+    [
+        palette.accent,
+        palette.blue,
+        palette.teal,
+        palette.green,
+        palette.yellow,
+        palette.peach,
+        palette.mauve,
+    ]
 }
 
 fn title_case(name: &str) -> String {
@@ -1443,6 +1468,7 @@ mod tests {
         assert!(text.contains("Reader"));
         assert!(text.contains("Library"));
         assert!(text.contains("Appearance"));
+        assert!(text.contains("Fullscreen"));
         assert!(text.contains("Data and storage"));
     }
 
@@ -1461,6 +1487,8 @@ mod tests {
         assert!(text.contains("Gruvbox Light"));
         assert!(text.contains("Tokyo Night"));
         assert!(text.contains("Enter apply"));
+        // Every theme row gets the same number of palette swatches.
+        assert!(text.matches('■').count() >= THEMES.len() * 7);
     }
 
     #[test]

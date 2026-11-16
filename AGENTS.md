@@ -149,14 +149,15 @@ Rules:
 - Scanning is synchronous on refresh; move it to a background task.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
-  `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`, and
-  `accent`, and preserves unknown keys from existing files. More → Settings edits reader
-  settings with thin slider gauges; Appearance edits the theme and accent through an
-  Enter-opened picker (named palette accents plus typed hex). More also has Downloads
-  (placeholder), Categories, Statistics, Data and storage, and About. More has a single
-  focus: Enter enters the selected section or settings pane, Esc backs out, and left/right
-  adjust the selected setting. Settings are grouped by gray centered divider rows, not a
-  collapsible tree.
+  `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
+  `accent`, and `fullscreen`, and preserves unknown keys from existing files. More →
+  Settings edits reader settings with thin slider gauges; Appearance edits the theme and
+  accent through an Enter-opened picker (named palette accents plus typed hex) that
+  previews live, restores on Esc, and shows palette swatches per theme. More also has
+  Downloads (placeholder), Categories, Statistics, Data and storage, and About. More has a
+  single focus: Enter enters the selected section or settings pane, Esc backs out, and
+  left/right adjust the selected setting. Settings are grouped by gray centered divider
+  rows, not a collapsible tree.
 - Core has tests for chapter parsing, config loading, scanning, categories, page
   discovery, and reading progress. The TUI has TestBackend rendering tests for the library,
   chapter, and reader views.

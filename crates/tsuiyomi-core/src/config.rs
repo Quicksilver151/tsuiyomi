@@ -50,6 +50,8 @@ pub struct Config {
     /// Accent override: a palette name (`blue`) or hex (`#aabbcc`). `None` uses the
     /// theme's default accent.
     pub accent: Option<String>,
+    /// Start with the title and commands boxes hidden.
+    pub fullscreen: bool,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -70,6 +72,7 @@ impl Default for Config {
             reading_mode: ReadingMode::default(),
             theme: Theme::default(),
             accent: None,
+            fullscreen: false,
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,
@@ -150,15 +153,18 @@ external_mpv = ["mpv"]
             r##"
 theme = "tokyo_night"
 accent = "#ffcc00"
+fullscreen = true
 "##,
         )
         .unwrap();
         assert_eq!(config.theme, Theme::TokyoNight);
         assert_eq!(config.accent.as_deref(), Some("#ffcc00"));
+        assert!(config.fullscreen);
 
         let serialized = toml::to_string(&config).unwrap();
         assert!(serialized.contains("theme = \"tokyo_night\""));
         assert!(serialized.contains("accent = \"#ffcc00\""));
+        assert!(serialized.contains("fullscreen = true"));
     }
 
     #[test]

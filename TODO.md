@@ -114,6 +114,8 @@ protocol fallback works over SSH.
 - [ ] Add CLI flags with `clap`: `--library`, `--config`, `--version`.
 - [ ] Precedence: CLI > env (`TSUIYOMI_LIBRARY`) > config file > default.
 - [x] Add an editable settings section in More, with thin slider gauges.
+- [x] Add selectable themes, named/custom accents with live preview, and a startup
+      fullscreen option.
 - [ ] Store read history/progress under the XDG data dir.
 - [ ] Start with a JSON store; migrate to SQLite only if it becomes slow.
 - [ ] Add config/history migration handling and corrupt-file recovery.
