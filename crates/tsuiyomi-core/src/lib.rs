@@ -8,9 +8,11 @@ pub mod config;
 pub mod error;
 pub mod library;
 pub mod pages;
+pub mod progress;
 
 pub use chapter::parse_chapter_number;
 pub use config::{load_config, Config};
 pub use error::CoreError;
 pub use library::{scan_library, Chapter, ChapterKind, Library, ScanError, Series};
 pub use pages::{chapter_pages, read_page, Page, PageSource};
+pub use progress::{ProgressEntry, ProgressStore};

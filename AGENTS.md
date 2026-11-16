@@ -133,7 +133,9 @@ Rules:
 
 - Reader renders pages with `ratatui-image`: it auto-detects Kitty/Sixel/iTerm2 and falls
   back to Unicode halfblocks. `rar`/`cbr` and `epub` pages are not supported yet
-  (`zip`/`cbz` and folders are). Progress is not persisted yet.
+  (`zip`/`cbz` and folders are). Progress is stored in
+  `$XDG_DATA_HOME/tsuiyomi/progress.json`; reading direction and fit modes are not
+  configurable yet.
 - `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
@@ -141,8 +143,9 @@ Rules:
 - No title filter or backup support yet.
 - The config loader tolerates the existing on-disk schema but does not use or preserve its
   keys (`theme`, `player`, `manga_viewer`, `tty`, ...) when saving is added.
-- Core has tests for chapter parsing, config loading, scanning, categories, and page
-  discovery. The TUI has TestBackend rendering tests for the library and chapter views.
+- Core has tests for chapter parsing, config loading, scanning, categories, page
+  discovery, and reading progress. The TUI has TestBackend rendering tests for the library,
+  chapter, and reader views.
 
 Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 

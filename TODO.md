@@ -91,9 +91,9 @@ without panics.
 - [x] Open a chapter and build the page list from core.
 - [x] Render image pages with `ratatui-image` (Kitty/Sixel/iTerm2, halfblocks fallback).
 - [x] Page navigation with `←`/`→`, `PageUp`/`PageDown`, and `Space`.
-- [ ] Next/previous chapter from inside the reader.
+- [x] Next/previous chapter with `n`/`p`.
 - [ ] Fit modes and reading direction (LTR/RTL) in config.
-- [ ] Persist last-read page per chapter after a short debounce.
+- [x] Persist last-read page per chapter and resume on reopen.
 - [x] Handle unsupported or corrupt images without aborting.
 
 **Done when:** a chapter can be read end-to-end, progress survives restart, and image

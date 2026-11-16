@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 use ratatui_image::{Resize, StatefulImage};
-use tsuiyomi_core::{Chapter, ChapterKind, Library, Series};
+use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, Series};
 
 use crate::{
     app::{AppState, LibraryView},
@@ -122,6 +122,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             ("q", "quit"),
             ("←→", "pages"),
             ("Space", "next"),
+            ("n/p", "chapter"),
             ("f", "full"),
             ("Esc", "back"),
             ("Tab", "tabs"),
@@ -194,6 +195,7 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 layout.list,
                 &title,
                 &chapters,
+                &app.progress,
                 &mut app.chapter_list_state,
                 app.chapter_index,
             );
@@ -316,20 +318,27 @@ fn draw_chapter_list(
     area: Rect,
     series_title: &str,
     chapters: &[Chapter],
+    progress: &ProgressStore,
     list_state: &mut ListState,
     selected: usize,
 ) {
     let items: Vec<ListItem> = chapters
         .iter()
         .map(|chapter| {
-            let line = Line::from(vec![
+            let mut spans = vec![
                 Span::raw(chapter.title.clone()),
                 Span::styled(
                     format!("  {}", chapter_number(chapter.number)),
                     Style::default().fg(OVERLAY0),
                 ),
-            ]);
-            ListItem::new(line)
+            ];
+            if let Some(entry) = progress.entry(&chapter.path) {
+                spans.push(Span::styled(
+                    format!("  {}/{}", entry.page + 1, entry.pages),
+                    Style::default().fg(TEAL),
+                ));
+            }
+            ListItem::new(Line::from(spans))
         })
         .collect();
 
@@ -538,6 +547,14 @@ fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
         field("Type", chapter_kind_label(chapter.kind), BLUE),
         field("Path", &chapter.path.display().to_string(), OVERLAY1),
     ];
+
+    if let Some(entry) = app.progress.entry(&chapter.path) {
+        lines.push(field(
+            "Progress",
+            &format!("{}/{}", entry.page + 1, entry.pages),
+            TEAL,
+        ));
+    }
 
     if let Some(status) = &app.status {
         lines.push(Line::from(""));
@@ -751,6 +768,7 @@ mod tests {
         app.reader = Some(ReaderState {
             series_title: "Test Series".to_owned(),
             chapter_title: "Chapter 1".to_owned(),
+            chapter_path: PathBuf::from("/tmp/library/Chapter 1"),
             pages: vec![Page {
                 name: "1.png".to_owned(),
                 source: PageSource::File(PathBuf::from("/tmp/1.png")),

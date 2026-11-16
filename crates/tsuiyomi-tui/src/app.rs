@@ -1,6 +1,10 @@
+use std::path::PathBuf;
+
 use ratatui::widgets::ListState;
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
-use tsuiyomi_core::{chapter_pages, read_page, scan_library, Chapter, Library, Page, Series};
+use tsuiyomi_core::{
+    chapter_pages, read_page, scan_library, Chapter, Library, Page, ProgressStore, Series,
+};
 
 use crate::layout::TAB_COUNT;
 
@@ -15,6 +19,7 @@ pub enum LibraryView {
 pub struct ReaderState {
     pub series_title: String,
     pub chapter_title: String,
+    pub chapter_path: PathBuf,
     pub pages: Vec<Page>,
     pub page_index: usize,
     pub protocol: Option<StatefulProtocol>,
@@ -34,6 +39,7 @@ pub struct AppState {
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
     pub picker: Option<Picker>,
+    pub progress: ProgressStore,
     pub status: Option<String>,
 }
 
@@ -51,6 +57,7 @@ impl AppState {
             chapter_list_state: ListState::default(),
             reader: None,
             picker: None,
+            progress: ProgressStore::default(),
             status,
         };
         if app.visible_count() > 0 {
@@ -61,6 +68,10 @@ impl AppState {
 
     pub fn set_picker(&mut self, picker: Picker) {
         self.picker = Some(picker);
+    }
+
+    pub fn set_progress(&mut self, progress: ProgressStore) {
+        self.progress = progress;
     }
 
     pub fn protocol_name(&self) -> &'static str {
@@ -209,41 +220,82 @@ impl AppState {
             Ok(pages) => pages,
             Err(error) => {
                 self.status = Some(error.to_string());
+                self.view = LibraryView::Chapters;
+                self.reader = None;
                 return;
             }
         };
         if pages.is_empty() {
             self.status = Some(format!("{} has no pages", chapter.title));
+            self.view = LibraryView::Chapters;
+            self.reader = None;
             return;
         }
+
+        let start_page = self
+            .progress
+            .entry(&chapter.path)
+            .map(|entry| entry.page)
+            .unwrap_or(0)
+            .min(pages.len() - 1);
 
         self.reader = Some(ReaderState {
             series_title,
             chapter_title: chapter.title,
+            chapter_path: chapter.path,
             pages,
-            page_index: 0,
+            page_index: start_page,
             protocol: None,
             error: None,
         });
         self.view = LibraryView::Reader;
         self.status = None;
+        if let Some(reader) = self.reader.as_ref() {
+            let _ =
+                self.progress
+                    .record(&reader.chapter_path, reader.page_index, reader.pages.len());
+        }
         self.load_page();
     }
 
     fn change_page(&mut self, forward: bool) {
-        let Some(reader) = self.reader.as_mut() else {
-            return;
-        };
+        {
+            let Some(reader) = self.reader.as_mut() else {
+                return;
+            };
 
-        if forward {
-            if reader.page_index + 1 < reader.pages.len() {
-                reader.page_index += 1;
+            if forward {
+                if reader.page_index + 1 < reader.pages.len() {
+                    reader.page_index += 1;
+                }
+            } else {
+                reader.page_index = reader.page_index.saturating_sub(1);
             }
-        } else {
-            reader.page_index = reader.page_index.saturating_sub(1);
+        }
+
+        if let Some(reader) = self.reader.as_ref() {
+            let _ =
+                self.progress
+                    .record(&reader.chapter_path, reader.page_index, reader.pages.len());
         }
 
         self.load_page();
+    }
+
+    pub fn next_chapter(&mut self) {
+        if self.view != LibraryView::Reader || self.chapter_index == 0 {
+            return;
+        }
+        self.chapter_index -= 1;
+        self.open_chapter();
+    }
+
+    pub fn previous_chapter(&mut self) {
+        if self.view != LibraryView::Reader || self.chapter_index + 1 >= self.chapter_count() {
+            return;
+        }
+        self.chapter_index += 1;
+        self.open_chapter();
     }
 
     fn load_page(&mut self) {
@@ -504,6 +556,10 @@ mod tests {
 
         let mut app = AppState::new(library, None);
         app.set_picker(Picker::halfblocks());
+        let mut progress = ProgressStore::load(&root.path().join("progress.json")).unwrap();
+        progress.record(root.path(), 1, 2).unwrap();
+        app.set_progress(progress);
+
         app.open();
         app.open();
 
@@ -511,12 +567,13 @@ mod tests {
         let reader = app.reader.as_ref().unwrap();
         assert_eq!(reader.pages.len(), 2);
         assert!(reader.protocol.is_some());
-
-        app.next_page();
-        assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
+        assert_eq!(reader.page_index, 1);
 
         app.previous_page();
         assert_eq!(app.reader.as_ref().unwrap().page_index, 0);
+
+        app.next_page();
+        assert_eq!(app.reader.as_ref().unwrap().page_index, 1);
 
         app.back();
         assert_eq!(app.view, LibraryView::Chapters);

@@ -19,6 +19,7 @@ use crossterm::{
 };
 use ratatui::{layout::Rect, DefaultTerminal};
 use ratatui_image::picker::Picker;
+use tsuiyomi_core::ProgressStore;
 
 use crate::{
     draw::draw,
@@ -34,6 +35,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     // before any input events are read.
     let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
     app.set_picker(picker);
+    app.set_progress(ProgressStore::load_default());
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
@@ -70,6 +72,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Next => app.next(),
             Action::PreviousPage => app.previous_page(),
             Action::NextPage => app.next_page(),
+            Action::PreviousChapter => app.previous_chapter(),
+            Action::NextChapter => app.next_chapter(),
             Action::ScrollUp => app.previous(),
             Action::ScrollDown => app.next(),
             Action::PreviousTab => app.previous_tab(),

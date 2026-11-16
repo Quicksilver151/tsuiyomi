@@ -97,6 +97,7 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
 - [x] Discover chapter pages in folders and `cbz`/`zip` archives.
 - [ ] Parse `ComicInfo.xml` (legacy `details.json` and `.desc` already work).
 - [x] Terminal reader using Kitty/Sixel/iTerm2 graphics with a halfblocks fallback.
+- [x] Remember the last-read page and resume when a chapter is reopened.
 - [ ] Import and export Mihon `.tachibk` backups.
 - [ ] Local update tracking, search, and config UI.
 - [ ] Publish to `crates.io`, release `v1.0.0`.

@@ -9,6 +9,8 @@ pub enum Action {
     Next,
     PreviousPage,
     NextPage,
+    PreviousChapter,
+    NextChapter,
     PreviousTab,
     NextTab,
     PreviousCategory,
@@ -58,6 +60,8 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('r') => Action::Refresh,
         KeyCode::Char('[') => Action::PreviousCategory,
         KeyCode::Char(']') => Action::NextCategory,
+        KeyCode::Char('n') => Action::NextChapter,
+        KeyCode::Char('p') => Action::PreviousChapter,
         KeyCode::Char(character) if character.is_ascii_digit() => {
             let digit = character.to_digit(10).unwrap_or(1) as usize;
             Action::SelectTab(digit.saturating_sub(1))
@@ -98,6 +102,11 @@ mod tests {
         assert_eq!(key_action(KeyCode::PageUp), Some(Action::PreviousPage));
         assert_eq!(key_action(KeyCode::PageDown), Some(Action::NextPage));
         assert_eq!(key_action(KeyCode::Char(' ')), Some(Action::NextPage));
+        assert_eq!(key_action(KeyCode::Char('n')), Some(Action::NextChapter));
+        assert_eq!(
+            key_action(KeyCode::Char('p')),
+            Some(Action::PreviousChapter)
+        );
     }
 
     #[test]
