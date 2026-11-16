@@ -102,10 +102,17 @@ scroll_cache_margin = 4
 theme = "catppuccin_mocha"
 # accent = "#b4befe"   # optional palette color or hex override
 fullscreen = false      # start with the title and commands boxes hidden
+library_sort = "natural" # natural, title_asc, title_desc
+# default_category = "Reading"
+incognito = false
 ```
 
+Library sort, default category, and Incognito mode live under
+**More → Settings → Library** and **Security**. Incognito stops writing
+`progress.json` while leaving existing progress readable.
+
 Reading mode, zoom, and scroll cache settings can also be changed in
-**More → Settings** using the thin sliders. Valid `reading_mode` values are `default`,
+**More → Settings → Reader** using the thin sliders. Valid `reading_mode` values are `default`,
 `left_to_right`, `right_to_left`, `vertical`, `webtoon`, and `continuous_vertical`.
 Page-turn modes open single pages; `webtoon` and `continuous_vertical` open in scroll
 mode. `m` switches between page and scroll for the current session. Scroll mode fits
@@ -113,9 +120,29 @@ pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom f
 to 300%. Only pages near the viewport are decoded and cached, and page preparation runs
 off the UI thread.
 
-- `↑↓` selects sections/settings; `Enter` enters the selected More section or opens the
-  appearance picker; `Esc` backs out; `←→` adjusts the selected setting. Clicking a
-  section or slider also works.
+- `↑↓` selects sections/settings; `Enter` enters the selected More section, opens a
+  settings page, or activates a setting; `Esc` backs out one level; `←→` adjusts the
+  selected setting. Clicking a section or slider also works.
+
+## More and settings
+
+The More tab follows Mihon's structure: Settings, Downloads, Categories, Statistics,
+Data and storage, About, and Help. Settings is a submenu mirroring Mihon's settings
+categories:
+
+- **Appearance** — theme, accent, fullscreen.
+- **Library** — library path, rescan, sort order, default category.
+- **Reader** — reading mode, zoom, scroll prefetch and cache.
+- **Downloads** — informational; this build reads a local library directly.
+- **Tracking** — informational; no remote tracking services.
+- **Browse** — local source path; Mihon extensions are Android-only.
+- **Data and storage** — storage locations and backup status.
+- **Security** — Incognito mode, which stops writing reading progress.
+- **Advanced** — logging and diagnostic notes.
+- **About** — version, graphics protocol, and reader state.
+
+Downloads, tracking, and remote browsing are not implemented. Their pages say so
+instead of pretending to work.
 
 ## Themes
 
@@ -147,5 +174,5 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
 - [x] Reader bottom bar: previous/next chapter, page gauge, and mode toggle; tabs hidden.
 - [x] Remember the last-read page and resume when a chapter is reopened.
 - [ ] Import and export Mihon `.tachibk` backups.
-- [ ] Local update tracking, search, and config UI.
+- [ ] Local update tracking, title search, and background scanning.
 - [ ] Publish to `crates.io`, release `v1.0.0`.

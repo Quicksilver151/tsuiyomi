@@ -23,7 +23,7 @@ use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
 use tsuiyomi_core::ProgressStore;
 
 use crate::{
-    app::{LibraryView, MoreFocus, MoreRow, MoreSection, MORE_SETTINGS_ROWS},
+    app::{LibraryView, MoreFocus, MoreRow, MoreSection, SettingId, SettingsPage, SETTINGS_PAGES},
     draw::draw,
     input::Action,
     layout::{
@@ -289,29 +289,51 @@ fn handle_more_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         return;
     }
 
-    for (row_index, setting_row) in settings_rows(layout.content, MORE_SETTINGS_ROWS.len())
-        .into_iter()
-        .enumerate()
-    {
+    if app.settings_page == SettingsPage::Main {
+        for (index, page_row) in settings_rows(layout.content, SETTINGS_PAGES.len())
+            .into_iter()
+            .enumerate()
+        {
+            if contains(page_row, column, row) {
+                app.focus_more_content();
+                app.setting_index = index;
+                app.activate_setting();
+                return;
+            }
+        }
+        return;
+    }
+
+    let page = app.settings_page;
+    let rows = page.rows();
+    let page_rows = settings_rows(layout.content, rows.len());
+    let mut selectable = 0;
+    for (row_index, entry) in rows.iter().enumerate() {
+        let Some(setting_row) = page_rows.get(row_index).copied() else {
+            return;
+        };
+        let MoreRow::Setting(setting) = entry else {
+            continue;
+        };
         if !contains(setting_row, column, row) {
+            selectable += 1;
             continue;
         }
 
-        let Some(entry) = MORE_SETTINGS_ROWS.get(row_index) else {
-            return;
-        };
-        let MoreRow::Setting(index) = entry else {
-            return;
-        };
-
         app.focus_more_content();
-        app.setting_index = *index;
-        if (1..=4).contains(index) {
+        app.setting_index = selectable;
+        if matches!(
+            setting,
+            SettingId::Zoom
+                | SettingId::PrefetchBehind
+                | SettingId::PrefetchAhead
+                | SettingId::CacheMargin
+        ) {
             let columns = setting_columns(setting_row);
             if contains(columns[1], column, row) {
                 let width = columns[1].width.max(1);
                 let ratio = f64::from(column.saturating_sub(columns[1].x)) / f64::from(width);
-                app.set_setting_ratio(*index, ratio);
+                app.set_setting_ratio(selectable, ratio);
             }
         }
         return;

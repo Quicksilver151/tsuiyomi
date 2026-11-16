@@ -150,14 +150,18 @@ Rules:
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
-  `accent`, and `fullscreen`, and preserves unknown keys from existing files. More →
-  Settings edits reader settings with thin slider gauges; Appearance edits the theme and
-  accent through an Enter-opened picker (named palette accents plus typed hex) that
-  previews live, restores on Esc, and shows palette swatches per theme. More also has
-  Downloads (placeholder), Categories, Statistics, Data and storage, and About. More has a
-  single focus: Enter enters the selected section or settings pane, Esc backs out, and
-  left/right adjust the selected setting. Settings are grouped by gray centered divider
-  rows, not a collapsible tree.
+  `accent`, `fullscreen`, `library_sort`, `default_category`, and `incognito`, and
+  preserves unknown keys from existing files.
+- More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
+  storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
+  Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
+  About. Entry pages are listed in `SettingsPage`; each page is a gray-divider grouped
+  row list. Implemented real options: appearance/theme, library path/rescan/sort/default
+  category, reader mode/zoom/prefetch/cache, and Security → Incognito (stops progress
+  writes). Downloads, tracking, and remote browse pages are explicit informational
+  placeholders. More has a single focus: Enter enters the selected section/page or
+  activates a setting, Esc backs out one level, and left/right adjust the selected
+  setting. Clicking sections, menu rows, and sliders works.
 - Core has tests for chapter parsing, config loading, scanning, categories, page
   discovery, and reading progress. The TUI has TestBackend rendering tests for the library,
   chapter, and reader views.

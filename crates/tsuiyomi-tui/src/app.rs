@@ -4,8 +4,8 @@ use crossterm::terminal;
 use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::{
-    chapter_pages, read_page, save_config, scan_library, Chapter, Config, Library, Page,
-    ProgressStore, ReadingMode, Series, Theme,
+    chapter_pages, read_page, save_config, scan_library, Chapter, Config, Library, LibrarySort,
+    Page, ProgressStore, ReadingMode, Series, Theme,
 };
 
 use crate::{
@@ -34,15 +34,17 @@ pub enum MoreSection {
     Statistics,
     Storage,
     About,
+    Help,
 }
 
-pub const MORE_SECTIONS: [MoreSection; 6] = [
+pub const MORE_SECTIONS: [MoreSection; 7] = [
     MoreSection::Settings,
     MoreSection::Downloads,
     MoreSection::Categories,
     MoreSection::Statistics,
     MoreSection::Storage,
     MoreSection::About,
+    MoreSection::Help,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,26 +71,173 @@ pub enum MoreFocus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoreRow {
     Divider(&'static str),
-    Setting(usize),
+    Setting(SettingId),
+    Note(&'static str),
 }
 
-pub const MORE_SETTINGS_ROWS: [MoreRow; 12] = [
-    MoreRow::Divider("Reader"),
-    MoreRow::Setting(0),
-    MoreRow::Setting(1),
-    MoreRow::Setting(2),
-    MoreRow::Setting(3),
-    MoreRow::Setting(4),
-    MoreRow::Divider("Library"),
-    MoreRow::Setting(5),
-    MoreRow::Divider("Appearance"),
-    MoreRow::Setting(6),
-    MoreRow::Setting(7),
-    MoreRow::Setting(8),
+/// Selectable rows across all settings pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingId {
+    ReadingMode,
+    Zoom,
+    PrefetchBehind,
+    PrefetchAhead,
+    CacheMargin,
+    LibraryPath,
+    DefaultCategory,
+    LibrarySort,
+    RescanLibrary,
+    Theme,
+    Accent,
+    Fullscreen,
+    Incognito,
+}
+
+/// Settings pages mirroring Mihon's `SettingsMainScreen` entries.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SettingsPage {
+    #[default]
+    Main,
+    Appearance,
+    Library,
+    Reader,
+    Downloads,
+    Tracking,
+    Browse,
+    Data,
+    Security,
+    Advanced,
+    About,
+}
+
+pub const SETTINGS_PAGES: [SettingsPage; 10] = [
+    SettingsPage::Appearance,
+    SettingsPage::Library,
+    SettingsPage::Reader,
+    SettingsPage::Downloads,
+    SettingsPage::Tracking,
+    SettingsPage::Browse,
+    SettingsPage::Data,
+    SettingsPage::Security,
+    SettingsPage::Advanced,
+    SettingsPage::About,
 ];
 
-/// Order matches the selectable rows rendered by the Settings section.
-pub const SETTING_COUNT: usize = 9;
+const APPEARANCE_ROWS: [MoreRow; 5] = [
+    MoreRow::Divider("Theme"),
+    MoreRow::Setting(SettingId::Theme),
+    MoreRow::Setting(SettingId::Accent),
+    MoreRow::Divider("Display"),
+    MoreRow::Setting(SettingId::Fullscreen),
+];
+
+const LIBRARY_ROWS: [MoreRow; 6] = [
+    MoreRow::Divider("Storage"),
+    MoreRow::Setting(SettingId::LibraryPath),
+    MoreRow::Setting(SettingId::RescanLibrary),
+    MoreRow::Divider("Display"),
+    MoreRow::Setting(SettingId::LibrarySort),
+    MoreRow::Setting(SettingId::DefaultCategory),
+];
+
+const READER_ROWS: [MoreRow; 7] = [
+    MoreRow::Divider("Reading"),
+    MoreRow::Setting(SettingId::ReadingMode),
+    MoreRow::Divider("Continuous scroll"),
+    MoreRow::Setting(SettingId::Zoom),
+    MoreRow::Setting(SettingId::PrefetchBehind),
+    MoreRow::Setting(SettingId::PrefetchAhead),
+    MoreRow::Setting(SettingId::CacheMargin),
+];
+
+const DOWNLOADS_ROWS: [MoreRow; 3] = [
+    MoreRow::Divider("Status"),
+    MoreRow::Note("Download management is not implemented."),
+    MoreRow::Note("Local library chapters are read directly from disk."),
+];
+
+const TRACKING_ROWS: [MoreRow; 3] = [
+    MoreRow::Divider("Services"),
+    MoreRow::Note("No tracking services configured."),
+    MoreRow::Note("This build manages a local Mihon library only."),
+];
+
+const BROWSE_ROWS: [MoreRow; 4] = [
+    MoreRow::Divider("Local source"),
+    MoreRow::Setting(SettingId::LibraryPath),
+    MoreRow::Note("Remote sources and Mihon extensions are not available."),
+    MoreRow::Note("Browse reads the same local/ layout as Mihon."),
+];
+
+const DATA_ROWS: [MoreRow; 4] = [
+    MoreRow::Divider("Storage"),
+    MoreRow::Setting(SettingId::LibraryPath),
+    MoreRow::Note("Progress: $XDG_DATA_HOME/tsuiyomi/progress.json"),
+    MoreRow::Note("Backup import and export are not implemented yet."),
+];
+
+const SECURITY_ROWS: [MoreRow; 3] = [
+    MoreRow::Divider("Privacy"),
+    MoreRow::Setting(SettingId::Incognito),
+    MoreRow::Note("Incognito stops writing reading progress."),
+];
+
+const ADVANCED_ROWS: [MoreRow; 4] = [
+    MoreRow::Divider("Diagnostics"),
+    MoreRow::Note("Log level comes from TSUIYOMI_LOG."),
+    MoreRow::Note("Refresh scans synchronously and may block briefly."),
+    MoreRow::Note("Scroll workers and page cache are tuned per session."),
+];
+
+impl SettingsPage {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Main => "Settings",
+            Self::Appearance => "Appearance",
+            Self::Library => "Library",
+            Self::Reader => "Reader",
+            Self::Downloads => "Downloads",
+            Self::Tracking => "Tracking",
+            Self::Browse => "Browse",
+            Self::Data => "Data and storage",
+            Self::Security => "Security",
+            Self::Advanced => "Advanced",
+            Self::About => "About",
+        }
+    }
+
+    pub fn summary(self) -> &'static str {
+        match self {
+            Self::Main => "",
+            Self::Appearance => "Theme · accent · display",
+            Self::Library => "Path · sort · categories",
+            Self::Reader => "Mode · zoom · prefetch",
+            Self::Downloads => "Not implemented",
+            Self::Tracking => "Local library only",
+            Self::Browse => "Local source",
+            Self::Data => "Storage · backups",
+            Self::Security => "Incognito",
+            Self::Advanced => "Logging · diagnostics",
+            Self::About => "Version · graphics",
+        }
+    }
+
+    pub fn rows(self) -> &'static [MoreRow] {
+        match self {
+            Self::Main => &[],
+            Self::Appearance => &APPEARANCE_ROWS,
+            Self::Library => &LIBRARY_ROWS,
+            Self::Reader => &READER_ROWS,
+            Self::Downloads => &DOWNLOADS_ROWS,
+            Self::Tracking => &TRACKING_ROWS,
+            Self::Browse => &BROWSE_ROWS,
+            Self::Data => &DATA_ROWS,
+            Self::Security => &SECURITY_ROWS,
+            Self::Advanced => &ADVANCED_ROWS,
+            Self::About => &[],
+        }
+    }
+}
 
 pub const READING_MODES: [ReadingMode; 6] = [
     ReadingMode::Default,
@@ -108,6 +257,7 @@ impl MoreSection {
             Self::Statistics => "Statistics",
             Self::Storage => "Data and storage",
             Self::About => "About",
+            Self::Help => "Help",
         }
     }
 }
@@ -201,6 +351,7 @@ pub struct AppState {
     pub config: Config,
     pub more_section: MoreSection,
     pub more_focus: MoreFocus,
+    pub settings_page: SettingsPage,
     pub setting_index: usize,
     pub theme: Theme,
     pub accent: Option<String>,
@@ -231,6 +382,7 @@ impl AppState {
             config: Config::default(),
             more_section: MoreSection::Settings,
             more_focus: MoreFocus::Content,
+            settings_page: SettingsPage::Main,
             setting_index: 0,
             theme: Theme::default(),
             accent: None,
@@ -349,22 +501,43 @@ impl AppState {
             .map(String::as_str)
     }
 
-    pub fn visible_count(&self) -> usize {
+    /// Indices into `library.series` for the current category, in display order.
+    pub fn visible_indices(&self) -> Vec<usize> {
         let category = self.category_name();
-        self.library
+        let mut indices: Vec<usize> = self
+            .library
             .series
             .iter()
-            .filter(|series| in_category(series, category))
-            .count()
+            .enumerate()
+            .filter(|(_, series)| in_category(series, category))
+            .map(|(index, _)| index)
+            .collect();
+
+        match self.config.library_sort {
+            LibrarySort::Natural => {}
+            LibrarySort::TitleAsc => indices.sort_by(|left, right| {
+                self.library.series[*left]
+                    .title
+                    .to_lowercase()
+                    .cmp(&self.library.series[*right].title.to_lowercase())
+            }),
+            LibrarySort::TitleDesc => indices.sort_by(|left, right| {
+                self.library.series[*right]
+                    .title
+                    .to_lowercase()
+                    .cmp(&self.library.series[*left].title.to_lowercase())
+            }),
+        }
+        indices
+    }
+
+    pub fn visible_count(&self) -> usize {
+        self.visible_indices().len()
     }
 
     pub fn selected_series(&self) -> Option<&Series> {
-        let category = self.category_name();
-        self.library
-            .series
-            .iter()
-            .filter(|series| in_category(series, category))
-            .nth(self.selected)
+        let index = *self.visible_indices().get(self.selected)?;
+        self.library.series.get(index)
     }
 
     pub fn selected_chapter(&self) -> Option<&Chapter> {
@@ -530,6 +703,24 @@ impl AppState {
             cache_margin: config.scroll_cache_margin.min(32),
         };
         self.config = config;
+        if let Some(name) = self.config.default_category.as_deref() {
+            if let Some(index) = self
+                .library
+                .categories
+                .iter()
+                .position(|category| category == name)
+            {
+                self.category_index = index;
+            }
+        }
+    }
+
+    /// Persist reading progress unless Incognito mode is on.
+    fn record_progress(&mut self, chapter: &std::path::Path, page: usize, pages: usize) {
+        if self.config.incognito {
+            return;
+        }
+        let _ = self.progress.record(chapter, page, pages);
     }
 
     /// Save current reader and appearance settings back to the config file.
@@ -584,21 +775,68 @@ impl AppState {
         palette::accent_choices(&palette::palette_for(self.theme)).len() + 1
     }
 
-    /// Open the picker for the selected Appearance setting.
+    /// Open the highlighted settings page, picker, toggle, or action.
     pub fn activate_setting(&mut self) {
         if self.more_section != MoreSection::Settings {
             return;
         }
-        match self.setting_index {
-            6 => self.open_theme_picker(),
-            7 => self.open_accent_picker(),
-            8 => {
+        if self.settings_page == SettingsPage::Main {
+            if let Some(page) = SETTINGS_PAGES.get(self.setting_index).copied() {
+                self.settings_page = page;
+                self.setting_index = 0;
+            }
+            return;
+        }
+
+        let Some(setting) = self.setting_at(self.setting_index) else {
+            return;
+        };
+        match setting {
+            SettingId::Theme => self.open_theme_picker(),
+            SettingId::Accent => self.open_accent_picker(),
+            SettingId::Fullscreen => {
                 self.config.fullscreen = !self.config.fullscreen;
                 self.fullscreen = self.config.fullscreen;
                 self.persist_settings();
             }
+            SettingId::Incognito => {
+                self.config.incognito = !self.config.incognito;
+                self.persist_settings();
+            }
+            SettingId::RescanLibrary => self.refresh(),
+            SettingId::ReadingMode | SettingId::LibrarySort | SettingId::DefaultCategory => {
+                self.adjust_setting(1)
+            }
             _ => {}
         }
+    }
+
+    /// Selectable rows in the current Settings view.
+    fn setting_count(&self) -> usize {
+        if self.settings_page == SettingsPage::Main {
+            SETTINGS_PAGES.len()
+        } else {
+            self.settings_page
+                .rows()
+                .iter()
+                .filter(|row| matches!(row, MoreRow::Setting(_)))
+                .count()
+        }
+    }
+
+    /// Setting under a selectable-row index.
+    fn setting_at(&self, index: usize) -> Option<SettingId> {
+        if self.settings_page == SettingsPage::Main {
+            return None;
+        }
+        self.settings_page
+            .rows()
+            .iter()
+            .filter_map(|row| match row {
+                MoreRow::Setting(setting) => Some(*setting),
+                _ => None,
+            })
+            .nth(index)
     }
 
     fn open_theme_picker(&mut self) {
@@ -785,8 +1023,7 @@ impl AppState {
             .iter()
             .position(|section| *section == self.more_section)
             .unwrap_or(0);
-        self.more_section = MORE_SECTIONS[(index + 1).min(MORE_SECTIONS.len() - 1)];
-        self.setting_index = 0;
+        self.set_more_section((index + 1).min(MORE_SECTIONS.len() - 1));
     }
 
     pub fn previous_more_section(&mut self) {
@@ -794,13 +1031,13 @@ impl AppState {
             .iter()
             .position(|section| *section == self.more_section)
             .unwrap_or(0);
-        self.more_section = MORE_SECTIONS[index.saturating_sub(1)];
-        self.setting_index = 0;
+        self.set_more_section(index.saturating_sub(1));
     }
 
     pub fn set_more_section(&mut self, index: usize) {
         if let Some(section) = MORE_SECTIONS.get(index) {
             self.more_section = *section;
+            self.settings_page = SettingsPage::Main;
             self.setting_index = 0;
             self.more_focus = MoreFocus::Content;
         }
@@ -812,27 +1049,47 @@ impl AppState {
 
     pub fn leave_more(&mut self) {
         if self.more_focus == MoreFocus::Content {
-            self.more_focus = MoreFocus::Sections;
+            if self.more_section == MoreSection::Settings
+                && self.settings_page != SettingsPage::Main
+            {
+                self.settings_page = SettingsPage::Main;
+                self.setting_index = 0;
+            } else {
+                self.more_focus = MoreFocus::Sections;
+            }
         } else {
             self.select_tab(0);
         }
     }
 
     pub fn previous_setting(&mut self) {
+        if self.more_section != MoreSection::Settings {
+            return;
+        }
         self.setting_index = self.setting_index.saturating_sub(1);
     }
 
     pub fn next_setting(&mut self) {
-        self.setting_index = (self.setting_index + 1).min(SETTING_COUNT - 1);
-    }
-
-    pub fn adjust_setting(&mut self, delta: i32) {
         if self.more_section != MoreSection::Settings {
             return;
         }
+        let count = self.setting_count();
+        if count == 0 {
+            return;
+        }
+        self.setting_index = (self.setting_index + 1).min(count - 1);
+    }
 
-        match self.setting_index {
-            0 => {
+    pub fn adjust_setting(&mut self, delta: i32) {
+        if self.more_section != MoreSection::Settings || self.settings_page == SettingsPage::Main {
+            return;
+        }
+        let Some(setting) = self.setting_at(self.setting_index) else {
+            return;
+        };
+
+        match setting {
+            SettingId::ReadingMode => {
                 let index = READING_MODES
                     .iter()
                     .position(|mode| *mode == self.config.reading_mode)
@@ -847,23 +1104,58 @@ impl AppState {
                     }
                 }
             }
-            1 => {
+            SettingId::Zoom => {
                 let zoom = (i32::from(self.zoom) + delta * 10).clamp(50, 300) as u16;
                 self.set_zoom(zoom);
             }
-            2 => {
+            SettingId::PrefetchBehind => {
                 let value = (self.scroll_cache.prefetch_behind as i32 + delta).clamp(0, 8);
                 self.scroll_cache.prefetch_behind = value as usize;
             }
-            3 => {
+            SettingId::PrefetchAhead => {
                 let value = (self.scroll_cache.prefetch_ahead as i32 + delta).clamp(0, 8);
                 self.scroll_cache.prefetch_ahead = value as usize;
             }
-            4 => {
+            SettingId::CacheMargin => {
                 let value = (self.scroll_cache.cache_margin as i32 + delta).clamp(0, 12);
                 self.scroll_cache.cache_margin = value as usize;
             }
-            6 => {
+            SettingId::LibrarySort => {
+                let sorts = [
+                    LibrarySort::Natural,
+                    LibrarySort::TitleAsc,
+                    LibrarySort::TitleDesc,
+                ];
+                let index = sorts
+                    .iter()
+                    .position(|sort| *sort == self.config.library_sort)
+                    .unwrap_or(0);
+                let next = (index as i32 + delta).rem_euclid(sorts.len() as i32) as usize;
+                self.config.library_sort = sorts[next];
+                self.clamp_selection();
+            }
+            SettingId::DefaultCategory => {
+                let count = self.library.categories.len();
+                if count == 0 {
+                    return;
+                }
+                let current = self
+                    .config
+                    .default_category
+                    .as_deref()
+                    .and_then(|name| {
+                        self.library
+                            .categories
+                            .iter()
+                            .position(|category| category == name)
+                    })
+                    .unwrap_or(self.category_index);
+                let next = (current as i32 + delta).rem_euclid(count as i32) as usize;
+                self.config.default_category = Some(self.library.categories[next].clone());
+                self.category_index = next;
+                self.reset_selection();
+            }
+            SettingId::Theme => {
                 let index = palette::THEMES
                     .iter()
                     .position(|theme| *theme == self.theme)
@@ -872,7 +1164,7 @@ impl AppState {
                 self.theme = palette::THEMES[next];
                 palette::apply(self.theme, self.accent.as_deref());
             }
-            7 => {
+            SettingId::Accent => {
                 let choices = palette::accent_choices(&palette::palette_for(self.theme));
                 let current = self
                     .accent
@@ -887,11 +1179,14 @@ impl AppState {
                 self.accent = (next != 0).then(|| choices[next].0.to_owned());
                 palette::apply(self.theme, self.accent.as_deref());
             }
-            8 => {
+            SettingId::Fullscreen => {
                 self.config.fullscreen = !self.config.fullscreen;
                 self.fullscreen = self.config.fullscreen;
             }
-            _ => {}
+            SettingId::Incognito => {
+                self.config.incognito = !self.config.incognito;
+            }
+            SettingId::LibraryPath | SettingId::RescanLibrary => return,
         }
 
         self.persist_settings();
@@ -899,19 +1194,22 @@ impl AppState {
 
     pub fn set_setting_ratio(&mut self, index: usize, ratio: f64) {
         let ratio = ratio.clamp(0.0, 1.0);
+        let Some(setting) = self.setting_at(index) else {
+            return;
+        };
         self.setting_index = index;
-        match index {
-            1 => {
+        match setting {
+            SettingId::Zoom => {
                 let zoom = (50.0 + ratio * 250.0).round() as u16;
                 self.set_zoom(zoom);
             }
-            2 => {
+            SettingId::PrefetchBehind => {
                 self.scroll_cache.prefetch_behind = (ratio * 8.0).round() as usize;
             }
-            3 => {
+            SettingId::PrefetchAhead => {
                 self.scroll_cache.prefetch_ahead = (ratio * 8.0).round() as usize;
             }
-            4 => {
+            SettingId::CacheMargin => {
                 self.scroll_cache.cache_margin = (ratio * 12.0).round() as usize;
             }
             _ => return,
@@ -976,7 +1274,7 @@ impl AppState {
                 reader.error = None;
                 (reader.chapter_path.clone(), reader.pages.len())
             };
-            let _ = self.progress.record(&chapter_path, page, pages);
+            self.record_progress(&chapter_path, page, pages);
         } else {
             let (chapter_path, pages) = {
                 let Some(reader) = self.reader.as_mut() else {
@@ -987,7 +1285,7 @@ impl AppState {
                 (reader.chapter_path.clone(), reader.pages.len())
             };
             self.load_page();
-            let _ = self.progress.record(&chapter_path, page, pages);
+            self.record_progress(&chapter_path, page, pages);
         }
     }
 
@@ -1051,10 +1349,14 @@ impl AppState {
         });
         self.view = LibraryView::Reader;
         self.status = None;
-        if let Some(reader) = self.reader.as_ref() {
-            let _ =
-                self.progress
-                    .record(&reader.chapter_path, reader.page_index, reader.pages.len());
+        if let Some((path, page, pages)) = self.reader.as_ref().map(|reader| {
+            (
+                reader.chapter_path.clone(),
+                reader.page_index,
+                reader.pages.len(),
+            )
+        }) {
+            self.record_progress(&path, page, pages);
         }
         match self.reader_mode {
             ReaderMode::Page => self.load_page(),
@@ -1077,10 +1379,14 @@ impl AppState {
             }
         }
 
-        if let Some(reader) = self.reader.as_ref() {
-            let _ =
-                self.progress
-                    .record(&reader.chapter_path, reader.page_index, reader.pages.len());
+        if let Some((path, page, pages)) = self.reader.as_ref().map(|reader| {
+            (
+                reader.chapter_path.clone(),
+                reader.page_index,
+                reader.pages.len(),
+            )
+        }) {
+            self.record_progress(&path, page, pages);
         }
 
         self.load_page();
@@ -1504,7 +1810,7 @@ impl AppState {
         };
 
         if changed {
-            let _ = self.progress.record(&chapter_path, page, pages);
+            self.record_progress(&chapter_path, page, pages);
         }
     }
 
@@ -1588,8 +1894,19 @@ impl AppState {
                 self.chapter_index = 0;
                 self.chapter_list_state.select(None);
                 self.category_index = self
-                    .category_index
-                    .min(self.library.categories.len().saturating_sub(1));
+                    .config
+                    .default_category
+                    .as_deref()
+                    .and_then(|name| {
+                        self.library
+                            .categories
+                            .iter()
+                            .position(|category| category == name)
+                    })
+                    .unwrap_or_else(|| {
+                        self.category_index
+                            .min(self.library.categories.len().saturating_sub(1))
+                    });
                 self.clamp_selection();
                 self.status = if self.library.errors.is_empty() {
                     None
@@ -2001,10 +2318,87 @@ mod tests {
     }
 
     #[test]
+    fn settings_menu_opens_pages_and_esc_unwinds() {
+        let mut app = AppState {
+            tab: 4,
+            more_section: MoreSection::Settings,
+            ..AppState::default()
+        };
+        // SETTINGS_PAGES order: Appearance, Library, Reader, ...
+        app.setting_index = 2;
+        app.activate_setting();
+        assert_eq!(app.settings_page, SettingsPage::Reader);
+        assert_eq!(app.setting_index, 0);
+
+        app.leave_more();
+        assert_eq!(app.settings_page, SettingsPage::Main);
+        assert_eq!(app.more_focus, MoreFocus::Content);
+
+        app.leave_more();
+        assert_eq!(app.more_focus, MoreFocus::Sections);
+
+        app.leave_more();
+        assert_eq!(app.tab, 0);
+    }
+
+    #[test]
+    fn library_page_changes_sort_and_default_category() {
+        let mut library = library();
+        library.series = vec![series("Zeta", &["Default"]), series("Alpha", &["Default"])];
+        let mut app = AppState::new(library, None);
+        app.more_section = MoreSection::Settings;
+        app.settings_page = SettingsPage::Library;
+
+        // LIBRARY_ROWS selectable order: path, rescan, sort, category.
+        app.setting_index = 2;
+        app.adjust_setting(1);
+        assert_eq!(app.config.library_sort, LibrarySort::TitleAsc);
+        let titles: Vec<&str> = app
+            .visible_indices()
+            .into_iter()
+            .map(|index| app.library.series[index].title.as_str())
+            .collect();
+        assert_eq!(titles, ["Alpha", "Zeta"]);
+
+        app.setting_index = 3;
+        app.adjust_setting(1);
+        assert_eq!(app.config.default_category.as_deref(), Some("Reading"));
+        assert_eq!(app.category_name(), Some("Reading"));
+
+        app.adjust_setting(-1);
+        assert_eq!(app.config.default_category.as_deref(), Some("Default"));
+        assert_eq!(app.category_name(), Some("Default"));
+    }
+
+    #[test]
+    fn incognito_stops_writing_progress() {
+        let mut app = AppState::new(library(), None);
+        app.more_section = MoreSection::Settings;
+        app.settings_page = SettingsPage::Security;
+        app.setting_index = 0;
+
+        app.activate_setting();
+        assert!(app.config.incognito);
+
+        let chapter = PathBuf::from("/tmp/library/Chapter 1");
+        app.record_progress(&chapter, 3, 10);
+        assert!(app.progress.entry(&chapter).is_none());
+
+        app.activate_setting();
+        assert!(!app.config.incognito);
+        app.record_progress(&chapter, 3, 10);
+        assert_eq!(
+            app.progress.entry(&chapter).map(|entry| entry.page),
+            Some(3)
+        );
+    }
+
+    #[test]
     fn theme_picker_applies_and_persists_selection() {
         let mut app = AppState {
             more_section: MoreSection::Settings,
-            setting_index: 6,
+            settings_page: SettingsPage::Appearance,
+            setting_index: 0,
             ..AppState::default()
         };
 
@@ -2028,7 +2422,8 @@ mod tests {
     fn theme_picker_previews_and_restores_on_cancel() {
         let mut app = AppState {
             more_section: MoreSection::Settings,
-            setting_index: 6,
+            settings_page: SettingsPage::Appearance,
+            setting_index: 0,
             ..AppState::default()
         };
         app.activate_setting();
@@ -2050,7 +2445,8 @@ mod tests {
     fn fullscreen_setting_controls_the_startup_default() {
         let mut app = AppState {
             more_section: MoreSection::Settings,
-            setting_index: 8,
+            settings_page: SettingsPage::Appearance,
+            setting_index: 2,
             ..AppState::default()
         };
         assert!(!app.config.fullscreen);
@@ -2068,7 +2464,8 @@ mod tests {
     fn accent_picker_accepts_named_choice() {
         let mut app = AppState {
             more_section: MoreSection::Settings,
-            setting_index: 7,
+            settings_page: SettingsPage::Appearance,
+            setting_index: 1,
             ..AppState::default()
         };
 
@@ -2098,7 +2495,8 @@ mod tests {
     fn accent_picker_accepts_custom_hex_with_backspace() {
         let mut app = AppState {
             more_section: MoreSection::Settings,
-            setting_index: 7,
+            settings_page: SettingsPage::Appearance,
+            setting_index: 1,
             ..AppState::default()
         };
         app.activate_setting();

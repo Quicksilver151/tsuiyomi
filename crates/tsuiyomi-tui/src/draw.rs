@@ -9,12 +9,14 @@ use ratatui_image::{
     sliced::{SignedPosition, SlicedImage},
     Resize, StatefulImage,
 };
-use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, ReadingMode, Series, Theme};
+use tsuiyomi_core::{
+    Chapter, ChapterKind, Library, LibrarySort, ProgressStore, ReadingMode, Series, Theme,
+};
 
 use crate::{
     app::{
         AppState, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind, PickerState,
-        ReaderMode, MORE_SECTIONS, MORE_SETTINGS_ROWS,
+        ReaderMode, SettingId, SettingsPage, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout, library_layout, more_layout, reader_bar_layout, setting_columns, settings_rows,
@@ -252,12 +254,22 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↵", "enter"),
                 ("Esc", "back"),
             ]
+        } else if app.more_section == MoreSection::Settings
+            && app.settings_page == SettingsPage::Main
+        {
+            &[
+                ("q", "quit"),
+                ("↑↓", "category"),
+                ("↵", "open"),
+                ("Esc", "back"),
+            ]
         } else {
             &[
                 ("q", "quit"),
                 ("↑↓", "setting"),
                 ("←→", "change"),
-                ("Esc", "sections"),
+                ("↵", "action"),
+                ("Esc", "back"),
             ]
         }
     } else {
@@ -303,6 +315,7 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
         }
         LibraryView::Series => {
             draw_categories(frame, layout.categories, app);
+            let indices = app.visible_indices();
             let category = app
                 .library
                 .categories
@@ -312,6 +325,7 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 frame,
                 layout.list,
                 &app.library,
+                &indices,
                 category,
                 &mut app.list_state,
                 app.selected,
@@ -569,14 +583,14 @@ fn draw_series_list(
     frame: &mut Frame,
     area: Rect,
     library: &Library,
+    indices: &[usize],
     category: Option<&str>,
     list_state: &mut ListState,
     selected: usize,
 ) {
-    let series: Vec<&Series> = library
-        .series
+    let series: Vec<&Series> = indices
         .iter()
-        .filter(|series| in_category(series, category))
+        .filter_map(|index| library.series.get(*index))
         .collect();
 
     let items: Vec<ListItem> = series
@@ -796,6 +810,7 @@ fn draw_more(frame: &mut Frame, area: Rect, app: &AppState) {
         MoreSection::Statistics => draw_more_statistics(frame, layout.content, app),
         MoreSection::Storage => draw_more_storage(frame, layout.content, app),
         MoreSection::About => draw_more_about(frame, layout.content, app),
+        MoreSection::Help => draw_more_help(frame, layout.content, app),
     }
 }
 
@@ -827,44 +842,125 @@ fn draw_more_sections(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_more_settings(frame: &mut Frame, area: Rect, app: &AppState) {
-    let block = panel(
-        Line::from(Span::styled(
-            " Settings ",
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        )),
-        more_content_border(app),
-    );
+    match app.settings_page {
+        SettingsPage::Main => draw_settings_menu(frame, area, app),
+        SettingsPage::About => draw_more_about(frame, area, app),
+        page => draw_settings_page(frame, area, app, page),
+    }
+}
+
+fn draw_settings_menu(frame: &mut Frame, area: Rect, app: &AppState) {
+    let block = settings_panel(" Settings ", app);
     frame.render_widget(&block, area);
 
-    let rows = settings_rows(area, MORE_SETTINGS_ROWS.len());
-    for (row_index, entry) in MORE_SETTINGS_ROWS.iter().enumerate() {
+    let rows = settings_rows(area, SETTINGS_PAGES.len());
+    for (index, page) in SETTINGS_PAGES.iter().enumerate() {
+        let Some(row) = rows.get(index).copied() else {
+            break;
+        };
+        let selected = app.more_focus == MoreFocus::Content && index == app.setting_index;
+        if selected {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                row,
+            );
+        }
+
+        let columns = setting_columns(row);
+        let label_style = if selected {
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_subtext1())
+        };
+        let value_style = if selected {
+            Style::default().fg(c_accent())
+        } else {
+            Style::default().fg(c_overlay0())
+        };
+        frame.render_widget(Paragraph::new(page.title()).style(label_style), columns[0]);
+        let value_area = Rect::new(
+            columns[1].x,
+            row.y,
+            columns[1].width.saturating_add(columns[2].width),
+            1,
+        );
+        frame.render_widget(
+            Paragraph::new(page.summary())
+                .alignment(Alignment::Right)
+                .style(value_style),
+            value_area,
+        );
+    }
+
+    settings_hint(
+        frame,
+        area,
+        &block,
+        SETTINGS_PAGES.len(),
+        "↑↓ category · Enter open · Esc back",
+    );
+}
+
+fn draw_settings_page(frame: &mut Frame, area: Rect, app: &AppState, page: SettingsPage) {
+    let title = format!(" Settings · {} ", page.title());
+    let block = settings_panel(&title, app);
+    frame.render_widget(&block, area);
+
+    let rows = settings_rows(area, page.rows().len());
+    let mut selectable = 0;
+    for (row_index, entry) in page.rows().iter().enumerate() {
         let Some(row) = rows.get(row_index).copied() else {
             break;
         };
         match entry {
             MoreRow::Divider(label) => draw_settings_divider(frame, row, label),
-            MoreRow::Setting(index) => draw_setting_row(frame, row, *index, app),
+            MoreRow::Setting(setting) => {
+                draw_setting_row(frame, row, *setting, selectable, app);
+                selectable += 1;
+            }
+            MoreRow::Note(text) => draw_settings_note(frame, row, text),
         }
     }
 
+    let text = if app.more_focus == MoreFocus::Sections {
+        "↑↓ section · Enter settings · Esc back"
+    } else {
+        "↑↓ setting · ←→ change · ↵ action · Esc page"
+    };
+    settings_hint(frame, area, &block, page.rows().len(), text);
+}
+
+fn settings_panel(title: &str, app: &AppState) -> Block<'static> {
+    panel(
+        Line::from(Span::styled(
+            title.to_owned(),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        more_content_border(app),
+    )
+}
+
+fn settings_hint(frame: &mut Frame, area: Rect, block: &Block<'_>, rows: usize, text: &str) {
     let inner_area = block.inner(area);
-    if inner_area.height > MORE_SETTINGS_ROWS.len() as u16 + 1 {
+    if inner_area.height > rows as u16 + 1 {
         let hint = Rect::new(
             inner_area.x,
             inner_area.y + inner_area.height - 1,
             inner_area.width,
             1,
         );
-        let text = if app.more_focus == MoreFocus::Sections {
-            "↑↓ section · Enter settings · Esc back"
-        } else {
-            "↑↓ setting · ←→ change · ↵ picker · Esc back"
-        };
         frame.render_widget(
             Paragraph::new(text).style(Style::default().fg(c_overlay0())),
             hint,
         );
     }
+}
+
+fn draw_settings_note(frame: &mut Frame, row: Rect, text: &str) {
+    frame.render_widget(
+        Paragraph::new(format!(" {text}")).style(Style::default().fg(c_overlay0())),
+        row,
+    );
 }
 
 fn draw_settings_divider(frame: &mut Frame, row: Rect, label: &str) {
@@ -890,8 +986,14 @@ fn draw_settings_divider(frame: &mut Frame, row: Rect, label: &str) {
     frame.render_widget(Paragraph::new(line), row);
 }
 
-fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) {
-    let selected = app.more_focus == MoreFocus::Content && index == app.setting_index;
+fn draw_setting_row(
+    frame: &mut Frame,
+    row: Rect,
+    setting: SettingId,
+    selectable_index: usize,
+    app: &AppState,
+) {
+    let selected = app.more_focus == MoreFocus::Content && selectable_index == app.setting_index;
     if selected {
         frame.render_widget(
             Block::default().style(Style::default().bg(c_surface0())),
@@ -912,10 +1014,10 @@ fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) 
         Style::default().fg(c_overlay1())
     };
 
-    let (label, value) = setting_text(app, index);
+    let (label, value) = setting_text(app, setting);
     frame.render_widget(Paragraph::new(label).style(label_style), columns[0]);
 
-    if let Some((ratio, _)) = setting_slider(app, index) {
+    if let Some((ratio, _)) = setting_slider(app, setting) {
         frame.render_widget(
             Paragraph::new(value)
                 .alignment(Alignment::Right)
@@ -949,43 +1051,67 @@ fn more_content_border(app: &AppState) -> Color {
     }
 }
 
-fn setting_text(app: &AppState, index: usize) -> (String, String) {
-    match index {
-        0 => (
+fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
+    match setting {
+        SettingId::ReadingMode => (
             "Reading mode".to_owned(),
             reading_mode_label(app.config.reading_mode).to_owned(),
         ),
-        1 => ("Zoom".to_owned(), format!("{}%", app.zoom)),
-        2 => (
+        SettingId::Zoom => ("Zoom".to_owned(), format!("{}%", app.zoom)),
+        SettingId::PrefetchBehind => (
             "Prefetch behind".to_owned(),
             app.scroll_cache.prefetch_behind.to_string(),
         ),
-        3 => (
+        SettingId::PrefetchAhead => (
             "Prefetch ahead".to_owned(),
             app.scroll_cache.prefetch_ahead.to_string(),
         ),
-        4 => (
+        SettingId::CacheMargin => (
             "Cache margin".to_owned(),
             app.scroll_cache.cache_margin.to_string(),
         ),
-        5 => ("Library path".to_owned(), display_path(&app.library.root)),
-        6 => ("Theme".to_owned(), theme_label(app.theme).to_owned()),
-        7 => ("Accent".to_owned(), app.accent_name()),
-        8 => (
+        SettingId::LibraryPath => ("Library path".to_owned(), display_path(&app.library.root)),
+        SettingId::DefaultCategory => (
+            "Default category".to_owned(),
+            app.config
+                .default_category
+                .clone()
+                .or_else(|| app.category_name().map(str::to_owned))
+                .unwrap_or_else(|| "Default".to_owned()),
+        ),
+        SettingId::LibrarySort => (
+            "Sort order".to_owned(),
+            library_sort_label(app.config.library_sort).to_owned(),
+        ),
+        SettingId::RescanLibrary => ("Rescan library".to_owned(), "Enter".to_owned()),
+        SettingId::Theme => ("Theme".to_owned(), theme_label(app.theme).to_owned()),
+        SettingId::Accent => ("Accent".to_owned(), app.accent_name()),
+        SettingId::Fullscreen => (
             "Fullscreen".to_owned(),
             if app.config.fullscreen { "Yes" } else { "No" }.to_owned(),
         ),
-        _ => (String::new(), String::new()),
+        SettingId::Incognito => (
+            "Incognito mode".to_owned(),
+            if app.config.incognito { "On" } else { "Off" }.to_owned(),
+        ),
     }
 }
 
-fn setting_slider(app: &AppState, index: usize) -> Option<(f64, (u16, u16))> {
-    match index {
-        1 => Some(((f64::from(app.zoom) - 50.0) / 250.0, (50, 300))),
-        2 => Some((app.scroll_cache.prefetch_behind as f64 / 8.0, (0, 8))),
-        3 => Some((app.scroll_cache.prefetch_ahead as f64 / 8.0, (0, 8))),
-        4 => Some((app.scroll_cache.cache_margin as f64 / 12.0, (0, 12))),
+fn setting_slider(app: &AppState, setting: SettingId) -> Option<(f64, (u16, u16))> {
+    match setting {
+        SettingId::Zoom => Some(((f64::from(app.zoom) - 50.0) / 250.0, (50, 300))),
+        SettingId::PrefetchBehind => Some((app.scroll_cache.prefetch_behind as f64 / 8.0, (0, 8))),
+        SettingId::PrefetchAhead => Some((app.scroll_cache.prefetch_ahead as f64 / 8.0, (0, 8))),
+        SettingId::CacheMargin => Some((app.scroll_cache.cache_margin as f64 / 12.0, (0, 12))),
         _ => None,
+    }
+}
+
+fn library_sort_label(sort: LibrarySort) -> &'static str {
+    match sort {
+        LibrarySort::Natural => "Natural",
+        LibrarySort::TitleAsc => "Title A–Z",
+        LibrarySort::TitleDesc => "Title Z–A",
     }
 }
 
@@ -1124,6 +1250,38 @@ fn draw_more_about(frame: &mut Frame, area: Rect, app: &AppState) {
         .block(panel(
             Line::from(Span::styled(
                 " About ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            )),
+            more_content_border(app),
+        ))
+        .style(Style::default().fg(c_subtext1()))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, area);
+}
+
+fn draw_more_help(frame: &mut Frame, area: Rect, app: &AppState) {
+    let lines = vec![
+        field("Layout", "Mihon local/ source", c_blue()),
+        field(
+            "Docs",
+            "https://mihon.app/docs/guides/local-source/",
+            c_text(),
+        ),
+        field("Backups", "https://mihon.app/docs/guides/backups", c_text()),
+        Line::from(""),
+        field("Keys", "↑↓ move · ↵ open · Esc back", c_green()),
+        field("Tabs", "1–5 or Tab/Shift-Tab", c_green()),
+        field(
+            "Reader",
+            "←→ page · Space screen · +/- zoom · m mode",
+            c_green(),
+        ),
+        field("Display", "f fullscreen · r rescan · c More", c_green()),
+    ];
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(panel(
+            Line::from(Span::styled(
+                " Help ",
                 Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             more_content_border(app),
@@ -1455,21 +1613,43 @@ mod tests {
     }
 
     #[test]
-    fn more_settings_renders() {
+    fn more_settings_renders_the_mihon_categories() {
         let mut app = test_app();
         app.tab = 4;
-        let text = render(&mut app, 80, 30);
+        let text = render(&mut app, 80, 24);
 
         assert!(text.contains("More"));
         assert!(text.contains("Settings"));
+        assert!(text.contains("Appearance"));
+        assert!(text.contains("Library"));
+        assert!(text.contains("Reader"));
+        assert!(text.contains("Downloads"));
+        assert!(text.contains("Tracking"));
+        assert!(text.contains("Browse"));
+        assert!(text.contains("Security"));
+        assert!(text.contains("Advanced"));
+        assert!(text.contains("About"));
+        assert!(text.contains("Theme · accent"));
+    }
+
+    #[test]
+    fn settings_pages_render_their_controls() {
+        let mut app = test_app();
+        app.tab = 4;
+        app.settings_page = SettingsPage::Reader;
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Settings · Reader"));
         assert!(text.contains("Reading mode"));
         assert!(text.contains("Zoom"));
         assert!(text.contains("Prefetch behind"));
-        assert!(text.contains("Reader"));
-        assert!(text.contains("Library"));
-        assert!(text.contains("Appearance"));
-        assert!(text.contains("Fullscreen"));
-        assert!(text.contains("Data and storage"));
+
+        app.settings_page = SettingsPage::Library;
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Settings · Library"));
+        assert!(text.contains("Library path"));
+        assert!(text.contains("Sort order"));
+        assert!(text.contains("Default category"));
+        assert!(text.contains("Rescan library"));
     }
 
     #[test]
@@ -1477,7 +1657,8 @@ mod tests {
         let mut app = test_app();
         app.tab = 4;
         app.more_section = MoreSection::Settings;
-        app.setting_index = 6;
+        app.settings_page = SettingsPage::Appearance;
+        app.setting_index = 0;
         app.activate_setting();
 
         let text = render(&mut app, 80, 30);
@@ -1496,7 +1677,8 @@ mod tests {
         let mut app = test_app();
         app.tab = 4;
         app.more_section = MoreSection::Settings;
-        app.setting_index = 7;
+        app.settings_page = SettingsPage::Appearance;
+        app.setting_index = 1;
         app.activate_setting();
         for character in "#ff00aa".chars() {
             app.picker_char(character);

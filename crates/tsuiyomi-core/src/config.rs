@@ -15,6 +15,17 @@ pub enum ReadingMode {
     ContinuousVertical,
 }
 
+/// Ordering of the library list.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LibrarySort {
+    /// Scanner order: natural, case-insensitive folder-name order.
+    #[default]
+    Natural,
+    TitleAsc,
+    TitleDesc,
+}
+
 /// Built-in color themes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -52,6 +63,12 @@ pub struct Config {
     pub accent: Option<String>,
     /// Start with the title and commands boxes hidden.
     pub fullscreen: bool,
+    /// Library list ordering.
+    pub library_sort: LibrarySort,
+    /// Category selected on startup. `None` keeps the scanner's first category.
+    pub default_category: Option<String>,
+    /// Do not write reading progress while enabled.
+    pub incognito: bool,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -73,6 +90,9 @@ impl Default for Config {
             theme: Theme::default(),
             accent: None,
             fullscreen: false,
+            library_sort: LibrarySort::default(),
+            default_category: None,
+            incognito: false,
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,
@@ -154,17 +174,26 @@ external_mpv = ["mpv"]
 theme = "tokyo_night"
 accent = "#ffcc00"
 fullscreen = true
+library_sort = "title_asc"
+default_category = "Reading"
+incognito = true
 "##,
         )
         .unwrap();
         assert_eq!(config.theme, Theme::TokyoNight);
         assert_eq!(config.accent.as_deref(), Some("#ffcc00"));
         assert!(config.fullscreen);
+        assert_eq!(config.library_sort, LibrarySort::TitleAsc);
+        assert_eq!(config.default_category.as_deref(), Some("Reading"));
+        assert!(config.incognito);
 
         let serialized = toml::to_string(&config).unwrap();
         assert!(serialized.contains("theme = \"tokyo_night\""));
         assert!(serialized.contains("accent = \"#ffcc00\""));
         assert!(serialized.contains("fullscreen = true"));
+        assert!(serialized.contains("library_sort = \"title_asc\""));
+        assert!(serialized.contains("default_category = \"Reading\""));
+        assert!(serialized.contains("incognito = true"));
     }
 
     #[test]
