@@ -95,14 +95,20 @@ The default is `webtoon` (continuous vertical scroll). Set it in
 
 ```toml
 reading_mode = "webtoon"
+reader_zoom = 100
+scroll_prefetch_behind = 2
+scroll_prefetch_ahead = 2
+scroll_cache_margin = 4
 ```
 
-Valid values follow Mihon's reading modes: `default`, `left_to_right`,
-`right_to_left`, `vertical`, `webtoon`, `continuous_vertical`. Page-turn modes open
-single pages; `webtoon` and `continuous_vertical` open in scroll mode. `m` switches
-between page and scroll for the current session. Scroll mode fits pages to the terminal
-width without upscaling by default; `+`/`-` adjusts zoom from 50% to 300%. Only pages near
-the viewport are decoded and cached, and page preparation runs off the UI thread.
+Reading mode, zoom, and scroll cache settings can also be changed in
+**More → Settings** using the thin sliders. Valid `reading_mode` values are `default`,
+`left_to_right`, `right_to_left`, `vertical`, `webtoon`, and `continuous_vertical`.
+Page-turn modes open single pages; `webtoon` and `continuous_vertical` open in scroll
+mode. `m` switches between page and scroll for the current session. Scroll mode fits
+pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom from 50%
+to 300%. Only pages near the viewport are decoded and cached, and page preparation runs
+off the UI thread.
 
 ## Roadmap
 

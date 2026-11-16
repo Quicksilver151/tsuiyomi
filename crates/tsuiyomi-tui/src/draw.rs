@@ -9,13 +9,16 @@ use ratatui_image::{
     sliced::{SignedPosition, SlicedImage},
     Resize, StatefulImage,
 };
-use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, Series};
+use tsuiyomi_core::{Chapter, ChapterKind, Library, ProgressStore, ReadingMode, Series};
 
 use crate::{
-    app::{AppState, LibraryView, ReaderMode},
-    layout::{app_layout, library_layout, reader_bar_layout, tab_layouts, TAB_NAMES},
+    app::{AppState, LibraryView, MoreSection, ReaderMode, MORE_SECTIONS, SETTING_COUNT},
+    layout::{
+        app_layout, library_layout, more_layout, reader_bar_layout, settings_rows, tab_layouts,
+        TAB_NAMES,
+    },
     palette::{
-        BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, RED, SUBTEXT1, SURFACE0,
+        BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, SUBTEXT1, SURFACE0,
         SURFACE1, TEAL, TEXT, YELLOW,
     },
 };
@@ -749,31 +752,272 @@ fn field(label: &str, value: &str, value_color: Color) -> Line<'static> {
 }
 
 fn draw_more(frame: &mut Frame, area: Rect, app: &AppState) {
-    let mut lines = vec![
+    let layout = more_layout(area);
+    draw_more_sections(frame, layout.sections, app);
+
+    match app.more_section {
+        MoreSection::Settings => draw_more_settings(frame, layout.content, app),
+        MoreSection::Downloads => placeholder(
+            frame,
+            layout.content,
+            "Downloads",
+            "Download management is not implemented yet.",
+        ),
+        MoreSection::Categories => draw_more_categories(frame, layout.content, app),
+        MoreSection::Statistics => draw_more_statistics(frame, layout.content, app),
+        MoreSection::Storage => draw_more_storage(frame, layout.content, app),
+        MoreSection::About => draw_more_about(frame, layout.content, app),
+    }
+}
+
+fn draw_more_sections(frame: &mut Frame, area: Rect, app: &AppState) {
+    let items: Vec<ListItem> = MORE_SECTIONS
+        .iter()
+        .map(|section| {
+            let style = if *section == app.more_section {
+                Style::default()
+                    .fg(LAVENDER)
+                    .bg(SURFACE0)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(SUBTEXT1)
+            };
+            ListItem::new(format!(" {} ", section.title())).style(style)
+        })
+        .collect();
+
+    let list = List::new(items).block(panel(
         Line::from(Span::styled(
-            "Settings",
+            " More ",
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
-        field("Library", &app.library.root.display().to_string(), TEXT),
-        Line::from(""),
+        LAVENDER,
+    ));
+    frame.render_widget(list, area);
+}
+
+fn draw_more_settings(frame: &mut Frame, area: Rect, app: &AppState) {
+    let block = panel(
         Line::from(Span::styled(
-            "Config editing is not implemented yet. Set TSUIYOMI_LIBRARY for now.",
-            Style::default().fg(OVERLAY1),
+            " Settings ",
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )),
-    ];
-    if !app.library.errors.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!("{} unreadable series", app.library.errors.len()),
-            Style::default().fg(RED),
-        )));
+        LAVENDER,
+    );
+    frame.render_widget(&block, area);
+
+    let rows = settings_rows(area, SETTING_COUNT);
+    for (index, row) in rows.iter().enumerate() {
+        let selected = index == app.setting_index;
+        if selected {
+            frame.render_widget(Block::default().style(Style::default().bg(SURFACE0)), *row);
+        }
+
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(20),
+                Constraint::Min(10),
+                Constraint::Length(8),
+            ])
+            .split(*row);
+
+        let label_style = if selected {
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(SUBTEXT1)
+        };
+        let value_style = if selected {
+            Style::default().fg(LAVENDER)
+        } else {
+            Style::default().fg(OVERLAY1)
+        };
+
+        let (label, value) = setting_text(app, index);
+        frame.render_widget(Paragraph::new(label).style(label_style), columns[0]);
+        frame.render_widget(
+            Paragraph::new(value)
+                .alignment(Alignment::Right)
+                .style(value_style),
+            columns[2],
+        );
+
+        if let Some((ratio, _)) = setting_slider(app, index) {
+            frame.render_widget(
+                Gauge::default()
+                    .ratio(ratio)
+                    .label("")
+                    .gauge_style(Style::default().fg(LAVENDER).bg(SURFACE0))
+                    .style(Style::default().bg(SURFACE0)),
+                columns[1],
+            );
+        }
+    }
+
+    let inner_area = block.inner(area);
+    if inner_area.height > SETTING_COUNT as u16 + 1 {
+        let hint = Rect::new(
+            inner_area.x,
+            inner_area.y + inner_area.height - 1,
+            inner_area.width,
+            1,
+        );
+        frame.render_widget(
+            Paragraph::new("↑↓ select · +/- change · ←→ section · click slider")
+                .style(Style::default().fg(OVERLAY0)),
+            hint,
+        );
+    }
+}
+
+fn setting_text(app: &AppState, index: usize) -> (String, String) {
+    match index {
+        0 => (
+            "Reading mode".to_owned(),
+            reading_mode_label(app.config.reading_mode).to_owned(),
+        ),
+        1 => ("Zoom".to_owned(), format!("{}%", app.zoom)),
+        2 => (
+            "Prefetch behind".to_owned(),
+            app.scroll_cache.prefetch_behind.to_string(),
+        ),
+        3 => (
+            "Prefetch ahead".to_owned(),
+            app.scroll_cache.prefetch_ahead.to_string(),
+        ),
+        4 => (
+            "Cache margin".to_owned(),
+            app.scroll_cache.cache_margin.to_string(),
+        ),
+        _ => (String::new(), String::new()),
+    }
+}
+
+fn setting_slider(app: &AppState, index: usize) -> Option<(f64, (u16, u16))> {
+    match index {
+        1 => Some(((f64::from(app.zoom) - 50.0) / 250.0, (50, 300))),
+        2 => Some((app.scroll_cache.prefetch_behind as f64 / 8.0, (0, 8))),
+        3 => Some((app.scroll_cache.prefetch_ahead as f64 / 8.0, (0, 8))),
+        4 => Some((app.scroll_cache.cache_margin as f64 / 12.0, (0, 12))),
+        _ => None,
+    }
+}
+
+fn reading_mode_label(mode: ReadingMode) -> &'static str {
+    match mode {
+        ReadingMode::Default => "Default",
+        ReadingMode::LeftToRight => "Left to right",
+        ReadingMode::RightToLeft => "Right to left",
+        ReadingMode::Vertical => "Vertical",
+        ReadingMode::Webtoon => "Webtoon",
+        ReadingMode::ContinuousVertical => "Long strip with gaps",
+    }
+}
+
+fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
+    let mut lines = Vec::new();
+    for category in &app.library.categories {
+        let count = app
+            .library
+            .series
+            .iter()
+            .filter(|series| series.categories.iter().any(|name| name == category))
+            .count();
+        lines.push(field(category, &format!("{count} series"), TEXT));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from("No categories found."));
     }
 
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(
-                " More ",
+                " Categories ",
+                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            )),
+            LAVENDER,
+        ))
+        .style(Style::default().fg(SUBTEXT1))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, area);
+}
+
+fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
+    let chapters: usize = app
+        .library
+        .series
+        .iter()
+        .map(|series| series.chapters.len())
+        .sum();
+    let lines = vec![
+        field("Series", &app.library.series.len().to_string(), GREEN),
+        field("Chapters", &chapters.to_string(), GREEN),
+        field(
+            "Categories",
+            &app.library.categories.len().to_string(),
+            GREEN,
+        ),
+        field("Scan errors", &app.library.errors.len().to_string(), PEACH),
+    ];
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(panel(
+            Line::from(Span::styled(
+                " Statistics ",
+                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            )),
+            LAVENDER,
+        ))
+        .style(Style::default().fg(SUBTEXT1));
+    frame.render_widget(paragraph, area);
+}
+
+fn draw_more_storage(frame: &mut Frame, area: Rect, app: &AppState) {
+    let lines = vec![
+        field("Library", &app.library.root.display().to_string(), TEXT),
+        field(
+            "Categories",
+            &app.library
+                .root
+                .join("categories.json")
+                .display()
+                .to_string(),
+            OVERLAY1,
+        ),
+        field("Progress", "XDG data / tsuiyomi/progress.json", OVERLAY1),
+    ];
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(panel(
+            Line::from(Span::styled(
+                " Data and storage ",
+                Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+            )),
+            LAVENDER,
+        ))
+        .style(Style::default().fg(SUBTEXT1))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, area);
+}
+
+fn draw_more_about(frame: &mut Frame, area: Rect, app: &AppState) {
+    let mode = match app.reader_mode {
+        ReaderMode::Page => "page",
+        ReaderMode::Scroll => "scroll",
+    };
+    let lines = vec![
+        field("Version", env!("CARGO_PKG_VERSION"), TEXT),
+        field("Graphics", app.protocol_name(), BLUE),
+        field("Reader", mode, BLUE),
+        field("Zoom", &format!("{}%", app.zoom), GREEN),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Tsuiyomi is an independent Mihon-compatible TUI.",
+            Style::default().fg(OVERLAY1),
+        )),
+    ];
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(panel(
+            Line::from(Span::styled(
+                " About ",
                 Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
             )),
             LAVENDER,
@@ -939,6 +1183,20 @@ mod tests {
         assert!(text.contains("next"));
         assert!(text.contains("Esc back"));
         assert!(!text.contains("Browse"));
+    }
+
+    #[test]
+    fn more_settings_renders() {
+        let mut app = test_app();
+        app.tab = 4;
+        let text = render(&mut app, 80, 30);
+
+        assert!(text.contains("More"));
+        assert!(text.contains("Settings"));
+        assert!(text.contains("Reading mode"));
+        assert!(text.contains("Zoom"));
+        assert!(text.contains("Prefetch behind"));
+        assert!(text.contains("Data and storage"));
     }
 
     #[test]

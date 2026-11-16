@@ -107,6 +107,42 @@ pub fn library_layout(area: Rect) -> LibraryLayout {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct MoreLayout {
+    pub sections: Rect,
+    pub content: Rect,
+}
+
+pub fn more_layout(area: Rect) -> MoreLayout {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(28),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    MoreLayout {
+        sections: chunks[0],
+        content: chunks[2],
+    }
+}
+
+/// One-row areas for settings inside a bordered panel.
+pub fn settings_rows(area: Rect, count: usize) -> Vec<Rect> {
+    let inner = inner(area);
+    let mut rows = Vec::with_capacity(count);
+    for index in 0..count {
+        let y = inner.y.saturating_add(index as u16);
+        if y >= inner.y.saturating_add(inner.height) {
+            break;
+        }
+        rows.push(Rect::new(inner.x, y, inner.width, 1));
+    }
+    rows
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ReaderBarLayout {
     pub previous: Rect,
     pub progress: Rect,

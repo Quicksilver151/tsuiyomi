@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{collections::BTreeMap, env, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -21,8 +21,19 @@ pub enum ReadingMode {
 pub struct Config {
     /// Root of the library, containing one directory per series.
     pub library_path: Option<PathBuf>,
-    /// Default reader mode. Long-strip scroll (`webtoon`) unless configured otherwise.
+    /// Default reader mode.
     pub reading_mode: ReadingMode,
+    /// Scroll-mode zoom, 50–300%.
+    pub reader_zoom: u16,
+    /// Pages prepared before the viewport.
+    pub scroll_prefetch_behind: usize,
+    /// Pages prepared after the viewport.
+    pub scroll_prefetch_ahead: usize,
+    /// Extra cached pages around the viewport.
+    pub scroll_cache_margin: usize,
+    /// Unknown keys from existing user configs, preserved on save.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, toml::Value>,
 }
 
 impl Default for Config {
@@ -30,6 +41,11 @@ impl Default for Config {
         Self {
             library_path: default_library_path(),
             reading_mode: ReadingMode::default(),
+            reader_zoom: 100,
+            scroll_prefetch_behind: 2,
+            scroll_prefetch_ahead: 2,
+            scroll_cache_margin: 4,
+            extra: BTreeMap::new(),
         }
     }
 }
@@ -41,7 +57,7 @@ fn default_library_path() -> Option<PathBuf> {
 
 /// Load the config. `TSUIYOMI_LIBRARY` overrides the stored path.
 pub fn load_config() -> Config {
-    let mut config: Config = confy::load("tsuiyomi", None).unwrap_or_else(|error| {
+    let mut config: Config = confy::load("tsuiyomi", "config").unwrap_or_else(|error| {
         eprintln!("failed to load config: {error}; using defaults");
         Config::default()
     });
@@ -53,31 +69,58 @@ pub fn load_config() -> Config {
     config
 }
 
+/// Persist the config, including unknown keys preserved from the existing file.
+pub fn save_config(config: &Config) {
+    if let Err(error) = confy::store("tsuiyomi", "config", config) {
+        eprintln!("failed to save config: {error}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn ignores_unknown_config_keys() {
-        let config: Config =
-            serde_json::from_str(r#"{"theme":"default","library_path":"/tmp/manga"}"#).unwrap();
+    fn ignores_and_preserves_unknown_config_keys() {
+        let config: Config = toml::from_str(
+            r#"
+library_path = "/tmp/manga"
+theme = "default"
+
+[player]
+external_mpv = ["mpv"]
+"#,
+        )
+        .unwrap();
+
         assert_eq!(config.library_path, Some(PathBuf::from("/tmp/manga")));
         assert_eq!(config.reading_mode, ReadingMode::Webtoon);
+        assert_eq!(config.reader_zoom, 100);
+        assert!(config.extra.contains_key("theme"));
+        assert!(config.extra.contains_key("player"));
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("theme = \"default\""));
+        assert!(serialized.contains("[player]"));
     }
 
     #[test]
     fn missing_keys_use_defaults() {
-        let config: Config = serde_json::from_str(r#"{"theme":"default"}"#).unwrap();
+        let config: Config = toml::from_str("theme = \"default\"").unwrap();
         assert_eq!(config.library_path, Config::default().library_path);
         assert_eq!(config.reading_mode, ReadingMode::Webtoon);
+        assert_eq!(config.reader_zoom, 100);
+        assert_eq!(config.scroll_prefetch_behind, 2);
+        assert_eq!(config.scroll_prefetch_ahead, 2);
+        assert_eq!(config.scroll_cache_margin, 4);
     }
 
     #[test]
     fn reading_mode_matches_mihon_names() {
-        let config: Config = serde_json::from_str(r#"{"reading_mode":"left_to_right"}"#).unwrap();
+        let config: Config = toml::from_str("reading_mode = \"left_to_right\"").unwrap();
         assert_eq!(config.reading_mode, ReadingMode::LeftToRight);
 
-        let config: Config = serde_json::from_str(r#"{"reading_mode":"webtoon"}"#).unwrap();
+        let config: Config = toml::from_str("reading_mode = \"webtoon\"").unwrap();
         assert_eq!(config.reading_mode, ReadingMode::Webtoon);
     }
 }

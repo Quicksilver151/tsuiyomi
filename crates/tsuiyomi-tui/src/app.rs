@@ -4,8 +4,8 @@ use crossterm::terminal;
 use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::{
-    chapter_pages, read_page, scan_library, Chapter, Library, Page, ProgressStore, ReadingMode,
-    Series,
+    chapter_pages, read_page, save_config, scan_library, Chapter, Config, Library, Page,
+    ProgressStore, ReadingMode, Series,
 };
 
 use crate::{
@@ -22,6 +22,51 @@ pub enum LibraryView {
     Series,
     Chapters,
     Reader,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MoreSection {
+    #[default]
+    Settings,
+    Downloads,
+    Categories,
+    Statistics,
+    Storage,
+    About,
+}
+
+pub const MORE_SECTIONS: [MoreSection; 6] = [
+    MoreSection::Settings,
+    MoreSection::Downloads,
+    MoreSection::Categories,
+    MoreSection::Statistics,
+    MoreSection::Storage,
+    MoreSection::About,
+];
+
+/// Order matches the rows rendered by the Settings section.
+pub const SETTING_COUNT: usize = 5;
+
+pub const READING_MODES: [ReadingMode; 6] = [
+    ReadingMode::Default,
+    ReadingMode::LeftToRight,
+    ReadingMode::RightToLeft,
+    ReadingMode::Vertical,
+    ReadingMode::Webtoon,
+    ReadingMode::ContinuousVertical,
+];
+
+impl MoreSection {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Settings => "Settings",
+            Self::Downloads => "Downloads",
+            Self::Categories => "Categories",
+            Self::Statistics => "Statistics",
+            Self::Storage => "Data and storage",
+            Self::About => "About",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -110,6 +155,9 @@ pub struct AppState {
     pub scroll_cache: ScrollCacheConfig,
     /// Scroll-mode zoom percentage. 100 = fit width without upscaling.
     pub zoom: u16,
+    pub config: Config,
+    pub more_section: MoreSection,
+    pub setting_index: usize,
     pub status: Option<String>,
 }
 
@@ -133,6 +181,9 @@ impl AppState {
             scroll_generation: 0,
             scroll_cache: ScrollCacheConfig::default(),
             zoom: 100,
+            config: Config::default(),
+            more_section: MoreSection::Settings,
+            setting_index: 0,
             status,
         };
         if app.visible_count() > 0 {
@@ -411,6 +462,126 @@ impl AppState {
                 ReaderMode::Scroll
             }
         };
+    }
+
+    /// Apply the persisted config to runtime state.
+    pub fn set_config(&mut self, config: Config) {
+        self.reader_mode = ReaderMode::Page;
+        self.set_reading_mode(config.reading_mode);
+        self.zoom = config.reader_zoom.clamp(50, 300);
+        self.scroll_cache = ScrollCacheConfig {
+            prefetch_behind: config.scroll_prefetch_behind.min(16),
+            prefetch_ahead: config.scroll_prefetch_ahead.min(16),
+            cache_margin: config.scroll_cache_margin.min(32),
+        };
+        self.config = config;
+    }
+
+    /// Save current reader settings back to the config file.
+    pub fn persist_settings(&mut self) {
+        self.config.reader_zoom = self.zoom;
+        self.config.scroll_prefetch_behind = self.scroll_cache.prefetch_behind;
+        self.config.scroll_prefetch_ahead = self.scroll_cache.prefetch_ahead;
+        self.config.scroll_cache_margin = self.scroll_cache.cache_margin;
+        save_config(&self.config);
+    }
+
+    pub fn next_more_section(&mut self) {
+        let index = MORE_SECTIONS
+            .iter()
+            .position(|section| *section == self.more_section)
+            .unwrap_or(0);
+        self.more_section = MORE_SECTIONS[(index + 1).min(MORE_SECTIONS.len() - 1)];
+        self.setting_index = 0;
+    }
+
+    pub fn previous_more_section(&mut self) {
+        let index = MORE_SECTIONS
+            .iter()
+            .position(|section| *section == self.more_section)
+            .unwrap_or(0);
+        self.more_section = MORE_SECTIONS[index.saturating_sub(1)];
+        self.setting_index = 0;
+    }
+
+    pub fn set_more_section(&mut self, index: usize) {
+        if let Some(section) = MORE_SECTIONS.get(index) {
+            self.more_section = *section;
+            self.setting_index = 0;
+        }
+    }
+
+    pub fn previous_setting(&mut self) {
+        self.setting_index = self.setting_index.saturating_sub(1);
+    }
+
+    pub fn next_setting(&mut self) {
+        self.setting_index = (self.setting_index + 1).min(SETTING_COUNT - 1);
+    }
+
+    pub fn adjust_setting(&mut self, delta: i32) {
+        if self.more_section != MoreSection::Settings {
+            return;
+        }
+
+        match self.setting_index {
+            0 => {
+                let index = READING_MODES
+                    .iter()
+                    .position(|mode| *mode == self.config.reading_mode)
+                    .unwrap_or(0);
+                let next = (index as i32 + delta).rem_euclid(READING_MODES.len() as i32) as usize;
+                self.config.reading_mode = READING_MODES[next];
+                self.set_reading_mode(self.config.reading_mode);
+                if self.view == LibraryView::Reader {
+                    match self.reader_mode {
+                        ReaderMode::Page => self.load_page(),
+                        ReaderMode::Scroll => self.build_scroll(terminal_width()),
+                    }
+                }
+            }
+            1 => {
+                let zoom = (i32::from(self.zoom) + delta * 10).clamp(50, 300) as u16;
+                self.set_zoom(zoom);
+            }
+            2 => {
+                let value = (self.scroll_cache.prefetch_behind as i32 + delta).clamp(0, 8);
+                self.scroll_cache.prefetch_behind = value as usize;
+            }
+            3 => {
+                let value = (self.scroll_cache.prefetch_ahead as i32 + delta).clamp(0, 8);
+                self.scroll_cache.prefetch_ahead = value as usize;
+            }
+            4 => {
+                let value = (self.scroll_cache.cache_margin as i32 + delta).clamp(0, 12);
+                self.scroll_cache.cache_margin = value as usize;
+            }
+            _ => {}
+        }
+
+        self.persist_settings();
+    }
+
+    pub fn set_setting_ratio(&mut self, index: usize, ratio: f64) {
+        let ratio = ratio.clamp(0.0, 1.0);
+        self.setting_index = index;
+        match index {
+            1 => {
+                let zoom = (50.0 + ratio * 250.0).round() as u16;
+                self.set_zoom(zoom);
+            }
+            2 => {
+                self.scroll_cache.prefetch_behind = (ratio * 8.0).round() as usize;
+            }
+            3 => {
+                self.scroll_cache.prefetch_ahead = (ratio * 8.0).round() as usize;
+            }
+            4 => {
+                self.scroll_cache.cache_margin = (ratio * 12.0).round() as usize;
+            }
+            _ => return,
+        }
+        self.persist_settings();
     }
 
     pub fn zoom_in(&mut self) {

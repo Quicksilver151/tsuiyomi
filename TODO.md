@@ -96,8 +96,8 @@ without panics.
 - [x] Persist last-read page per chapter and resume on reopen.
 - [x] Continuous vertical scroll mode (`m` toggles page/scroll; arrows/wheel scroll 5 lines).
 - [x] Scroll zoom with `+`/`-` (50–300%); no upscaling at 100%.
-- [ ] Expose `ScrollCacheConfig` (prefetch behind/ahead, cache margin, worker count)
-      in the config file and More settings menu.
+- [x] Expose scroll cache/prefetch settings in config and the More → Settings section.
+- [ ] Expose worker count / idle prefetch in config and settings.
 - [x] Reader bottom bar with prev/next chapter buttons and a page gauge (tabs hidden).
 - [x] Handle unsupported or corrupt images without aborting.
 
@@ -106,14 +106,14 @@ protocol fallback works over SSH.
 
 ## Phase 6 — Config and history
 
-- [ ] Define the config schema (library path, reader, theme, log level) and store it under
-      the XDG config dir.
-- [ ] Preserve the config keys already present on user machines (`theme`,
+- [x] Define the config schema (library path, reader settings) and store it under the XDG
+      config dir.
+- [x] Preserve the config keys already present on user machines (`theme`,
       `max_http_requests_per_sec`, `player.*`, `manga_viewer`, `tty.graphics`) and map them
       to the reader/player settings. Never drop unknown keys on save.
 - [ ] Add CLI flags with `clap`: `--library`, `--config`, `--version`.
 - [ ] Precedence: CLI > env (`TSUIYOMI_LIBRARY`) > config file > default.
-- [ ] Add an editable config tab with validation.
+- [x] Add an editable settings section in More, with thin slider gauges.
 - [ ] Store read history/progress under the XDG data dir.
 - [ ] Start with a JSON store; migrate to SQLite only if it becomes slow.
 - [ ] Add config/history migration handling and corrupt-file recovery.

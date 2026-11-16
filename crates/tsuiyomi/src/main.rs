@@ -5,9 +5,9 @@ use tsuiyomi_tui::AppState;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let config = load_config();
-    let reading_mode = config.reading_mode;
+    let library_path = config.library_path.clone();
 
-    let (library, status) = match config.library_path {
+    let (library, status) = match library_path {
         Some(path) => {
             let placeholder = Library {
                 root: path.clone(),
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut app = AppState::new(library, status);
-    app.set_reading_mode(reading_mode);
+    app.set_config(config);
     tsuiyomi_tui::run(app)?;
     Ok(())
 }
