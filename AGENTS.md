@@ -138,7 +138,9 @@ Rules:
   `+`/`-` adjust zoom (no upscaling at 100%). Scroll mode reads page dimensions once,
   lazily decodes only visible/nearby pages, caches their protocols, and uses Kitty shared
   memory when available. Page decode/resize/encode runs on a background worker; the UI
-  polls and redraws without blocking. Progress is stored in
+  polls and redraws without blocking. `ScrollCacheConfig` in the TUI holds prefetch
+  behind/ahead and cache-margin values (currently defaults: 2 behind, 2 ahead, 4 margin);
+  expose it in config/settings later. Progress is stored in
   `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction, fit modes, and
   retransmit-free Kitty placement zoom are not implemented yet.
 - `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.

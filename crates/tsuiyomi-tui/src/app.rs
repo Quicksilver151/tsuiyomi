@@ -31,6 +31,26 @@ pub enum ReaderMode {
     Scroll,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollCacheConfig {
+    /// Pages loaded before the first visible page.
+    pub prefetch_behind: usize,
+    /// Pages loaded after the last visible page.
+    pub prefetch_ahead: usize,
+    /// Extra cached pages kept around the viewport before eviction.
+    pub cache_margin: usize,
+}
+
+impl Default for ScrollCacheConfig {
+    fn default() -> Self {
+        Self {
+            prefetch_behind: 2,
+            prefetch_ahead: 2,
+            cache_margin: 4,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ScrollPageLayout {
     pub start: u32,
@@ -86,6 +106,8 @@ pub struct AppState {
     /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
     pub(crate) scroll_worker: Option<ScrollWorker>,
     pub scroll_generation: u64,
+    /// Tunables for lazy scroll loading; a future settings menu will expose these.
+    pub scroll_cache: ScrollCacheConfig,
     /// Scroll-mode zoom percentage. 100 = fit width without upscaling.
     pub zoom: u16,
     pub status: Option<String>,
@@ -109,6 +131,7 @@ impl AppState {
             progress: ProgressStore::default(),
             scroll_worker: None,
             scroll_generation: 0,
+            scroll_cache: ScrollCacheConfig::default(),
             zoom: 100,
             status,
         };
@@ -772,8 +795,9 @@ impl AppState {
                 .iter()
                 .rposition(|page| page.start < bottom)
                 .unwrap_or(first);
-            let load_start = first.saturating_sub(1);
-            let load_end = (last + 2).min(scroll.layout.len().saturating_sub(1));
+            let load_start = first.saturating_sub(self.scroll_cache.prefetch_behind);
+            let load_end = (last + self.scroll_cache.prefetch_ahead)
+                .min(scroll.layout.len().saturating_sub(1));
             let page = page_at_offset(scroll);
 
             (load_start, load_end, first, last, page, pending)
@@ -864,8 +888,8 @@ impl AppState {
                 reader.scroll.as_mut()
             };
             if let Some(scroll) = scroll {
-                let keep_start = first.saturating_sub(4);
-                let keep_end = last + 4;
+                let keep_start = first.saturating_sub(self.scroll_cache.cache_margin);
+                let keep_end = last + self.scroll_cache.cache_margin;
                 for (index, protocol) in scroll.protocols.iter_mut().enumerate() {
                     if index < keep_start || index > keep_end {
                         *protocol = None;
