@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-pub const TAB_COUNT: usize = 4;
-pub const TAB_NAMES: [&str; TAB_COUNT] = ["Library", "Search", "Updates", "Config"];
+pub const TAB_COUNT: usize = 5;
+pub const TAB_NAMES: [&str; TAB_COUNT] = ["Library", "Updates", "History", "Browse", "More"];
 
 #[derive(Debug, Clone, Copy)]
 pub struct AppLayout {

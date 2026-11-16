@@ -150,9 +150,11 @@ Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
 
 ## Style
 
-- UI theme: Catppuccin Mocha with lavender as the accent. Square borders, a single-row
-  shared tab bar at the bottom, a commands box below it, and colored metadata fields.
-  Fullscreen hides the title and commands boxes.
+- UI tabs mirror Mihon: Library, Updates, History, Browse, More. No numeric prefixes.
+  Selected tabs use lavender text only; do not fill their background.
+- Theme: Catppuccin Mocha with lavender as the accent. Square borders, a single-row shared
+  tab bar at the bottom, a commands box below it, and colored metadata fields. Fullscreen
+  hides the title and commands boxes.
 - `rustfmt` defaults.
 - New code: explicit imports, `snake_case`, small modules, doc comments on public core
   APIs.

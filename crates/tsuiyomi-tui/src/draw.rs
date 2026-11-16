@@ -31,16 +31,22 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
         1 => placeholder(
             frame,
             layout.content,
-            "Search",
-            "Search is not implemented yet.",
+            "Updates",
+            "Update tracking is not implemented yet.",
         ),
         2 => placeholder(
             frame,
             layout.content,
-            "Updates",
-            "Update tracking is not implemented yet.",
+            "History",
+            "Reading history is not implemented yet.",
         ),
-        _ => draw_config(frame, layout.content, app),
+        3 => placeholder(
+            frame,
+            layout.content,
+            "Browse",
+            "Browsing remote sources is not implemented yet.",
+        ),
+        _ => draw_more(frame, layout.content, app),
     }
 
     draw_tabs(frame, layout.tabs, app.tab);
@@ -80,13 +86,10 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
             spans.push(Span::styled("│", Style::default().fg(SURFACE1)));
         }
 
-        let label = format!("{} {}", tab.index + 1, TAB_NAMES[tab.index]);
-        let text = center_label(&label, tab.area.width);
+        let label = TAB_NAMES[tab.index];
+        let text = center_label(label, tab.area.width);
         let style = if tab.index == active {
-            Style::default()
-                .fg(BASE)
-                .bg(LAVENDER)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(OVERLAY1)
         };
@@ -302,17 +305,17 @@ fn field(label: &str, value: &str, value_color: Color) -> Line<'static> {
     ])
 }
 
-fn draw_config(frame: &mut Frame, area: Rect, app: &AppState) {
+fn draw_more(frame: &mut Frame, area: Rect, app: &AppState) {
     let mut lines = vec![
         Line::from(Span::styled(
-            "Config",
+            "Settings",
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         field("Library", &app.library.root.display().to_string(), TEXT),
         Line::from(""),
         Line::from(Span::styled(
-            "Editing is not implemented yet. Set TSUIYOMI_LIBRARY for now.",
+            "Config editing is not implemented yet. Set TSUIYOMI_LIBRARY for now.",
             Style::default().fg(OVERLAY1),
         )),
     ];
@@ -327,7 +330,7 @@ fn draw_config(frame: &mut Frame, area: Rect, app: &AppState) {
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(
-                " Config ",
+                " More ",
                 Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
             )),
             LAVENDER,
@@ -437,8 +440,33 @@ mod tests {
         assert!(text.contains("mouse"));
         assert!(text.contains("┬"));
         assert!(text.contains("┴"));
+        assert!(text.contains("History"));
+        assert!(text.contains("Browse"));
+        assert!(text.contains("More"));
+        assert!(!text.contains("1 Library"));
         assert!(text.contains("Test Series"));
         assert!(text.contains("Details"));
+    }
+
+    #[test]
+    fn selected_tab_uses_lavender_text_without_background() {
+        let mut app = test_app();
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        let layout = app_layout(Rect::new(0, 0, 80, 24), false);
+        let tabs = tab_layouts(layout.tabs);
+        let buffer = terminal.backend().buffer();
+
+        let selected = tabs[0].area;
+        let selected_cell = &buffer[(selected.x + selected.width / 2, selected.y)];
+        assert_eq!(selected_cell.style().fg, Some(LAVENDER));
+        assert_eq!(selected_cell.style().bg, Some(BASE));
+
+        let inactive = tabs[1].area;
+        let inactive_cell = &buffer[(inactive.x + inactive.width / 2, inactive.y)];
+        assert_eq!(inactive_cell.style().fg, Some(OVERLAY1));
     }
 
     #[test]
