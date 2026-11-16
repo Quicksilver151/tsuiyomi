@@ -28,21 +28,15 @@ pub enum ReaderMode {
     Scroll,
 }
 
-pub struct ScrollPage {
-    pub protocol: SlicedProtocol,
-    /// Row at which this page starts in the tall scroll image.
-    pub start: u16,
-    pub rows: u16,
-    pub width: u16,
-}
-
 pub struct ScrollState {
-    pub pages: Vec<ScrollPage>,
+    pub protocol: SlicedProtocol,
     /// Signed Y offset of the tall image; 0 is the top.
     pub offset: i16,
     pub width: u16,
     pub viewport_height: u16,
     pub total_rows: u16,
+    /// Row at which each page starts. Exact, because pages are composed on row boundaries.
+    pub page_starts: Vec<u16>,
 }
 
 pub struct ReaderState {
@@ -249,7 +243,7 @@ impl AppState {
                 };
                 let page = reader.page_index;
                 let current = -(scroll.offset as i32);
-                let start = i32::from(scroll.pages.get(page).map_or(0, |page| page.start));
+                let start = i32::from(scroll.page_starts.get(page).copied().unwrap_or(0));
                 (page, current <= start)
             };
             if aligned {
@@ -319,7 +313,7 @@ impl AppState {
                     return;
                 };
                 let page = page.min(reader.pages.len().saturating_sub(1));
-                let start = scroll.pages.get(page).map_or(0, |page| page.start);
+                let start = scroll.page_starts.get(page).copied().unwrap_or(0);
                 let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height);
                 scroll.offset = -(start.min(max_scroll) as i16);
                 reader.page_index = page;
@@ -499,9 +493,10 @@ impl AppState {
         let font = picker.font_size();
         let font_width = u32::from(font.width.max(1));
         let font_height = u32::from(font.height.max(1));
-        let target_width = u32::from(width.max(1));
+        let target_pixel_width = u32::from(width.max(1)) * font_width;
 
-        let mut scroll_pages = Vec::with_capacity(pages.len());
+        let mut page_images = Vec::with_capacity(pages.len());
+        let mut page_heights = Vec::with_capacity(pages.len());
         let mut total_rows = 0u32;
 
         for page in &pages {
@@ -520,45 +515,64 @@ impl AppState {
                 }
             };
 
-            let image_width = image.width().max(1);
-            let scale = (target_width * font_width) as f32 / image_width as f32;
-            let target_rows =
-                ((image.height() as f32 * scale / font_height as f32).ceil() as u32).max(1);
-            if target_rows > u32::from(u16::MAX) {
-                self.set_reader_error("A page is too tall for scroll mode.");
-                return;
-            }
-
-            let protocol = match SlicedProtocol::new_with_resize(
-                &picker,
-                image,
-                Size::new(width.max(1), target_rows as u16),
-                Resize::Fit(None),
-            ) {
-                Ok(protocol) => protocol,
-                Err(error) => {
-                    self.set_reader_error(error.to_string());
-                    return;
-                }
-            };
-
-            let size = protocol.size();
-            let start = total_rows;
-            total_rows = total_rows.saturating_add(u32::from(size.height.max(1)));
+            let source_width = image.width().max(1);
+            let rows = ((f64::from(image.height()) * f64::from(target_pixel_width)
+                / f64::from(source_width))
+                / f64::from(font_height))
+            .ceil() as u32;
+            let rows = rows.max(1);
+            total_rows = total_rows.saturating_add(rows);
             if total_rows > i16::MAX as u32 {
                 self.set_reader_error("Chapter is too tall for scroll mode.");
                 return;
             }
 
-            scroll_pages.push(ScrollPage {
-                protocol,
-                start: start as u16,
-                rows: size.height.max(1),
-                width: size.width,
-            });
+            let pixel_height = rows * font_height;
+            page_images.push(
+                image
+                    .resize_exact(
+                        target_pixel_width,
+                        pixel_height,
+                        image::imageops::FilterType::Triangle,
+                    )
+                    .to_rgba8(),
+            );
+            page_heights.push(rows as u16);
         }
 
-        let total_rows = total_rows.max(1) as u16;
+        let total_height = total_rows.saturating_mul(font_height);
+        if u64::from(target_pixel_width) * u64::from(total_height) > 64_000_000 {
+            self.set_reader_error("Chapter is too large for scroll mode.");
+            return;
+        }
+
+        let mut canvas = image::RgbaImage::new(target_pixel_width, total_height);
+        let mut page_starts = Vec::with_capacity(page_images.len());
+        let mut row = 0u16;
+        for (image, rows) in page_images.iter().zip(page_heights.iter()) {
+            page_starts.push(row);
+            image::imageops::overlay(
+                &mut canvas,
+                image,
+                0,
+                i64::from(u32::from(row) * font_height),
+            );
+            row += rows;
+        }
+
+        let protocol = match SlicedProtocol::new_with_resize(
+            &picker,
+            image::DynamicImage::ImageRgba8(canvas),
+            Size::new(width.max(1), total_rows as u16),
+            Resize::Fit(None),
+        ) {
+            Ok(protocol) => protocol,
+            Err(error) => {
+                self.set_reader_error(error.to_string());
+                return;
+            }
+        };
+
         let viewport_height = self
             .reader
             .as_ref()
@@ -566,18 +580,20 @@ impl AppState {
             .map_or(10, |scroll| scroll.viewport_height)
             .max(1);
         let page_index = self.reader.as_ref().map_or(0, |reader| reader.page_index);
-        let start_row = scroll_pages.get(page_index).map_or(0, |page| page.start);
+        let start_row = page_starts.get(page_index).copied().unwrap_or(0);
+        let total_rows = protocol.size().height.max(1);
         let max_scroll = total_rows.saturating_sub(viewport_height);
         let offset = -(start_row.min(max_scroll) as i16);
 
         if let Some(reader) = self.reader.as_mut() {
             reader.error = None;
             reader.scroll = Some(ScrollState {
-                pages: scroll_pages,
+                protocol,
                 offset,
                 width: width.max(1),
                 viewport_height,
                 total_rows,
+                page_starts,
             });
         }
     }
@@ -609,9 +625,9 @@ impl AppState {
             let at_end = next >= max_scroll;
 
             let mut page = scroll
-                .pages
+                .page_starts
                 .iter()
-                .rposition(|page| i32::from(page.start) <= next)
+                .rposition(|start| i32::from(*start) <= next)
                 .unwrap_or(0);
             if at_end && !reader.pages.is_empty() {
                 page = reader.pages.len() - 1;
@@ -900,7 +916,7 @@ mod tests {
         app.toggle_reader_mode();
         assert_eq!(app.reader_mode, ReaderMode::Scroll);
         let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
-        assert_eq!(scroll.pages.len(), 2);
+        assert_eq!(scroll.page_starts.len(), 2);
         assert!(scroll.total_rows > 0);
         let offset = scroll.offset;
         assert!(offset < 0);
@@ -914,7 +930,7 @@ mod tests {
 
         app.next_page();
         let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
-        let page_two_start = scroll.pages[1].start;
+        let page_two_start = scroll.page_starts[1];
         let max_scroll = scroll.total_rows.saturating_sub(scroll.viewport_height);
         let expected = -(page_two_start.min(max_scroll) as i16);
         assert_eq!(app.reader.as_ref().unwrap().page_index, 1);

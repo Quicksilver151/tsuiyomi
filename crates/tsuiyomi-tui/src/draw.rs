@@ -405,28 +405,18 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 }
                 at_end = current >= max_scroll;
 
-                let area = chunks[1];
-                for page in &scroll.pages {
-                    let top = i32::from(page.start) - current;
-                    if top >= i32::from(area.height) {
-                        break;
-                    }
-                    if top + i32::from(page.rows) <= 0 {
-                        continue;
-                    }
-
-                    let x = area.width.saturating_sub(page.width) / 2;
-                    frame.render_widget(
-                        SlicedImage::new(
-                            &page.protocol,
-                            SignedPosition {
-                                x: x as i16,
-                                y: top as i16,
-                            },
-                        ),
-                        area,
-                    );
-                }
+                let image_width = scroll.protocol.size().width;
+                let x = chunks[1].width.saturating_sub(image_width) / 2;
+                frame.render_widget(
+                    SlicedImage::new(
+                        &scroll.protocol,
+                        SignedPosition {
+                            x: x as i16,
+                            y: scroll.offset,
+                        },
+                    ),
+                    chunks[1],
+                );
             } else {
                 placeholder_message(frame, chunks[1], "Preparing scroll view…");
             }
