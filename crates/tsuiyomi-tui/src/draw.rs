@@ -17,8 +17,8 @@ use crate::{
         MORE_SETTINGS_ROWS,
     },
     layout::{
-        app_layout, library_layout, more_layout, reader_bar_layout, settings_rows, tab_layouts,
-        TAB_NAMES,
+        app_layout, library_layout, more_layout, reader_bar_layout, setting_columns, settings_rows,
+        tab_layouts, TAB_NAMES,
     },
     palette::{
         BASE, BLUE, GREEN, LAVENDER, MAUVE, OVERLAY0, OVERLAY1, PEACH, SUBTEXT1, SURFACE0,
@@ -243,16 +243,15 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             &[
                 ("q", "quit"),
                 ("↑↓", "section"),
-                ("→/↵", "select"),
+                ("↵", "enter"),
                 ("Esc", "back"),
             ]
         } else {
             &[
                 ("q", "quit"),
                 ("↑↓", "setting"),
-                ("+/-", "change"),
-                ("←", "sections"),
-                ("Esc", "back"),
+                ("←→", "change"),
+                ("Esc", "sections"),
             ]
         }
     } else {
@@ -847,9 +846,9 @@ fn draw_more_settings(frame: &mut Frame, area: Rect, app: &AppState) {
             1,
         );
         let text = if app.more_focus == MoreFocus::Sections {
-            "↑↓ section · →/Enter select · Esc back"
+            "↑↓ section · Enter settings · Esc back"
         } else {
-            "↑↓ setting · +/- change · ← sections · Esc back"
+            "↑↓ setting · ←→ change · Esc sections"
         };
         frame.render_widget(
             Paragraph::new(text).style(Style::default().fg(OVERLAY0)),
@@ -887,14 +886,7 @@ fn draw_setting_row(frame: &mut Frame, row: Rect, index: usize, app: &AppState) 
         frame.render_widget(Block::default().style(Style::default().bg(SURFACE0)), row);
     }
 
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(20),
-            Constraint::Min(10),
-            Constraint::Length(8),
-        ])
-        .split(row);
+    let columns = setting_columns(row);
 
     let label_style = if selected {
         Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)

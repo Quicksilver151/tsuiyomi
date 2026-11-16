@@ -540,17 +540,13 @@ impl AppState {
         }
     }
 
-    pub fn focus_more_sections(&mut self) {
-        self.more_focus = MoreFocus::Sections;
-    }
-
     pub fn focus_more_content(&mut self) {
         self.more_focus = MoreFocus::Content;
     }
 
     pub fn leave_more(&mut self) {
-        if self.more_focus == MoreFocus::Sections {
-            self.more_focus = MoreFocus::Content;
+        if self.more_focus == MoreFocus::Content {
+            self.more_focus = MoreFocus::Sections;
         } else {
             self.select_tab(0);
         }
@@ -1679,7 +1675,7 @@ mod tests {
         let mut app = AppState::default();
         assert_eq!(app.more_focus, MoreFocus::Content);
 
-        app.focus_more_sections();
+        app.leave_more();
         assert_eq!(app.more_focus, MoreFocus::Sections);
 
         app.next_more_section();
@@ -1687,8 +1683,6 @@ mod tests {
         app.previous_more_section();
         assert_eq!(app.more_section, MoreSection::Settings);
 
-        app.leave_more();
-        assert_eq!(app.more_focus, MoreFocus::Content);
         app.leave_more();
         assert_eq!(app.tab, 0);
     }

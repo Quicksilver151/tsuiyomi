@@ -110,9 +110,9 @@ pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom f
 to 300%. Only pages near the viewport are decoded and cached, and page preparation runs
 off the UI thread.
 
-- `↑↓` selects settings; `+/-` changes the selected value; `←` moves focus to the More
-  section list; `→`/`Enter` returns to settings; `Esc` backs out. Clicking a section or
-  slider also works.
+- `↑↓` selects sections/settings; `Enter` enters the selected More section or settings
+  pane; `Esc` backs out; `←→` adjusts the selected setting. Clicking a section or slider
+  also works.
 
 ## Roadmap
 

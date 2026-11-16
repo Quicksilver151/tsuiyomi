@@ -18,10 +18,7 @@ use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
 };
-use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    DefaultTerminal,
-};
+use ratatui::{layout::Rect, DefaultTerminal};
 use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
 use tsuiyomi_core::ProgressStore;
 
@@ -30,8 +27,8 @@ use crate::{
     draw::draw,
     input::Action,
     layout::{
-        app_layout, contains, inner, library_layout, more_layout, reader_bar_layout, settings_rows,
-        tab_layouts,
+        app_layout, contains, inner, library_layout, more_layout, reader_bar_layout,
+        setting_columns, settings_rows, tab_layouts,
     },
     scroll_worker::ScrollWorker,
 };
@@ -116,14 +113,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::PreviousPage => {
                 if app.tab == 4 {
-                    app.focus_more_sections();
+                    if app.more_focus == MoreFocus::Content {
+                        app.adjust_setting(-1);
+                    }
                 } else {
                     app.previous_page();
                 }
             }
             Action::NextPage => {
                 if app.tab == 4 {
-                    app.focus_more_content();
+                    if app.more_focus == MoreFocus::Content {
+                        app.adjust_setting(1);
+                    }
                 } else {
                     app.next_page();
                 }
@@ -176,8 +177,6 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.focus_more_content();
-                    } else {
-                        app.adjust_setting(1);
                     }
                 } else {
                     app.open();
@@ -291,14 +290,7 @@ fn handle_more_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         app.focus_more_content();
         app.setting_index = *index;
         if (1..=4).contains(index) {
-            let columns = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(20),
-                    Constraint::Min(10),
-                    Constraint::Length(18),
-                ])
-                .split(setting_row);
+            let columns = setting_columns(setting_row);
             if contains(columns[1], column, row) {
                 let width = columns[1].width.max(1);
                 let ratio = f64::from(column.saturating_sub(columns[1].x)) / f64::from(width);

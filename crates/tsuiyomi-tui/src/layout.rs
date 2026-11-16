@@ -142,6 +142,22 @@ pub fn settings_rows(area: Rect, count: usize) -> Vec<Rect> {
     rows
 }
 
+pub const SETTING_LABEL_WIDTH: u16 = 20;
+pub const SETTING_VALUE_WIDTH: u16 = 18;
+
+/// Shared label/slider/value columns for rendering and mouse hit-testing.
+pub fn setting_columns(row: Rect) -> Vec<Rect> {
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(SETTING_LABEL_WIDTH),
+            Constraint::Min(10),
+            Constraint::Length(SETTING_VALUE_WIDTH),
+        ])
+        .split(row)
+        .to_vec()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ReaderBarLayout {
     pub previous: Rect,
