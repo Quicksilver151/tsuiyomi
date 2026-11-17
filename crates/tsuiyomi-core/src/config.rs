@@ -63,6 +63,8 @@ pub struct Config {
     pub accent: Option<String>,
     /// Start with the title and commands boxes hidden.
     pub fullscreen: bool,
+    /// Minimum width of a cover tile in terminal columns, 8–28.
+    pub thumbnail_width: u16,
     /// Library list ordering.
     pub library_sort: LibrarySort,
     /// Category selected on startup. `None` keeps the scanner's first category.
@@ -90,6 +92,7 @@ impl Default for Config {
             theme: Theme::default(),
             accent: None,
             fullscreen: false,
+            thumbnail_width: 14,
             library_sort: LibrarySort::default(),
             default_category: None,
             incognito: false,
@@ -174,6 +177,7 @@ external_mpv = ["mpv"]
 theme = "tokyo_night"
 accent = "#ffcc00"
 fullscreen = true
+thumbnail_width = 18
 library_sort = "title_asc"
 default_category = "Reading"
 incognito = true
@@ -183,6 +187,7 @@ incognito = true
         assert_eq!(config.theme, Theme::TokyoNight);
         assert_eq!(config.accent.as_deref(), Some("#ffcc00"));
         assert!(config.fullscreen);
+        assert_eq!(config.thumbnail_width, 18);
         assert_eq!(config.library_sort, LibrarySort::TitleAsc);
         assert_eq!(config.default_category.as_deref(), Some("Reading"));
         assert!(config.incognito);
@@ -191,6 +196,7 @@ incognito = true
         assert!(serialized.contains("theme = \"tokyo_night\""));
         assert!(serialized.contains("accent = \"#ffcc00\""));
         assert!(serialized.contains("fullscreen = true"));
+        assert!(serialized.contains("thumbnail_width = 18"));
         assert!(serialized.contains("library_sort = \"title_asc\""));
         assert!(serialized.contains("default_category = \"Reading\""));
         assert!(serialized.contains("incognito = true"));

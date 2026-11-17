@@ -162,24 +162,25 @@ Rules:
 - Browse follows Mihon's source model: it lists sources, currently only the built-in
   Local source. Opening it shows the series under the library root as a cover tile grid;
   Enter opens a series detail screen inside Browse, and Enter again opens its chapter list
-  in Library. Library itself also uses a tile grid, not a list. There is no filesystem
-  import browser; users place folders in local/ and rescan. Remote sources and Mihon
-  extensions remain unsupported.
+  inside Browse. Chapters and the reader stay under the Browse tab; Browse never switches
+  to Library. Library itself also uses a tile grid, not a list. Category keys only affect
+  Library's series grid. There is no filesystem import browser; users place folders in
+  local/ and rescan. Remote sources and Mihon extensions remain unsupported.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
-  `accent`, `fullscreen`, `library_sort`, `default_category`, and `incognito`, and
-  preserves unknown keys from existing files.
+  `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`, and
+  `incognito`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
   About. Entry pages are listed in `SettingsPage`; each page is a gray-divider grouped
-  row list. Implemented real options: appearance/theme, library path/rescan/sort/default
-  category, reader mode/zoom/prefetch/cache, and Security → Incognito (stops progress
-  writes). Downloads, tracking, and remote browse pages are explicit informational
-  placeholders. More has a single focus: Enter enters the selected section/page or
-  activates a setting, Esc backs out one level, and left/right adjust the selected
-  setting. Clicking sections, menu rows, and sliders works.
+  row list. Implemented real options: appearance/theme/accent/thumbnail size, library
+  path/rescan/sort/default category, reader mode/zoom/prefetch/cache, and Security →
+  Incognito (stops progress writes). Downloads, tracking, and remote browse pages are
+  explicit informational placeholders. More has a single focus: Enter enters the selected
+  section/page or activates a setting, Esc backs out one level, and left/right adjust the
+  selected setting. Clicking sections, menu rows, and sliders works.
 - Core has tests for chapter parsing, config loading, scanning, categories, page
   discovery, and reading progress. The TUI has TestBackend rendering tests for the library,
   chapter, and reader views.

@@ -115,15 +115,18 @@ pub fn library_grid_area(area: Rect) -> Rect {
     rows[1]
 }
 
-pub const TILE_MIN_WIDTH: u16 = 14;
 pub const TILE_GAP: u16 = 1;
-pub const TILE_COVER_HEIGHT: u16 = 8;
 pub const TILE_TEXT_HEIGHT: u16 = 2;
-pub const TILE_HEIGHT: u16 = TILE_COVER_HEIGHT + TILE_TEXT_HEIGHT;
 
-pub fn grid_columns(area: Rect) -> usize {
+/// Cover height follows the configured tile width so changing thumbnail size is visible.
+pub fn tile_cover_height(min_width: u16) -> u16 {
+    (u32::from(min_width) * 2 / 3).clamp(5, 16) as u16
+}
+
+pub fn grid_columns(area: Rect, min_width: u16) -> usize {
     let width = area.width.max(1);
-    ((width + TILE_GAP) / (TILE_MIN_WIDTH + TILE_GAP)).max(1) as usize
+    let min_width = min_width.max(4);
+    ((width + TILE_GAP) / (min_width + TILE_GAP)).max(1) as usize
 }
 
 pub fn grid_tile_width(area: Rect, columns: usize) -> u16 {
@@ -132,8 +135,8 @@ pub fn grid_tile_width(area: Rect, columns: usize) -> u16 {
     area.width.saturating_sub(gaps) / columns
 }
 
-pub fn grid_visible_rows(area: Rect) -> usize {
-    (area.height / TILE_HEIGHT).max(1) as usize
+pub fn grid_visible_rows(area: Rect, tile_height: u16) -> usize {
+    (area.height / tile_height.max(1)).max(1) as usize
 }
 
 /// Keep the selected row visible, scrolling by whole tile rows.
@@ -143,9 +146,10 @@ pub fn grid_row_offset(
     selected: usize,
     current: usize,
     count: usize,
+    tile_height: u16,
 ) -> usize {
     let columns = columns.max(1);
-    let visible = grid_visible_rows(area);
+    let visible = grid_visible_rows(area, tile_height);
     let selected_row = selected / columns;
     let mut offset = current;
     if selected_row < offset {
@@ -158,7 +162,13 @@ pub fn grid_row_offset(
     offset.min(total_rows.saturating_sub(visible))
 }
 
-pub fn grid_tile_rect(area: Rect, columns: usize, offset_row: usize, index: usize) -> Rect {
+pub fn grid_tile_rect(
+    area: Rect,
+    columns: usize,
+    offset_row: usize,
+    index: usize,
+    tile_height: u16,
+) -> Rect {
     let columns = columns.max(1);
     let tile_width = grid_tile_width(area, columns);
     let stride = tile_width.saturating_add(TILE_GAP);
@@ -166,9 +176,9 @@ pub fn grid_tile_rect(area: Rect, columns: usize, offset_row: usize, index: usiz
     let column = index % columns;
     Rect::new(
         area.x + column as u16 * stride,
-        area.y + (row.saturating_sub(offset_row)) as u16 * TILE_HEIGHT,
+        area.y + (row.saturating_sub(offset_row)) as u16 * tile_height,
         tile_width,
-        TILE_HEIGHT,
+        tile_height,
     )
 }
 
@@ -179,6 +189,7 @@ pub fn grid_index_at(
     column: u16,
     row: u16,
     count: usize,
+    tile_height: u16,
 ) -> Option<usize> {
     if !contains(area, column, row) {
         return None;
@@ -192,8 +203,8 @@ pub fn grid_index_at(
     if grid_column as usize >= columns || relative_x % stride >= tile_width {
         return None;
     }
-    let grid_row = relative_y as usize / TILE_HEIGHT as usize;
-    if grid_row >= grid_visible_rows(area) {
+    let grid_row = relative_y as usize / tile_height.max(1) as usize;
+    if grid_row >= grid_visible_rows(area, tile_height) {
         return None;
     }
     let index = (offset_row + grid_row) * columns + grid_column as usize;
@@ -305,18 +316,27 @@ mod tests {
     #[test]
     fn grid_geometry_matches_rendered_tiles() {
         let area = Rect::new(0, 0, 78, 14);
-        let columns = grid_columns(area);
+        let columns = grid_columns(area, 14);
         assert_eq!(columns, 5);
         assert_eq!(grid_tile_width(area, columns), 14);
-        assert_eq!(grid_visible_rows(area), 1);
+        assert_eq!(
+            grid_visible_rows(area, tile_cover_height(14) + TILE_TEXT_HEIGHT),
+            1
+        );
+
+        let columns = grid_columns(area, 18);
+        assert_eq!(columns, 4);
+        assert_eq!(grid_tile_width(area, columns), 18);
     }
 
     #[test]
     fn grid_hit_testing_ignores_gaps_and_partial_rows() {
-        let area = Rect::new(4, 3, 78, 14);
-        assert_eq!(grid_index_at(area, 5, 0, 4, 3, 20), Some(0));
-        assert_eq!(grid_index_at(area, 5, 0, 19, 3, 20), Some(1));
-        assert_eq!(grid_index_at(area, 5, 0, 18, 3, 20), None);
-        assert_eq!(grid_index_at(area, 5, 0, 4, 13, 20), None);
+        let area = Rect::new(4, 3, 78, 16);
+        let tile_height = tile_cover_height(14) + TILE_TEXT_HEIGHT;
+        assert_eq!(grid_index_at(area, 5, 0, 4, 3, 20, tile_height), Some(0));
+        assert_eq!(grid_index_at(area, 5, 0, 19, 3, 20, tile_height), Some(1));
+        assert_eq!(grid_index_at(area, 5, 0, 18, 3, 20, tile_height), None);
+        assert_eq!(grid_index_at(area, 5, 0, 4, 13, 20, tile_height), Some(0));
+        assert_eq!(grid_index_at(area, 5, 0, 4, 14, 20, tile_height), None);
     }
 }

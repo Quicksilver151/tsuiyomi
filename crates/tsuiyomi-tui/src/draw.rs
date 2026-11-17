@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect, Size},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 use ratatui_image::{
+    protocol::StatefulProtocol,
     sliced::{SignedPosition, SlicedImage},
     Resize, StatefulImage,
 };
@@ -23,7 +24,7 @@ use crate::{
     layout::{
         app_layout, grid_columns, grid_row_offset, grid_tile_rect, grid_visible_rows,
         library_grid_area, library_layout, more_layout, reader_bar_layout, setting_columns,
-        settings_rows, tab_layouts, TAB_NAMES, TILE_COVER_HEIGHT, TILE_TEXT_HEIGHT,
+        settings_rows, tab_layouts, tile_cover_height, TAB_NAMES, TILE_TEXT_HEIGHT,
     },
     palette::{
         accent_choices, c_accent, c_base, c_blue, c_green, c_mauve, c_overlay0, c_overlay1,
@@ -56,11 +57,17 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
             "History",
             "Reading history is not implemented yet.",
         ),
-        3 => draw_browse(frame, layout.content, app),
+        3 => {
+            if app.view == LibraryView::Series {
+                draw_browse(frame, layout.content, app);
+            } else {
+                draw_library(frame, layout.content, app);
+            }
+        }
         _ => draw_more(frame, layout.content, app),
     }
 
-    if app.tab == 0 && app.view == LibraryView::Reader {
+    if app.view == LibraryView::Reader && (app.tab == 0 || app.tab == 3) {
         draw_reader_bar(frame, layout.tabs, app);
     } else {
         draw_tabs(frame, layout.tabs, app.tab);
@@ -225,71 +232,79 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let items: &[(&str, &str)] = if app.tab == 0 && app.view == LibraryView::Reader {
-        if app.reader_mode == ReaderMode::Scroll {
+    let items: &[(&str, &str)] =
+        if app.view == LibraryView::Reader && (app.tab == 0 || app.tab == 3) {
+            if app.reader_mode == ReaderMode::Scroll {
+                &[
+                    ("q", "quit"),
+                    ("↑↓", "scroll"),
+                    ("←→", "page"),
+                    ("Space", "screen"),
+                    ("+/-", "zoom"),
+                    ("f", "full"),
+                    ("Esc", "back"),
+                ]
+            } else {
+                &[
+                    ("q", "quit"),
+                    ("←→", "page"),
+                    ("f", "full"),
+                    ("Esc", "back"),
+                ]
+            }
+        } else if app.tab == 3 && app.view == LibraryView::Chapters {
             &[
                 ("q", "quit"),
-                ("↑↓", "scroll"),
-                ("←→", "page"),
-                ("Space", "screen"),
-                ("+/-", "zoom"),
-                ("f", "full"),
+                ("↑↓", "chapter"),
+                ("↵", "read"),
                 ("Esc", "back"),
             ]
-        } else {
+        } else if app.tab == 3 {
             &[
                 ("q", "quit"),
-                ("←→", "page"),
-                ("f", "full"),
-                ("Esc", "back"),
-            ]
-        }
-    } else if app.tab == 3 {
-        &[
-            ("q", "quit"),
-            ("↑↓", "move"),
-            ("↵", "open"),
-            ("r", "rescan"),
-            ("Esc", "back"),
-        ]
-    } else if app.tab == 4 {
-        if app.more_focus == MoreFocus::Sections {
-            &[
-                ("q", "quit"),
-                ("↑↓", "section"),
-                ("↵", "enter"),
-                ("Esc", "back"),
-            ]
-        } else if app.more_section == MoreSection::Settings
-            && app.settings_page == SettingsPage::Main
-        {
-            &[
-                ("q", "quit"),
-                ("↑↓", "category"),
+                ("↑↓", "move"),
                 ("↵", "open"),
+                ("r", "rescan"),
                 ("Esc", "back"),
             ]
+        } else if app.tab == 4 {
+            if app.more_focus == MoreFocus::Sections {
+                &[
+                    ("q", "quit"),
+                    ("↑↓", "section"),
+                    ("↵", "enter"),
+                    ("Esc", "back"),
+                ]
+            } else if app.more_section == MoreSection::Settings
+                && app.settings_page == SettingsPage::Main
+            {
+                &[
+                    ("q", "quit"),
+                    ("↑↓", "category"),
+                    ("↵", "open"),
+                    ("Esc", "back"),
+                ]
+            } else {
+                &[
+                    ("q", "quit"),
+                    ("↑↓", "setting"),
+                    ("←→", "change"),
+                    ("↵", "action"),
+                    ("Esc", "back"),
+                ]
+            }
         } else {
             &[
                 ("q", "quit"),
-                ("↑↓", "setting"),
-                ("←→", "change"),
-                ("↵", "action"),
+                ("↑↓", "move"),
+                ("Tab", "tabs"),
+                ("r", "rescan"),
+                ("c", "config"),
+                ("f", "full"),
                 ("Esc", "back"),
+                ("↵", "open"),
             ]
-        }
-    } else {
-        &[
-            ("q", "quit"),
-            ("↑↓", "move"),
-            ("Tab", "tabs"),
-            ("r", "rescan"),
-            ("c", "config"),
-            ("f", "full"),
-            ("Esc", "back"),
-            ("↵", "open"),
-        ]
-    };
+        };
 
     let mut spans = Vec::new();
     for (position, (key, label)) in items.iter().enumerate() {
@@ -363,7 +378,9 @@ fn draw_series_grid(
     selected: usize,
     current_offset: usize,
 ) -> (usize, usize) {
-    let columns = grid_columns(area);
+    let columns = grid_columns(area, app.config.thumbnail_width);
+    let cover_height = tile_cover_height(app.config.thumbnail_width);
+    let tile_height = cover_height + TILE_TEXT_HEIGHT;
     let selected = selected.min(indices.len().saturating_sub(1));
     if indices.is_empty() {
         frame.render_widget(
@@ -384,8 +401,15 @@ fn draw_series_grid(
         }
         return (columns, 0);
     }
-    let visible_rows = grid_visible_rows(area);
-    let offset = grid_row_offset(area, columns, selected, current_offset, indices.len());
+    let visible_rows = grid_visible_rows(area, tile_height);
+    let offset = grid_row_offset(
+        area,
+        columns,
+        selected,
+        current_offset,
+        indices.len(),
+        tile_height,
+    );
     let start = offset.saturating_mul(columns);
     let end = (offset.saturating_add(visible_rows))
         .saturating_mul(columns)
@@ -402,79 +426,55 @@ fn draw_series_grid(
     for (position, series_index) in indices[start..end].iter().enumerate() {
         let index = start + position;
         let series = &app.library.series[*series_index];
-        let tile = grid_tile_rect(area, columns, offset, index);
+        let tile = grid_tile_rect(area, columns, offset, index, tile_height);
         let is_selected = index == selected;
-        if is_selected {
-            frame.render_widget(
-                Block::default().style(Style::default().bg(c_surface0())),
-                tile,
-            );
-        }
-
-        let cover_area = Rect::new(tile.x, tile.y, tile.width, TILE_COVER_HEIGHT);
-        let cover_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(if is_selected {
-                Style::default().fg(c_accent())
-            } else {
-                Style::default().fg(c_surface1())
-            })
-            .style(Style::default().bg(c_surface0()));
-        let cover_inner = cover_block.inner(cover_area);
-        frame.render_widget(&cover_block, cover_area);
-
+        let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
         let mut rendered_cover = false;
         if let Some(path) = &series.cover {
             if let Some(protocol) = app.tile_covers.get_mut(path) {
-                frame.render_stateful_widget(
-                    StatefulImage::new().resize(Resize::Fit(None)),
-                    cover_inner,
-                    protocol,
-                );
+                render_centered_image(frame, cover_area, protocol);
                 rendered_cover = true;
             }
         }
         if !rendered_cover {
-            frame.render_widget(
-                Block::default().style(Style::default().bg(c_surface0())),
-                cover_inner,
-            );
             let initial = series
                 .title
                 .chars()
                 .next()
                 .map(|character| character.to_uppercase().collect::<String>())
                 .unwrap_or_default();
-            if cover_inner.height > 0 {
-                let initial_area = Rect::new(
-                    cover_inner.x,
-                    cover_inner.y + cover_inner.height / 2,
-                    cover_inner.width,
-                    1,
-                );
+            if cover_area.height > 0 {
                 frame.render_widget(
                     Paragraph::new(initial)
                         .alignment(Alignment::Center)
                         .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
-                    initial_area,
+                    Rect::new(
+                        cover_area.x,
+                        cover_area.y + cover_area.height / 2,
+                        cover_area.width,
+                        1,
+                    ),
                 );
             }
         }
 
-        let title_area = Rect::new(
-            tile.x,
-            tile.y + TILE_COVER_HEIGHT,
-            tile.width,
-            TILE_TEXT_HEIGHT,
-        );
+        let title_area = Rect::new(tile.x, tile.y + cover_height, tile.width, TILE_TEXT_HEIGHT);
         let title_style = if is_selected {
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(c_text())
         };
         let count_area = Rect::new(title_area.x, title_area.y + 1, title_area.width, 1);
+        let title = if is_selected {
+            format!(
+                "› {}",
+                truncate_text(&series.title, title_area.width.saturating_sub(2))
+            )
+        } else {
+            truncate_text(&series.title, title_area.width)
+        };
         frame.render_widget(
-            Paragraph::new(truncate_text(&series.title, title_area.width))
+            Paragraph::new(title)
                 .alignment(Alignment::Center)
                 .style(title_style),
             Rect::new(title_area.x, title_area.y, title_area.width, 1),
@@ -488,6 +488,21 @@ fn draw_series_grid(
     }
 
     (columns, offset)
+}
+
+fn render_centered_image(frame: &mut Frame, area: Rect, protocol: &mut StatefulProtocol) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let resize = Resize::Fit(None);
+    let size = protocol.size_for(resize.clone(), Size::new(area.width, area.height));
+    let image_area = Rect::new(
+        area.x + area.width.saturating_sub(size.width) / 2,
+        area.y + area.height.saturating_sub(size.height) / 2,
+        size.width.min(area.width),
+        size.height.min(area.height),
+    );
+    frame.render_stateful_widget(StatefulImage::new().resize(resize), image_area, protocol);
 }
 
 fn truncate_text(text: &str, width: u16) -> String {
@@ -650,36 +665,20 @@ fn draw_browse_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
     };
 
     if let Some(cover_area) = cover_area {
-        let cover_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(c_surface1()))
-            .style(Style::default().bg(c_surface0()));
-        let cover_inner = cover_block.inner(cover_area);
-        frame.render_widget(&cover_block, cover_area);
         if let Some(protocol) = app.cover.as_mut() {
-            frame.render_stateful_widget(
-                StatefulImage::new().resize(Resize::Fit(None)),
-                cover_inner,
-                protocol,
-            );
-        } else {
+            render_centered_image(frame, cover_area, protocol);
+        } else if cover_area.height > 0 {
             frame.render_widget(
-                Block::default().style(Style::default().bg(c_surface0())),
-                cover_inner,
+                Paragraph::new(cover_initial)
+                    .alignment(Alignment::Center)
+                    .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                Rect::new(
+                    cover_area.x,
+                    cover_area.y + cover_area.height / 2,
+                    cover_area.width,
+                    1,
+                ),
             );
-            if cover_inner.height > 0 {
-                frame.render_widget(
-                    Paragraph::new(cover_initial)
-                        .alignment(Alignment::Center)
-                        .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
-                    Rect::new(
-                        cover_inner.x,
-                        cover_inner.y + cover_inner.height / 2,
-                        cover_inner.width,
-                        1,
-                    ),
-                );
-            }
         }
     }
 
@@ -1337,6 +1336,10 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
             "Fullscreen".to_owned(),
             if app.config.fullscreen { "Yes" } else { "No" }.to_owned(),
         ),
+        SettingId::ThumbnailSize => (
+            "Thumbnail size".to_owned(),
+            format!("{} cols", app.config.thumbnail_width),
+        ),
         SettingId::Incognito => (
             "Incognito mode".to_owned(),
             if app.config.incognito { "On" } else { "Off" }.to_owned(),
@@ -1350,6 +1353,10 @@ fn setting_slider(app: &AppState, setting: SettingId) -> Option<(f64, (u16, u16)
         SettingId::PrefetchBehind => Some((app.scroll_cache.prefetch_behind as f64 / 8.0, (0, 8))),
         SettingId::PrefetchAhead => Some((app.scroll_cache.prefetch_ahead as f64 / 8.0, (0, 8))),
         SettingId::CacheMargin => Some((app.scroll_cache.cache_margin as f64 / 12.0, (0, 12))),
+        SettingId::ThumbnailSize => Some((
+            (f64::from(app.config.thumbnail_width) - 8.0) / 20.0,
+            (8, 28),
+        )),
         _ => None,
     }
 }
@@ -1802,7 +1809,6 @@ mod tests {
     fn renders_header_content_tabs_and_commands() {
         let mut app = test_app();
         let text = render(&mut app, 80, 24);
-        println!("{text}");
 
         assert!(text.contains("Tsuiyomi"));
         assert!(text.contains("commands"));
@@ -1885,24 +1891,28 @@ mod tests {
         app.tab = 3;
 
         let text = render(&mut app, 80, 30);
-        println!("{text}");
         assert!(text.contains("Browse · Sources"));
         assert!(text.contains("Sources"));
         assert!(text.contains("Local source"));
 
         app.browse_open();
         let text = render(&mut app, 80, 30);
-        println!("{text}");
         assert!(text.contains("Browse · Local source"));
         assert!(text.contains("Test Series"));
         assert!(text.contains("1 ch"));
 
         app.browse_open();
         let text = render(&mut app, 80, 30);
-        println!("{text}");
         assert!(text.contains("Series"));
         assert!(text.contains("Test Series"));
         assert!(text.contains("Enter opens chapters"));
+
+        app.browse_open();
+        let text = render(&mut app, 80, 30);
+        assert_eq!(app.tab, 3);
+        assert_eq!(app.view, LibraryView::Chapters);
+        assert!(text.contains("Chapters"));
+        assert!(text.contains("Chapter 1"));
     }
 
     #[test]

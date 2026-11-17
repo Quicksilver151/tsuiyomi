@@ -87,8 +87,8 @@ XML/JSON leaves the series usable.
 - [x] Add mouse support: click tabs, click a series, scroll the list.
 - [x] Add TestBackend rendering tests for loaded and empty/error states.
 - [x] Browse the built-in Local source and open its local series in Library.
-- [x] Cover tile grids for Library and Browse Local source, with a series detail screen
-      inside Browse instead of jumping straight to Library.
+- [x] Cover tile grids for Library and Browse Local source, with Browse-local series
+      details, chapters, and reader; Browse never switches to the Library tab.
 
 **Done when:** the TUI is responsive while scanning and handles empty or broken libraries
 without panics.

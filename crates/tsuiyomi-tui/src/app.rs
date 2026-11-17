@@ -104,6 +104,7 @@ pub enum SettingId {
     Theme,
     Accent,
     Fullscreen,
+    ThumbnailSize,
     Incognito,
 }
 
@@ -137,12 +138,14 @@ pub const SETTINGS_PAGES: [SettingsPage; 10] = [
     SettingsPage::About,
 ];
 
-const APPEARANCE_ROWS: [MoreRow; 5] = [
+const APPEARANCE_ROWS: [MoreRow; 7] = [
     MoreRow::Divider("Theme"),
     MoreRow::Setting(SettingId::Theme),
     MoreRow::Setting(SettingId::Accent),
     MoreRow::Divider("Display"),
     MoreRow::Setting(SettingId::Fullscreen),
+    MoreRow::Divider("Thumbnails"),
+    MoreRow::Setting(SettingId::ThumbnailSize),
 ];
 
 const LIBRARY_ROWS: [MoreRow; 6] = [
@@ -659,7 +662,6 @@ impl AppState {
             .into_iter()
             .position(|index| self.library.series[index].path == path)
         {
-            self.tab = 0;
             self.view = LibraryView::Series;
             self.selected = position;
             self.status = None;
@@ -973,13 +975,14 @@ impl AppState {
     }
 
     /// Apply the persisted config to runtime state.
-    pub fn set_config(&mut self, config: Config) {
+    pub fn set_config(&mut self, mut config: Config) {
         self.reader_mode = ReaderMode::Page;
         self.set_reading_mode(config.reading_mode);
         self.theme = config.theme;
         self.accent = config.accent.clone();
         palette::apply(self.theme, self.accent.as_deref());
         self.fullscreen = config.fullscreen;
+        config.thumbnail_width = config.thumbnail_width.clamp(8, 28);
         self.zoom = config.reader_zoom.clamp(50, 300);
         self.scroll_cache = ScrollCacheConfig {
             prefetch_behind: config.scroll_prefetch_behind.min(16),
@@ -1472,6 +1475,10 @@ impl AppState {
                 self.config.fullscreen = !self.config.fullscreen;
                 self.fullscreen = self.config.fullscreen;
             }
+            SettingId::ThumbnailSize => {
+                self.config.thumbnail_width =
+                    (i32::from(self.config.thumbnail_width) + delta).clamp(8, 28) as u16;
+            }
             SettingId::Incognito => {
                 self.config.incognito = !self.config.incognito;
             }
@@ -1500,6 +1507,9 @@ impl AppState {
             }
             SettingId::CacheMargin => {
                 self.scroll_cache.cache_margin = (ratio * 12.0).round() as usize;
+            }
+            SettingId::ThumbnailSize => {
+                self.config.thumbnail_width = (8.0 + ratio * 20.0).round() as u16;
             }
             _ => return,
         }
@@ -2643,7 +2653,7 @@ mod tests {
     }
 
     #[test]
-    fn browse_opens_a_local_series_in_the_library() {
+    fn browse_opens_local_chapters_without_leaving_browse() {
         let mut app = AppState::new(library(), None);
         app.tab = 3;
         app.browse_view = BrowseView::Local;
@@ -2663,10 +2673,15 @@ mod tests {
         );
 
         app.browse_open();
-        assert_eq!(app.tab, 0);
+        assert_eq!(app.tab, 3);
         assert_eq!(app.view, LibraryView::Chapters);
         assert_eq!(
             app.selected_series().map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+        assert_eq!(
+            app.browse_detail_series()
+                .map(|series| series.title.as_str()),
             Some("Berserk")
         );
     }
@@ -2874,6 +2889,26 @@ mod tests {
         assert!(app.picker.is_none());
         assert_eq!(app.theme, original);
         assert_eq!(palette::current().base, original_base);
+    }
+
+    #[test]
+    fn thumbnail_size_setting_clamps_to_grid_limits() {
+        let mut app = AppState {
+            more_section: MoreSection::Settings,
+            settings_page: SettingsPage::Appearance,
+            setting_index: 3,
+            ..AppState::default()
+        };
+        assert_eq!(app.config.thumbnail_width, 14);
+
+        app.adjust_setting(1);
+        assert_eq!(app.config.thumbnail_width, 15);
+        app.set_setting_ratio(3, 1.0);
+        assert_eq!(app.config.thumbnail_width, 28);
+        app.adjust_setting(1);
+        assert_eq!(app.config.thumbnail_width, 28);
+        app.set_setting_ratio(3, 0.0);
+        assert_eq!(app.config.thumbnail_width, 8);
     }
 
     #[test]

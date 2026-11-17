@@ -31,7 +31,8 @@ use crate::{
     input::Action,
     layout::{
         app_layout, contains, grid_index_at, inner, library_grid_area, library_layout, more_layout,
-        reader_bar_layout, setting_columns, settings_rows, tab_layouts,
+        reader_bar_layout, setting_columns, settings_rows, tab_layouts, tile_cover_height,
+        TILE_TEXT_HEIGHT,
     },
     scroll_worker::ScrollWorker,
 };
@@ -109,7 +110,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Quit => return Ok(()),
             Action::Previous => {
                 if app.tab == 3 {
-                    app.browse_previous();
+                    if app.view == LibraryView::Series {
+                        app.browse_previous();
+                    } else {
+                        app.previous();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
@@ -122,7 +127,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::Next => {
                 if app.tab == 3 {
-                    app.browse_next();
+                    if app.view == LibraryView::Series {
+                        app.browse_next();
+                    } else {
+                        app.next();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
@@ -135,10 +144,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::PreviousPage => {
                 if app.tab == 3 {
-                    if app.browse_view == BrowseView::Details {
-                        app.browse_parent();
+                    if app.view == LibraryView::Series {
+                        if app.browse_view == BrowseView::Details {
+                            app.browse_parent();
+                        } else {
+                            app.browse_previous_column();
+                        }
                     } else {
-                        app.browse_previous_column();
+                        app.previous_page();
                     }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
@@ -152,10 +165,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::NextPage => {
                 if app.tab == 3 {
-                    if app.browse_view == BrowseView::Details {
-                        app.browse_open();
+                    if app.view == LibraryView::Series {
+                        if app.browse_view == BrowseView::Details {
+                            app.browse_open();
+                        } else {
+                            app.browse_next_column();
+                        }
                     } else {
-                        app.browse_next_column();
+                        app.next_page();
                     }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
@@ -173,7 +190,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::NextChapter => app.next_chapter(),
             Action::ScrollUp => {
                 if app.tab == 3 {
-                    app.browse_previous();
+                    if app.view == LibraryView::Series {
+                        app.browse_previous();
+                    } else {
+                        app.previous();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
@@ -186,7 +207,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::ScrollDown => {
                 if app.tab == 3 {
-                    app.browse_next();
+                    if app.view == LibraryView::Series {
+                        app.browse_next();
+                    } else {
+                        app.next();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
@@ -202,28 +227,34 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::PreviousCategory => {
                 if app.tab == 4 {
                     app.previous_more_section();
-                } else {
+                } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.previous_category();
                 }
             }
             Action::NextCategory => {
                 if app.tab == 4 {
                     app.next_more_section();
-                } else {
+                } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.next_category();
                 }
             }
             Action::SelectTab(index) => app.select_tab(index),
             Action::Refresh => {
                 if app.tab == 3 {
-                    app.refresh_browse();
+                    if app.view == LibraryView::Series {
+                        app.refresh_browse();
+                    }
                 } else {
                     app.refresh();
                 }
             }
             Action::Open => {
                 if app.tab == 3 {
-                    app.browse_open();
+                    if app.view == LibraryView::Series {
+                        app.browse_open();
+                    } else {
+                        app.open();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.focus_more_content();
@@ -236,7 +267,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::Back => {
                 if app.tab == 3 {
-                    app.browse_parent();
+                    if app.view == LibraryView::Series {
+                        app.browse_parent();
+                    } else {
+                        app.back();
+                    }
                 } else if app.tab == 4 {
                     app.leave_more();
                 } else {
@@ -281,7 +316,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
 fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     let layout = app_layout(area, app.fullscreen);
 
-    if app.tab == 0 && app.view == LibraryView::Reader {
+    if app.view == LibraryView::Reader && (app.tab == 0 || app.tab == 3) {
         handle_reader_click(layout.tabs, app, column, row);
         return;
     }
@@ -297,7 +332,11 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     }
 
     if app.tab == 3 {
-        handle_browse_click(layout.content, app, column, row);
+        if app.view == LibraryView::Series {
+            handle_browse_click(layout.content, app, column, row);
+        } else if app.view == LibraryView::Chapters {
+            handle_chapter_click(layout.content, app, column, row);
+        }
         return;
     }
 
@@ -319,13 +358,18 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             column,
             row,
             app.visible_count(),
+            tile_cover_height(app.config.thumbnail_width) + TILE_TEXT_HEIGHT,
         ) {
             app.select_index(index);
         }
         return;
     }
 
-    let library = library_layout(layout.content);
+    handle_chapter_click(layout.content, app, column, row);
+}
+
+fn handle_chapter_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
+    let library = library_layout(area);
     let list_area = inner(library.list);
     if contains(list_area, column, row) {
         let visible_row = (row - list_area.y) as usize;
@@ -345,6 +389,7 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 column,
                 row,
                 app.browse_item_count(),
+                tile_cover_height(app.config.thumbnail_width) + TILE_TEXT_HEIGHT,
             ) {
                 app.select_browse_index(index);
             }
@@ -411,6 +456,7 @@ fn handle_more_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 | SettingId::PrefetchBehind
                 | SettingId::PrefetchAhead
                 | SettingId::CacheMargin
+                | SettingId::ThumbnailSize
         ) {
             let columns = setting_columns(setting_row);
             if contains(columns[1], column, row) {

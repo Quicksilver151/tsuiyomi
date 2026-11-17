@@ -93,8 +93,10 @@ library entries.
 ## Library
 
 The Library tab opens as a cover tile grid, like Mihon. Each tile shows the series cover
-(or an initial placeholder), title, and chapter count. `↑↓` moves by grid row, `←→` by
-one tile, and `Enter` opens the chapter list. `[`/`]` switch categories and `r` rescans.
+(or an initial placeholder), title, and chapter count. Covers are centered without a
+border or tile background. `↑↓` moves by grid row, `←→` by one tile, and `Enter` opens
+the chapter list. `[`/`]` switch categories and `r` rescans. Tile width is adjustable in
+**More → Settings → Appearance** (`thumbnail_width`, 8–28 columns).
 
 ## Browse
 
@@ -107,7 +109,9 @@ Controls:
 
 - `↑↓` moves by grid row and `←→` by tile.
 - `Enter` opens the Local source, then opens the selected series detail screen.
-- From the detail screen, `Enter` opens that series' chapter list in Library.
+- From the detail screen, `Enter` opens that series' chapter list inside Browse.
+- Opening a chapter from Browse keeps you in the Browse tab; `Esc` walks back through
+  reader → chapters → detail → local grid → sources.
 - `Esc` or `Backspace` goes back one level.
 - `r` rescans the local source while viewing its items.
 
@@ -146,6 +150,7 @@ scroll_cache_margin = 4
 theme = "catppuccin_mocha"
 # accent = "#b4befe"   # optional palette color or hex override
 fullscreen = false      # start with the title and commands boxes hidden
+thumbnail_width = 14    # cover tile width in columns, 8–28
 library_sort = "natural" # natural, title_asc, title_desc
 # default_category = "Reading"
 incognito = false
@@ -174,7 +179,7 @@ The More tab follows Mihon's structure: Settings, Downloads, Categories, Statist
 Data and storage, About, and Help. Settings is a submenu mirroring Mihon's settings
 categories:
 
-- **Appearance** — theme, accent, fullscreen.
+- **Appearance** — theme, accent, fullscreen, thumbnail size.
 - **Library** — library path, rescan, sort order, default category.
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
 - **Downloads** — informational; this build reads a local library directly.
