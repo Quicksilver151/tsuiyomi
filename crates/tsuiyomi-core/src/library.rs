@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     fs, io,
+    io::Cursor,
     path::{Path, PathBuf},
 };
 
@@ -12,6 +13,7 @@ use crate::{
     comic_info::{parse_comic_info, ChapterDate, ComicInfo},
     epub,
     error::CoreError,
+    pages::{chapter_pages, read_page},
 };
 
 /// A scanned library root.
@@ -274,6 +276,8 @@ fn scan_series(path: &Path) -> Result<Series, CoreError> {
         .as_ref()
         .and_then(|info| info.publishing_status.clone())
         .or_else(|| details.as_ref().and_then(|details| details.status.clone()));
+    let chapters = scan_chapters(path, &mut warnings)?;
+    let cover = find_cover(path).or_else(|| generate_cover(path, &chapters));
 
     Ok(Series {
         path: path.to_path_buf(),
@@ -282,10 +286,10 @@ fn scan_series(path: &Path) -> Result<Series, CoreError> {
         artist,
         tags,
         status,
-        cover: find_cover(path),
+        cover,
         description,
         categories: Vec::new(),
-        chapters: scan_chapters(path, &mut warnings)?,
+        chapters,
         warnings,
     })
 }
@@ -499,9 +503,52 @@ fn find_cover(dir: &Path) -> Option<PathBuf> {
                 .and_then(|stem| stem.to_str())
                 .is_some_and(|stem| stem.eq_ignore_ascii_case("cover"))
         })
+        // Mihon skips non-images with a cover name.
+        .filter(|path| image::open(path).is_ok())
         .collect();
     covers.sort_by(|left, right| natural_cmp(&file_name(left), &file_name(right)));
     covers.into_iter().next()
+}
+
+/// Mihon creates `cover.jpg` from the first image of the first chapter when the series
+/// has no custom cover. Mirror that so the same library layout works in both apps.
+fn generate_cover(series_path: &Path, chapters: &[Chapter]) -> Option<PathBuf> {
+    let chapter = chapters.last()?;
+    for page in chapter_pages(chapter).ok()? {
+        let Ok(bytes) = read_page(&page) else {
+            continue;
+        };
+        let Ok(image) = image::load_from_memory(&bytes) else {
+            continue;
+        };
+        let thumbnail = if image.width() > 512 || image.height() > 512 {
+            image.thumbnail(512, 512)
+        } else {
+            image
+        }
+        .to_rgb8();
+
+        let mut encoded = Cursor::new(Vec::new());
+        if thumbnail
+            .write_to(&mut encoded, image::ImageFormat::Jpeg)
+            .is_err()
+        {
+            continue;
+        }
+
+        let cover_path = series_path.join("cover.jpg");
+        let temporary = series_path.join(".cover.jpg.tmp");
+        if fs::write(&temporary, encoded.into_inner()).is_err() {
+            continue;
+        }
+        let _ = fs::remove_file(&cover_path);
+        if fs::rename(&temporary, &cover_path).is_err() {
+            let _ = fs::remove_file(&temporary);
+            return None;
+        }
+        return Some(cover_path);
+    }
+    None
 }
 
 fn is_image(path: &Path) -> bool {
@@ -528,6 +575,23 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, b"x").unwrap();
+    }
+
+    fn write_image(path: &Path) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        image::RgbImage::from_pixel(30, 45, image::Rgb([20, 40, 60]))
+            .save(path)
+            .unwrap();
+    }
+
+    fn jpeg_bytes() -> Vec<u8> {
+        let mut encoded = Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(30, 45, image::Rgb([80, 40, 20]))
+            .write_to(&mut encoded, image::ImageFormat::Jpeg)
+            .unwrap();
+        encoded.into_inner()
     }
 
     #[test]
@@ -645,7 +709,7 @@ mod tests {
 </ComicInfo>"#,
         )
         .unwrap();
-        fs::write(series.join("cover.png"), b"not an image").unwrap();
+        write_image(&series.join("cover.png"));
 
         let library = scan_library(root.path()).unwrap();
         let series = &library.series[0];
@@ -833,6 +897,97 @@ mod tests {
                 day: 7
             })
         );
+    }
+
+    #[test]
+    fn generates_cover_from_first_chapter_page() {
+        let root = tempdir().unwrap();
+        let series_path = root.path().join("Series");
+        write_image(&series_path.join("Chapter 1/001.jpg"));
+        write_image(&series_path.join("Chapter 1/002.jpg"));
+
+        let library = scan_library(root.path()).unwrap();
+        let series = &library.series[0];
+        let cover = series.cover.as_ref().expect("generated cover");
+
+        assert_eq!(cover.file_name().unwrap(), "cover.jpg");
+        assert!(cover.exists());
+        let image = image::open(cover).unwrap();
+        assert_eq!((image.width(), image.height()), (30, 45));
+    }
+
+    #[test]
+    fn does_not_replace_an_existing_cover() {
+        let root = tempdir().unwrap();
+        let series_path = root.path().join("Series");
+        write_image(&series_path.join("cover.png"));
+        write_image(&series_path.join("Chapter 1/001.jpg"));
+
+        let library = scan_library(root.path()).unwrap();
+        let series = &library.series[0];
+
+        assert_eq!(series.cover, Some(series_path.join("cover.png")));
+        assert!(!series_path.join("cover.jpg").exists());
+    }
+
+    #[test]
+    fn generates_cover_from_archive_page() {
+        use std::io::Write;
+
+        use zip::{write::SimpleFileOptions, ZipWriter};
+
+        let root = tempdir().unwrap();
+        let series_path = root.path().join("Series");
+        fs::create_dir_all(&series_path).unwrap();
+        let file = fs::File::create(series_path.join("Chapter 1.cbz")).unwrap();
+        let mut writer = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer.start_file("001.jpg", options).unwrap();
+        writer.write_all(&jpeg_bytes()).unwrap();
+        writer.finish().unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let series = &library.series[0];
+
+        assert_eq!(series.cover, Some(series_path.join("cover.jpg")));
+    }
+
+    #[test]
+    fn generated_cover_skips_corrupt_first_page() {
+        let root = tempdir().unwrap();
+        let series_path = root.path().join("Series");
+        touch(&series_path.join("Chapter 1/001.jpg"));
+        write_image(&series_path.join("Chapter 1/002.jpg"));
+
+        let library = scan_library(root.path()).unwrap();
+        let cover = library.series[0].cover.as_ref().expect("generated cover");
+
+        assert!(image::open(cover).is_ok());
+    }
+
+    #[test]
+    fn replaces_an_invalid_cover_with_a_generated_one() {
+        let root = tempdir().unwrap();
+        let series_path = root.path().join("Series");
+        fs::create_dir_all(&series_path).unwrap();
+        fs::write(series_path.join("cover.jpg"), b"not an image").unwrap();
+        write_image(&series_path.join("Chapter 1/001.jpg"));
+
+        let library = scan_library(root.path()).unwrap();
+        let cover = library.series[0].cover.as_ref().expect("generated cover");
+
+        assert_eq!(cover, &series_path.join("cover.jpg"));
+        assert!(image::open(cover).is_ok());
+    }
+
+    #[test]
+    fn empty_chapter_does_not_generate_a_cover() {
+        let root = tempdir().unwrap();
+        fs::create_dir_all(root.path().join("Series/Chapter 1")).unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+
+        assert!(library.series[0].cover.is_none());
     }
 
     #[test]

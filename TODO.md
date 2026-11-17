@@ -66,6 +66,8 @@ and page order, and a broken folder does not abort the scan.
 - [x] Read EPUB chapter metadata from the OPF and extract spine images.
 - [x] Implement precedence: `ComicInfo.xml` > `details.json` > directory name.
 - [x] Detect `cover.*`; expose the path and render it in the TUI details pane.
+- [x] Generate `cover.jpg` from the first page of the first chapter when no valid cover
+      exists (Mihon-compatible, capped at 512 px).
 - [x] Treat malformed metadata as a warning attached to the series, not a failure.
 
 **Done when:** metadata fixtures produce the same values Mihon would show, and malformed

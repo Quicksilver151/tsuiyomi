@@ -101,7 +101,10 @@ Prose EPUBs are not rendered yet. Malformed metadata becomes a warning and falls
 without hiding the series.
 
 A custom cover is any `cover.*` image in the series directory (`cover.jpg` is the usual
-name). It is shown beside the details pane when the terminal is wide enough.
+name). It is shown beside the details pane when the terminal is wide enough. If no valid
+cover exists, scanning generates `cover.jpg` from the first image of the first chapter,
+like Mihon. Generated covers are capped at 512 px on the longest edge; existing valid
+covers are never replaced.
 
 ## Reader mode
 

@@ -150,9 +150,10 @@ Rules:
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
   Mihon. Series precedence is `ComicInfo.xml` > `details.json` > directory name;
-  malformed XML becomes a warning and falls back to `details.json`. `cover.*` images are
-  detected and rendered in the details pane; cover fallback from the first chapter page
-  is not implemented.
+  malformed XML becomes a warning and falls back to `details.json`. Valid `cover.*` images
+  are detected and rendered in the details pane. If none exists, scanning writes a
+  generated `cover.jpg` from the first image of the first chapter, like Mihon (capped at
+  512 px on the longest edge). Cover generation is best-effort and must not fail a scan.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
