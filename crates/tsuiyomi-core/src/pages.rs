@@ -186,6 +186,8 @@ mod tests {
             title: "Chapter 1".to_owned(),
             number: Some(1.0),
             kind,
+            scanlator: None,
+            date: None,
         }
     }
 

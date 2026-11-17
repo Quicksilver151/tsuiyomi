@@ -57,12 +57,12 @@ and page order, and a broken folder does not abort the scan.
 
 - [x] Parse legacy `details.json` (`title`, `author`, `artist`, `description`, `genre`,
       `status`).
-- [ ] Parse series-level `ComicInfo.xml` with `quick-xml`.
-- [ ] Parse chapter-level `ComicInfo.xml` from folders and archives (title, number,
-      scanlator, date).
-- [ ] Implement precedence: `ComicInfo.xml` > `details.json` > directory name.
-- [ ] Detect `cover.jpg`; expose a `CoverRef` without loading image data.
-- [ ] Treat malformed metadata as a warning attached to the series, not a failure.
+- [x] Parse series-level `ComicInfo.xml` with `quick-xml`.
+- [x] Parse chapter-level `ComicInfo.xml` from folders and `zip`/`cbz` archives (title,
+      number, scanlator, date). RAR/EPUB chapter metadata is not parsed.
+- [x] Implement precedence: `ComicInfo.xml` > `details.json` > directory name.
+- [x] Detect `cover.*`; expose the path and render it in the TUI details pane.
+- [x] Treat malformed metadata as a warning attached to the series, not a failure.
 
 **Done when:** metadata fixtures produce the same values Mihon would show, and malformed
 XML/JSON leaves the series usable.

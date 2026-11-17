@@ -88,6 +88,19 @@ Series that are not listed in any category appear in the system `Default` catego
 Switch categories with `[` and `]`. `downloads/` and `extensions/` are never treated as
 library entries.
 
+## Metadata
+
+Series metadata follows Mihon: `ComicInfo.xml` wins, then legacy `details.json`, then the
+directory name. The parser reads series title, writer, artist credits, summary, genre,
+tags, categories, and publishing status. Chapter-level `ComicInfo.xml` is read from
+chapter directories and `zip`/`cbz` archives and can override title, number, scanlator,
+and date. Malformed XML becomes a metadata warning and falls back to `details.json`
+without hiding the series. RAR/EPUB reader support is still pending, so their embedded
+metadata is not parsed yet.
+
+A custom cover is any `cover.*` image in the series directory (`cover.jpg` is the usual
+name). It is shown beside the details pane when the terminal is wide enough.
+
 ## Reader mode
 
 The default is `webtoon` (continuous vertical scroll). Set it in
@@ -168,7 +181,9 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
 - [x] Split the backend into a UI-agnostic core crate and a TUI crate.
 - [x] Scan a Mihon `local/` library and list chapters.
 - [x] Discover chapter pages in folders and `cbz`/`zip` archives.
-- [ ] Parse `ComicInfo.xml` (legacy `details.json` and `.desc` already work).
+- [x] Parse series and chapter `ComicInfo.xml`, with legacy `details.json`/`.desc`
+      fallback.
+- [x] Detect `cover.*` images and show them in the details pane.
 - [x] Terminal reader using Kitty/Sixel/iTerm2 graphics with a halfblocks fallback.
 - [x] Page-turn and continuous vertical scroll modes (`m` toggles).
 - [x] Reader bottom bar: previous/next chapter, page gauge, and mode toggle; tabs hidden.

@@ -1,13 +1,16 @@
 use std::{
     cmp::Ordering,
-    fs, io,
+    fs,
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 
 use serde::Deserialize;
+use zip::ZipArchive;
 
 use crate::{
     chapter::{natural_cmp, parse_chapter_number},
+    comic_info::{parse_comic_info, ChapterDate, ComicInfo},
     error::CoreError,
 };
 
@@ -25,12 +28,16 @@ pub struct Library {
 #[derive(Debug, Clone)]
 pub struct Series {
     pub path: PathBuf,
-    /// `details.json` title, falling back to the directory name.
+    /// `ComicInfo.xml` or `details.json` title, falling back to the directory name.
     pub title: String,
     pub author: Option<String>,
     pub artist: Option<String>,
     pub description: String,
     pub tags: Vec<String>,
+    /// Publishing status, e.g. `Ongoing` from ComicInfo.xml.
+    pub status: Option<String>,
+    /// A custom `cover.*` image in the series directory.
+    pub cover: Option<PathBuf>,
     /// Category names this series belongs to.
     pub categories: Vec<String>,
     /// Newest first, matching Mihon.
@@ -45,6 +52,8 @@ pub struct Chapter {
     pub title: String,
     pub number: Option<f32>,
     pub kind: ChapterKind,
+    pub scanlator: Option<String>,
+    pub date: Option<ChapterDate>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +77,7 @@ struct DetailsJson {
     artist: Option<String>,
     description: Option<String>,
     genre: Option<Vec<String>>,
+    status: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -214,30 +224,66 @@ pub fn scan_library(root: &Path) -> Result<Library, CoreError> {
 
 fn scan_series(path: &Path) -> Result<Series, CoreError> {
     let mut warnings = Vec::new();
-    let details = read_details(path, &mut warnings);
+    // Mihon prefers ComicInfo.xml; details.json is the legacy fallback.
+    let comic = read_comic_info_file(&path.join("ComicInfo.xml"), &mut warnings);
+    let details = if comic.is_none() {
+        read_details(path, &mut warnings)
+    } else {
+        None
+    };
+
     let fallback_title = file_name(path);
-    let description = details
+    let title = comic
         .as_ref()
-        .and_then(|details| details.description.clone())
+        .and_then(|info| info.series.clone())
+        .filter(|title| !title.trim().is_empty())
+        .or_else(|| {
+            details
+                .as_ref()
+                .and_then(|details| details.title.clone())
+                .filter(|title| !title.trim().is_empty())
+        })
+        .unwrap_or(fallback_title);
+    let description = comic
+        .as_ref()
+        .and_then(|info| info.summary.clone())
+        .or_else(|| {
+            details
+                .as_ref()
+                .and_then(|details| details.description.clone())
+        })
         .or_else(|| read_optional(path.join(".desc")))
         .unwrap_or_default();
+    let author = comic
+        .as_ref()
+        .and_then(|info| info.writer.clone())
+        .or_else(|| details.as_ref().and_then(|details| details.author.clone()));
+    let artist = comic
+        .as_ref()
+        .and_then(ComicInfo::series_artist)
+        .or_else(|| details.as_ref().and_then(|details| details.artist.clone()));
+    let tags = comic
+        .as_ref()
+        .map(ComicInfo::series_tags)
+        .filter(|tags| !tags.is_empty())
+        .or_else(|| details.as_ref().and_then(|details| details.genre.clone()))
+        .unwrap_or_default();
+    let status = comic
+        .as_ref()
+        .and_then(|info| info.publishing_status.clone())
+        .or_else(|| details.as_ref().and_then(|details| details.status.clone()));
 
     Ok(Series {
         path: path.to_path_buf(),
-        title: details
-            .as_ref()
-            .and_then(|details| details.title.clone())
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or(fallback_title),
-        author: details.as_ref().and_then(|details| details.author.clone()),
-        artist: details.as_ref().and_then(|details| details.artist.clone()),
-        tags: details
-            .as_ref()
-            .and_then(|details| details.genre.clone())
-            .unwrap_or_default(),
+        title,
+        author,
+        artist,
+        tags,
+        status,
+        cover: find_cover(path),
         description,
         categories: Vec::new(),
-        chapters: scan_chapters(path)?,
+        chapters: scan_chapters(path, &mut warnings)?,
         warnings,
     })
 }
@@ -253,7 +299,10 @@ fn read_details(path: &Path, warnings: &mut Vec<String>) -> Option<DetailsJson> 
     }
 }
 
-fn scan_chapters(series_path: &Path) -> Result<Vec<Chapter>, CoreError> {
+fn scan_chapters(
+    series_path: &Path,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Chapter>, CoreError> {
     let entries = fs::read_dir(series_path).map_err(|source| CoreError::ReadDir {
         path: series_path.to_path_buf(),
         source,
@@ -275,32 +324,128 @@ fn scan_chapters(series_path: &Path) -> Result<Vec<Chapter>, CoreError> {
             Err(_) => continue,
         };
 
-        if file_type.is_dir() {
-            let title = file_name(&path);
-            chapters.push(Chapter {
-                number: parse_chapter_number(&title),
-                path,
-                title,
-                kind: ChapterKind::Directory,
-            });
+        let (kind, title) = if file_type.is_dir() {
+            (ChapterKind::Directory, file_name(&path))
         } else if let Some(kind) = archive_kind(&path) {
             let title = path
                 .file_stem()
                 .map(|stem| stem.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            chapters.push(Chapter {
-                number: parse_chapter_number(&title),
-                path,
-                title,
-                kind,
-            });
+            (kind, title)
+        } else {
+            continue;
+        };
+
+        let mut chapter = Chapter {
+            path: path.clone(),
+            title,
+            number: None,
+            kind,
+            scanlator: None,
+            date: None,
+        };
+        chapter.number = parse_chapter_number(&chapter.title);
+        if let Some(info) = read_chapter_comic_info(&path, kind, warnings) {
+            apply_chapter_info(&info, &mut chapter);
         }
+        chapters.push(chapter);
     }
 
     chapters.sort_by(|left, right| {
         chapter_order(left, right).then_with(|| natural_cmp(&right.title, &left.title))
     });
     Ok(chapters)
+}
+
+fn apply_chapter_info(info: &ComicInfo, chapter: &mut Chapter) {
+    if let Some(title) = info
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+    {
+        chapter.title = title.to_owned();
+    }
+    if let Some(number) = info.chapter_number() {
+        chapter.number = Some(number);
+    }
+    chapter.scanlator = info
+        .translator
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    chapter.date = info.chapter_date();
+}
+
+fn read_chapter_comic_info(
+    path: &Path,
+    kind: ChapterKind,
+    warnings: &mut Vec<String>,
+) -> Option<ComicInfo> {
+    match kind {
+        ChapterKind::Directory => read_comic_info_file(&path.join("ComicInfo.xml"), warnings),
+        ChapterKind::Zip => read_zip_comic_info(path, warnings),
+        ChapterKind::Rar | ChapterKind::Epub => None,
+    }
+}
+
+fn read_comic_info_file(path: &Path, warnings: &mut Vec<String>) -> Option<ComicInfo> {
+    let text = read_optional(path.to_path_buf())?;
+    match parse_comic_info(&text) {
+        Ok(info) => Some(info),
+        Err(error) => {
+            warnings.push(format!("{}: {error}", file_name(path)));
+            None
+        }
+    }
+}
+
+fn read_zip_comic_info(path: &Path, warnings: &mut Vec<String>) -> Option<ComicInfo> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            warnings.push(format!("{}: {error}", file_name(path)));
+            return None;
+        }
+    };
+    let mut archive = match ZipArchive::new(file) {
+        Ok(archive) => archive,
+        Err(error) => {
+            warnings.push(format!("{}: {error}", file_name(path)));
+            return None;
+        }
+    };
+
+    let entry_name = archive
+        .file_names()
+        .filter_map(Result::ok)
+        .find(|name| {
+            !name.contains('/')
+                && !name.contains('\\')
+                && name.eq_ignore_ascii_case("ComicInfo.xml")
+        })
+        .map(|name| name.into_owned())?;
+    let mut entry = match archive.by_name(&entry_name) {
+        Ok(entry) => entry,
+        Err(error) => {
+            warnings.push(format!("{}: {error}", file_name(path)));
+            return None;
+        }
+    };
+    let mut text = String::new();
+    if let Err(error) = entry.read_to_string(&mut text) {
+        warnings.push(format!("{}: {error}", file_name(path)));
+        return None;
+    }
+
+    match parse_comic_info(&text) {
+        Ok(info) => Some(info),
+        Err(error) => {
+            warnings.push(format!("{}: {error}", file_name(path)));
+            None
+        }
+    }
 }
 
 fn chapter_order(left: &Chapter, right: &Chapter) -> Ordering {
@@ -346,6 +491,34 @@ fn read_optional(path: PathBuf) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
+/// Find a Mihon custom cover: any image file whose stem is `cover`, case-insensitive.
+fn find_cover(dir: &Path) -> Option<PathBuf> {
+    let mut covers: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && is_image(path))
+        .filter(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| stem.eq_ignore_ascii_case("cover"))
+        })
+        .collect();
+    covers.sort_by(|left, right| natural_cmp(&file_name(left), &file_name(right)));
+    covers.into_iter().next()
+}
+
+fn is_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "jpg" | "jpeg" | "png" | "webp" | "gif" | "avif" | "bmp"
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -388,7 +561,7 @@ mod tests {
         fs::create_dir_all(&series).unwrap();
         fs::write(
             series.join("details.json"),
-            r#"{"title":"Real Title","author":"Writer","genre":["action"]}"#,
+            r#"{"title":"Real Title","author":"Writer","genre":["action"],"status":"Completed"}"#,
         )
         .unwrap();
         fs::write(series.join(".desc"), "A description").unwrap();
@@ -399,6 +572,7 @@ mod tests {
         assert_eq!(series.title, "Real Title");
         assert_eq!(series.author.as_deref(), Some("Writer"));
         assert_eq!(series.tags, ["action"]);
+        assert_eq!(series.status.as_deref(), Some("Completed"));
         assert_eq!(series.description, "A description");
     }
 
@@ -452,6 +626,140 @@ mod tests {
         assert!(library.series.is_empty());
         assert!(library.errors.is_empty());
         assert_eq!(library.categories, ["Default"]);
+    }
+
+    #[test]
+    fn reads_series_comic_info_and_cover() {
+        let root = tempdir().unwrap();
+        let series = root.path().join("Folder Name");
+        fs::create_dir_all(&series).unwrap();
+        fs::write(
+            series.join("ComicInfo.xml"),
+            r#"<ComicInfo>
+  <Title>Ignored Series Title</Title>
+  <Series>Real &amp; Title</Series>
+  <Summary>From ComicInfo</Summary>
+  <Writer>Writer Name</Writer>
+  <Penciller>Penciller</Penciller>
+  <Inker>Inker</Inker>
+  <Genre>Action, Fantasy</Genre>
+  <Tags>Magic</Tags>
+  <Categories>Reading</Categories>
+  <PublishingStatusTachiyomi>Ongoing</PublishingStatusTachiyomi>
+</ComicInfo>"#,
+        )
+        .unwrap();
+        fs::write(series.join("cover.png"), b"not an image").unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let series = &library.series[0];
+
+        assert_eq!(series.title, "Real & Title");
+        assert_eq!(series.author.as_deref(), Some("Writer Name"));
+        assert_eq!(series.artist.as_deref(), Some("Penciller, Inker"));
+        assert_eq!(series.description, "From ComicInfo");
+        assert_eq!(series.tags, ["Action", "Fantasy", "Magic", "Reading"]);
+        assert_eq!(series.status.as_deref(), Some("Ongoing"));
+        assert_eq!(series.cover, Some(series.path.join("cover.png")));
+    }
+
+    #[test]
+    fn comic_info_wins_over_details_json() {
+        let root = tempdir().unwrap();
+        let series = root.path().join("Series");
+        fs::create_dir_all(&series).unwrap();
+        fs::write(
+            series.join("ComicInfo.xml"),
+            "<ComicInfo><Series>XML Title</Series></ComicInfo>",
+        )
+        .unwrap();
+        fs::write(
+            series.join("details.json"),
+            r#"{"title":"JSON Title","author":"JSON Author"}"#,
+        )
+        .unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let series = &library.series[0];
+
+        assert_eq!(series.title, "XML Title");
+        assert_eq!(series.author, None);
+    }
+
+    #[test]
+    fn malformed_comic_info_falls_back_to_details_json() {
+        let root = tempdir().unwrap();
+        let series = root.path().join("Series");
+        fs::create_dir_all(&series).unwrap();
+        fs::write(series.join("ComicInfo.xml"), "<ComicInfo><Series>broken").unwrap();
+        fs::write(series.join("details.json"), r#"{"title":"JSON Title"}"#).unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let series = &library.series[0];
+
+        assert_eq!(series.title, "JSON Title");
+        assert_eq!(series.warnings.len(), 1);
+    }
+
+    #[test]
+    fn reads_chapter_comic_info_from_directories() {
+        let root = tempdir().unwrap();
+        let chapter = root.path().join("Series/Chapter 1");
+        fs::create_dir_all(&chapter).unwrap();
+        fs::write(
+            chapter.join("ComicInfo.xml"),
+            "<ComicInfo><Title>Prologue</Title><Number>0.5</Number>\
+             <Translator>Scan Group</Translator><Year>2024</Year><Month>2</Month><Day>7</Day>\
+             </ComicInfo>",
+        )
+        .unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let chapter = &library.series[0].chapters[0];
+
+        assert_eq!(chapter.title, "Prologue");
+        assert_eq!(chapter.number, Some(0.5));
+        assert_eq!(chapter.scanlator.as_deref(), Some("Scan Group"));
+        assert_eq!(
+            chapter.date,
+            Some(ChapterDate {
+                year: 2024,
+                month: 2,
+                day: 7
+            })
+        );
+    }
+
+    #[test]
+    fn reads_chapter_comic_info_from_zip() {
+        use std::io::Write;
+
+        use zip::{write::SimpleFileOptions, ZipWriter};
+
+        let root = tempdir().unwrap();
+        let series = root.path().join("Series");
+        fs::create_dir_all(&series).unwrap();
+        let chapter_path = series.join("Chapter 3.cbz");
+        let file = fs::File::create(&chapter_path).unwrap();
+        let mut writer = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer.start_file("ComicInfo.xml", options).unwrap();
+        writer
+            .write_all(
+                b"<ComicInfo><Title>Archive Title</Title><Number>3</Number>\
+                  <Translator>Archive Group</Translator></ComicInfo>",
+            )
+            .unwrap();
+        writer.start_file("001.jpg", options).unwrap();
+        writer.write_all(b"page").unwrap();
+        writer.finish().unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let chapter = &library.series[0].chapters[0];
+
+        assert_eq!(chapter.title, "Archive Title");
+        assert_eq!(chapter.number, Some(3.0));
+        assert_eq!(chapter.scanlator.as_deref(), Some("Archive Group"));
     }
 
     #[test]

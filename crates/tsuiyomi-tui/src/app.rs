@@ -340,6 +340,9 @@ pub struct AppState {
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
     pub image_picker: Option<Picker>,
+    /// Decoded custom cover for the selected series.
+    pub cover: Option<StatefulProtocol>,
+    pub cover_path: Option<PathBuf>,
     pub progress: ProgressStore,
     /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
     pub(crate) scroll_worker: Option<ScrollWorker>,
@@ -374,6 +377,8 @@ impl AppState {
             chapter_list_state: ListState::default(),
             reader: None,
             image_picker: None,
+            cover: None,
+            cover_path: None,
             progress: ProgressStore::default(),
             scroll_worker: None,
             scroll_generation: 0,
@@ -397,6 +402,37 @@ impl AppState {
 
     pub fn set_image_picker(&mut self, picker: Picker) {
         self.image_picker = Some(picker);
+    }
+
+    /// Load the selected series' custom cover if it changed.
+    pub fn ensure_cover(&mut self) {
+        let path = self
+            .selected_series()
+            .and_then(|series| series.cover.clone());
+        if self.cover_path == path {
+            return;
+        }
+        self.cover_path = path.clone();
+        self.cover = None;
+
+        let Some(path) = path else {
+            return;
+        };
+        let Some(picker) = self.image_picker.as_ref() else {
+            return;
+        };
+        let Ok(bytes) = std::fs::read(&path) else {
+            return;
+        };
+        let Ok(image) = image::load_from_memory(&bytes) else {
+            return;
+        };
+        self.cover = Some(picker.new_resize_protocol(image));
+    }
+
+    fn invalidate_cover(&mut self) {
+        self.cover = None;
+        self.cover_path = None;
     }
 
     pub(crate) fn set_scroll_worker(&mut self, worker: ScrollWorker) {
@@ -1894,6 +1930,7 @@ impl AppState {
         match scan_library(&self.library.root) {
             Ok(library) => {
                 self.library = library;
+                self.invalidate_cover();
                 self.view = LibraryView::Series;
                 self.reader = None;
                 self.chapter_index = 0;
@@ -2055,6 +2092,8 @@ mod tests {
             artist: None,
             description: String::new(),
             tags: Vec::new(),
+            status: None,
+            cover: None,
             categories: categories.iter().map(|item| (*item).to_owned()).collect(),
             chapters: Vec::new(),
             warnings: Vec::new(),
@@ -2067,6 +2106,8 @@ mod tests {
             title: title.to_owned(),
             number: Some(1.0),
             kind: tsuiyomi_core::ChapterKind::Directory,
+            scanlator: None,
+            date: None,
         }
     }
 
@@ -2143,12 +2184,16 @@ mod tests {
             artist: None,
             description: String::new(),
             tags: Vec::new(),
+            status: None,
+            cover: None,
             categories: vec!["Default".to_owned()],
             chapters: vec![Chapter {
                 path: root.path().to_path_buf(),
                 title: "Chapter 1".to_owned(),
                 number: Some(1.0),
                 kind: tsuiyomi_core::ChapterKind::Directory,
+                scanlator: None,
+                date: None,
             }],
             warnings: Vec::new(),
         };
@@ -2323,6 +2368,29 @@ mod tests {
             palette::current().accent,
             palette::palette_for(Theme::TokyoNight).yellow
         );
+    }
+
+    #[test]
+    fn loads_the_selected_series_cover() {
+        let root = tempfile::tempdir().unwrap();
+        let cover_path = root.path().join("cover.jpg");
+        image::RgbImage::from_pixel(20, 30, image::Rgb([20, 40, 60]))
+            .save(&cover_path)
+            .unwrap();
+
+        let mut library = library();
+        library.series[0].cover = Some(cover_path.clone());
+        let mut app = AppState::new(library, None);
+        app.set_image_picker(Picker::halfblocks());
+
+        app.ensure_cover();
+        assert_eq!(app.cover_path.as_deref(), Some(cover_path.as_path()));
+        assert!(app.cover.is_some());
+
+        app.selected = 1;
+        app.ensure_cover();
+        assert!(app.cover_path.is_none());
+        assert!(app.cover.is_none());
     }
 
     #[test]

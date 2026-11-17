@@ -4,6 +4,7 @@
 //! TUI (and any future frontend) should only consume the plain data types in this crate.
 
 pub mod chapter;
+pub mod comic_info;
 pub mod config;
 pub mod error;
 pub mod library;
@@ -11,6 +12,7 @@ pub mod pages;
 pub mod progress;
 
 pub use chapter::parse_chapter_number;
+pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
 pub use config::{load_config, save_config, Config, LibrarySort, ReadingMode, Theme};
 pub use error::CoreError;
 pub use library::{scan_library, Chapter, ChapterKind, Library, ScanError, Series};

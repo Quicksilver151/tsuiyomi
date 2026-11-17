@@ -143,7 +143,11 @@ Rules:
   expose it in config/settings later. Progress is stored in
   `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction, fit modes, and
   retransmit-free Kitty placement zoom are not implemented yet.
-- `ComicInfo.xml` and cover handling are not implemented; `details.json` and `.desc` are.
+- `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapter directories and
+  `zip`/`cbz` archives (RAR/EPUB metadata is not parsed). Series precedence is
+  `ComicInfo.xml` > `details.json` > directory name; malformed XML becomes a warning and
+  falls back to `details.json`. `cover.*` images are detected and rendered in the details
+  pane; cover fallback from the first chapter page is not implemented.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.

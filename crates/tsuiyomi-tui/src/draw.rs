@@ -10,7 +10,8 @@ use ratatui_image::{
     Resize, StatefulImage,
 };
 use tsuiyomi_core::{
-    Chapter, ChapterKind, Library, LibrarySort, ProgressStore, ReadingMode, Series, Theme,
+    Chapter, ChapterDate, ChapterKind, Library, LibrarySort, ProgressStore, ReadingMode, Series,
+    Theme,
 };
 
 use crate::{
@@ -314,6 +315,7 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
             return;
         }
         LibraryView::Series => {
+            app.ensure_cover();
             draw_categories(frame, layout.categories, app);
             let indices = app.visible_indices();
             let category = app
@@ -570,6 +572,10 @@ fn chapter_number(number: Option<f32>) -> String {
     }
 }
 
+fn chapter_date(date: ChapterDate) -> String {
+    format!("{:04}-{:02}-{:02}", date.year, date.month, date.day)
+}
+
 fn chapter_kind_label(kind: ChapterKind) -> &'static str {
     match kind {
         ChapterKind::Directory => "Folder",
@@ -641,7 +647,8 @@ fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
 
-fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
+fn draw_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let show_cover = app.view == LibraryView::Series;
     let lines = match app.view {
         LibraryView::Series => match app.selected_series() {
             Some(series) => series_lines(series),
@@ -650,17 +657,40 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
         LibraryView::Chapters | LibraryView::Reader => chapter_lines(app),
     };
 
-    let paragraph = Paragraph::new(Text::from(lines))
-        .block(panel(
-            Line::from(Span::styled(
-                " Details ",
-                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
-            )),
-            c_surface1(),
-        ))
-        .style(Style::default().fg(c_subtext1()))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
+    let block = panel(
+        Line::from(Span::styled(
+            " Details ",
+            Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
+        )),
+        c_surface1(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+
+    let mut text_area = inner;
+    if show_cover {
+        if let Some(protocol) = app.cover.as_mut() {
+            if inner.width >= 28 && inner.height >= 8 {
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Length(inner.width / 3), Constraint::Min(0)])
+                    .split(inner);
+                frame.render_stateful_widget(
+                    StatefulImage::new().resize(Resize::Fit(None)),
+                    chunks[0],
+                    protocol,
+                );
+                text_area = chunks[1];
+            }
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(c_subtext1()))
+            .wrap(Wrap { trim: true }),
+        text_area,
+    );
 }
 
 fn series_lines(series: &Series) -> Vec<Line<'static>> {
@@ -677,6 +707,9 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
     }
     if let Some(artist) = &series.artist {
         lines.push(field("Artist", artist, c_mauve()));
+    }
+    if let Some(status) = &series.status {
+        lines.push(field("Status", status, c_green()));
     }
     if !series.tags.is_empty() {
         lines.push(field("Tags", &series.tags.join(", "), c_teal()));
@@ -742,6 +775,12 @@ fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
         field("Type", chapter_kind_label(chapter.kind), c_blue()),
         field("Path", &chapter.path.display().to_string(), c_overlay1()),
     ];
+    if let Some(scanlator) = &chapter.scanlator {
+        lines.push(field("Scanlator", scanlator, c_teal()));
+    }
+    if let Some(date) = chapter.date {
+        lines.push(field("Date", &chapter_date(date), c_blue()));
+    }
 
     if let Some(entry) = app.progress.entry(&chapter.path) {
         lines.push(field(
@@ -1512,12 +1551,16 @@ mod tests {
             artist: None,
             description: "A test description.".to_owned(),
             tags: vec!["fantasy".to_owned()],
+            status: None,
+            cover: None,
             categories: vec!["Default".to_owned()],
             chapters: vec![Chapter {
                 path: PathBuf::from("/tmp/library/Test Series/Chapter 1"),
                 title: "Chapter 1".to_owned(),
                 number: Some(1.0),
                 kind: ChapterKind::Directory,
+                scanlator: None,
+                date: None,
             }],
             warnings: Vec::new(),
         };
@@ -1610,6 +1653,24 @@ mod tests {
         assert!(text.contains("next"));
         assert!(text.contains("Esc back"));
         assert!(!text.contains("Browse"));
+    }
+
+    #[test]
+    fn details_pane_renders_with_a_custom_cover() {
+        let root = tempfile::tempdir().unwrap();
+        let cover = root.path().join("cover.jpg");
+        image::RgbImage::from_pixel(20, 30, image::Rgb([120, 80, 160]))
+            .save(&cover)
+            .unwrap();
+
+        let mut app = test_app();
+        app.set_image_picker(ratatui_image::picker::Picker::halfblocks());
+        app.library.series[0].cover = Some(cover);
+
+        let text = render(&mut app, 100, 30);
+        assert!(app.cover.is_some());
+        assert!(text.contains("Test Series"));
+        assert!(text.contains("Author"));
     }
 
     #[test]
