@@ -90,19 +90,26 @@ Series that are not listed in any category appear in the system `Default` catego
 Switch categories with `[` and `]`. `downloads/` and `extensions/` are never treated as
 library entries.
 
+## Library
+
+The Library tab opens as a cover tile grid, like Mihon. Each tile shows the series cover
+(or an initial placeholder), title, and chapter count. `↑↓` moves by grid row, `←→` by
+one tile, and `Enter` opens the chapter list. `[`/`]` switch categories and `r` rescans.
+
 ## Browse
 
 Browse follows Mihon's source model. It lists sources; this build has one built-in source:
 
-- **Local source** — lists the series directories inside the library root, sorted by
-  title.
+- **Local source** — lists the series directories inside the library root as a cover tile
+  grid, sorted by title.
 
 Controls:
 
-- `↑↓` moves through sources or local items.
-- `Enter` opens the Local source, then opens the selected series in Library.
-- `Esc` or `Backspace` returns from the Local source to the source list.
-- `r` rescans the local source when viewing its items.
+- `↑↓` moves by grid row and `←→` by tile.
+- `Enter` opens the Local source, then opens the selected series detail screen.
+- From the detail screen, `Enter` opens that series' chapter list in Library.
+- `Esc` or `Backspace` goes back one level.
+- `r` rescans the local source while viewing its items.
 
 There is no filesystem import browser. To add manga, place the folder or archive in the
 Mihon `local/` directory and rescan. Remote sources and Mihon extensions are not

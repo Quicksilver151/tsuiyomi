@@ -23,12 +23,15 @@ use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
 use tsuiyomi_core::ProgressStore;
 
 use crate::{
-    app::{LibraryView, MoreFocus, MoreRow, MoreSection, SettingId, SettingsPage, SETTINGS_PAGES},
+    app::{
+        BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, SettingId, SettingsPage,
+        SETTINGS_PAGES,
+    },
     draw::draw,
     input::Action,
     layout::{
-        app_layout, contains, inner, library_layout, more_layout, reader_bar_layout,
-        setting_columns, settings_rows, tab_layouts,
+        app_layout, contains, grid_index_at, inner, library_grid_area, library_layout, more_layout,
+        reader_bar_layout, setting_columns, settings_rows, tab_layouts,
     },
     scroll_worker::ScrollWorker,
 };
@@ -132,22 +135,34 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::PreviousPage => {
                 if app.tab == 3 {
-                    app.browse_parent();
+                    if app.browse_view == BrowseView::Details {
+                        app.browse_parent();
+                    } else {
+                        app.browse_previous_column();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
                         app.adjust_setting(-1);
                     }
+                } else if app.tab == 0 && app.view == LibraryView::Series {
+                    app.previous_column();
                 } else {
                     app.previous_page();
                 }
             }
             Action::NextPage => {
                 if app.tab == 3 {
-                    app.browse_open();
+                    if app.browse_view == BrowseView::Details {
+                        app.browse_open();
+                    } else {
+                        app.browse_next_column();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
                         app.adjust_setting(1);
                     }
+                } else if app.tab == 0 && app.view == LibraryView::Series {
+                    app.next_column();
                 } else {
                     app.next_page();
                 }
@@ -271,16 +286,6 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         return;
     }
 
-    if app.tab == 3 {
-        handle_browse_click(layout.content, app, column, row);
-        return;
-    }
-
-    if app.tab == 4 {
-        handle_more_click(layout.content, app, column, row);
-        return;
-    }
-
     if contains(layout.tabs, column, row) {
         if let Some(tab) = tab_layouts(layout.tabs)
             .into_iter()
@@ -291,7 +296,32 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         return;
     }
 
+    if app.tab == 3 {
+        handle_browse_click(layout.content, app, column, row);
+        return;
+    }
+
+    if app.tab == 4 {
+        handle_more_click(layout.content, app, column, row);
+        return;
+    }
+
     if app.tab != 0 {
+        return;
+    }
+
+    if app.view == LibraryView::Series {
+        let grid_area = library_grid_area(layout.content);
+        if let Some(index) = grid_index_at(
+            grid_area,
+            app.library_columns.max(1),
+            app.library_grid_offset,
+            column,
+            row,
+            app.visible_count(),
+        ) {
+            app.select_index(index);
+        }
         return;
     }
 
@@ -299,18 +329,33 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     let list_area = inner(library.list);
     if contains(list_area, column, row) {
         let visible_row = (row - list_area.y) as usize;
-        let index = app.list_state.offset() + visible_row;
+        let index = app.chapter_list_state.offset() + visible_row;
         app.select_index(index);
     }
 }
 
 fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
-    let layout = library_layout(area);
-    let list = inner(layout.list);
-    if contains(list, column, row) {
-        let visible_row = (row - list.y) as usize;
-        let index = app.browse_list_state.offset() + visible_row;
-        app.select_browse_index(index);
+    match app.browse_view {
+        BrowseView::Local => {
+            let grid_area = library_grid_area(area);
+            if let Some(index) = grid_index_at(
+                grid_area,
+                app.browse_columns.max(1),
+                app.browse_grid_offset,
+                column,
+                row,
+                app.browse_item_count(),
+            ) {
+                app.select_browse_index(index);
+            }
+        }
+        BrowseView::Sources => {
+            let list = library_grid_area(area);
+            if contains(list, column, row) {
+                app.select_browse_index((row - list.y) as usize);
+            }
+        }
+        BrowseView::Details => {}
     }
 }
 

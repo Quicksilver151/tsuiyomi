@@ -160,10 +160,11 @@ Rules:
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
 - Browse follows Mihon's source model: it lists sources, currently only the built-in
-  Local source. Opening it lists the series directories under the library root (the same
-  local/ source Mihon sees), and Enter opens the selected series in Library. There is no
-  filesystem import browser; users place folders in local/ and rescan. Remote sources and
-  Mihon extensions remain unsupported.
+  Local source. Opening it shows the series under the library root as a cover tile grid;
+  Enter opens a series detail screen inside Browse, and Enter again opens its chapter list
+  in Library. Library itself also uses a tile grid, not a list. There is no filesystem
+  import browser; users place folders in local/ and rescan. Remote sources and Mihon
+  extensions remain unsupported.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,

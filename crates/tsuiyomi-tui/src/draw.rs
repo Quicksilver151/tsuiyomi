@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -10,8 +12,7 @@ use ratatui_image::{
     Resize, StatefulImage,
 };
 use tsuiyomi_core::{
-    Chapter, ChapterDate, ChapterKind, Library, LibrarySort, ProgressStore, ReadingMode, Series,
-    Theme,
+    Chapter, ChapterDate, ChapterKind, LibrarySort, ProgressStore, ReadingMode, Series, Theme,
 };
 
 use crate::{
@@ -20,8 +21,9 @@ use crate::{
         PickerState, ReaderMode, SettingId, SettingsPage, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
-        app_layout, library_layout, more_layout, reader_bar_layout, setting_columns, settings_rows,
-        tab_layouts, TAB_NAMES,
+        app_layout, grid_columns, grid_row_offset, grid_tile_rect, grid_visible_rows,
+        library_grid_area, library_layout, more_layout, reader_bar_layout, setting_columns,
+        settings_rows, tab_layouts, TAB_NAMES, TILE_COVER_HEIGHT, TILE_TEXT_HEIGHT,
     },
     palette::{
         accent_choices, c_accent, c_base, c_blue, c_green, c_mauve, c_overlay0, c_overlay1,
@@ -318,23 +320,19 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
             return;
         }
         LibraryView::Series => {
-            app.ensure_cover();
             draw_categories(frame, layout.categories, app);
             let indices = app.visible_indices();
-            let category = app
-                .library
-                .categories
-                .get(app.category_index)
-                .map(String::as_str);
-            draw_series_list(
+            let (columns, offset) = draw_series_grid(
                 frame,
-                layout.list,
-                &app.library,
+                library_grid_area(area),
+                app,
                 &indices,
-                category,
-                &mut app.list_state,
                 app.selected,
+                app.library_grid_offset,
             );
+            app.library_columns = columns;
+            app.library_grid_offset = offset;
+            return;
         }
         LibraryView::Chapters => {
             draw_breadcrumb(frame, layout.categories, app);
@@ -355,6 +353,151 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     }
 
     draw_details(frame, layout.details, app);
+}
+
+fn draw_series_grid(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut AppState,
+    indices: &[usize],
+    selected: usize,
+    current_offset: usize,
+) -> (usize, usize) {
+    let columns = grid_columns(area);
+    let selected = selected.min(indices.len().saturating_sub(1));
+    if indices.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No series found.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, area.height.min(1)),
+        );
+        if let Some(status) = &app.status {
+            if area.height > 1 {
+                frame.render_widget(
+                    Paragraph::new(status.clone())
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_peach())),
+                    Rect::new(area.x, area.y + 1, area.width, 1),
+                );
+            }
+        }
+        return (columns, 0);
+    }
+    let visible_rows = grid_visible_rows(area);
+    let offset = grid_row_offset(area, columns, selected, current_offset, indices.len());
+    let start = offset.saturating_mul(columns);
+    let end = (offset.saturating_add(visible_rows))
+        .saturating_mul(columns)
+        .min(indices.len());
+
+    let covers: Vec<PathBuf> = indices[start..end]
+        .iter()
+        .filter_map(|index| app.library.series[*index].cover.clone())
+        .collect();
+    for cover in covers {
+        app.ensure_tile_cover(&cover);
+    }
+
+    for (position, series_index) in indices[start..end].iter().enumerate() {
+        let index = start + position;
+        let series = &app.library.series[*series_index];
+        let tile = grid_tile_rect(area, columns, offset, index);
+        let is_selected = index == selected;
+        if is_selected {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                tile,
+            );
+        }
+
+        let cover_area = Rect::new(tile.x, tile.y, tile.width, TILE_COVER_HEIGHT);
+        let cover_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(if is_selected {
+                Style::default().fg(c_accent())
+            } else {
+                Style::default().fg(c_surface1())
+            })
+            .style(Style::default().bg(c_surface0()));
+        let cover_inner = cover_block.inner(cover_area);
+        frame.render_widget(&cover_block, cover_area);
+
+        let mut rendered_cover = false;
+        if let Some(path) = &series.cover {
+            if let Some(protocol) = app.tile_covers.get_mut(path) {
+                frame.render_stateful_widget(
+                    StatefulImage::new().resize(Resize::Fit(None)),
+                    cover_inner,
+                    protocol,
+                );
+                rendered_cover = true;
+            }
+        }
+        if !rendered_cover {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                cover_inner,
+            );
+            let initial = series
+                .title
+                .chars()
+                .next()
+                .map(|character| character.to_uppercase().collect::<String>())
+                .unwrap_or_default();
+            if cover_inner.height > 0 {
+                let initial_area = Rect::new(
+                    cover_inner.x,
+                    cover_inner.y + cover_inner.height / 2,
+                    cover_inner.width,
+                    1,
+                );
+                frame.render_widget(
+                    Paragraph::new(initial)
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                    initial_area,
+                );
+            }
+        }
+
+        let title_area = Rect::new(
+            tile.x,
+            tile.y + TILE_COVER_HEIGHT,
+            tile.width,
+            TILE_TEXT_HEIGHT,
+        );
+        let title_style = if is_selected {
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_text())
+        };
+        let count_area = Rect::new(title_area.x, title_area.y + 1, title_area.width, 1);
+        frame.render_widget(
+            Paragraph::new(truncate_text(&series.title, title_area.width))
+                .alignment(Alignment::Center)
+                .style(title_style),
+            Rect::new(title_area.x, title_area.y, title_area.width, 1),
+        );
+        frame.render_widget(
+            Paragraph::new(format!("{} ch", series.chapters.len()))
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay0())),
+            count_area,
+        );
+    }
+
+    (columns, offset)
+}
+
+fn truncate_text(text: &str, width: u16) -> String {
+    let width = width as usize;
+    if text.chars().count() <= width {
+        return text.to_owned();
+    }
+    let mut truncated: String = text.chars().take(width.saturating_sub(1)).collect();
+    truncated.push('…');
+    truncated
 }
 
 fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
@@ -389,16 +532,31 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let layout = library_layout(area);
-    draw_browse_path(frame, layout.categories, app);
-    draw_browse_list(frame, layout.list, app);
-    draw_browse_details(frame, layout.details, app);
+    draw_browse_path(frame, Rect::new(area.x, area.y, area.width, 1), app);
+    let content = library_grid_area(area);
+    match app.browse_view {
+        BrowseView::Sources => draw_browse_sources(frame, content, app),
+        BrowseView::Local => {
+            let indices = app.browse_local_indices();
+            let (columns, offset) = draw_series_grid(
+                frame,
+                content,
+                app,
+                &indices,
+                app.browse_selection,
+                app.browse_grid_offset,
+            );
+            app.browse_columns = columns;
+            app.browse_grid_offset = offset;
+        }
+        BrowseView::Details => draw_browse_detail(frame, content, app),
+    }
 }
 
 fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
     let (view, count) = match app.browse_view {
         BrowseView::Sources => ("Sources", "1 source".to_owned()),
-        BrowseView::Local => (
+        BrowseView::Local | BrowseView::Details => (
             "Local source",
             format!("{} series", app.library.series.len()),
         ),
@@ -417,47 +575,19 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
-fn draw_browse_list(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let items: Vec<ListItem> = match app.browse_view {
-        BrowseView::Sources => vec![ListItem::new(Line::from(vec![
-            Span::styled("Local source", Style::default().fg(c_text())),
-            Span::styled(
-                format!("  {} series", app.library.series.len()),
-                Style::default().fg(c_overlay0()),
-            ),
-        ]))],
-        BrowseView::Local => app
-            .browse_local_indices()
-            .into_iter()
-            .map(|index| {
-                let series = &app.library.series[index];
-                ListItem::new(Line::from(vec![
-                    Span::raw(series.title.clone()),
-                    Span::styled(
-                        format!("  {} ch", series.chapters.len()),
-                        Style::default().fg(c_overlay0()),
-                    ),
-                ]))
-            })
-            .collect(),
-    };
-
-    let count = app.browse_item_count();
-    if count == 0 {
-        app.browse_list_state.select(None);
-    } else {
-        app.browse_list_state
-            .select(Some(app.browse_selection.min(count - 1)));
-    }
-
-    let title = match app.browse_view {
-        BrowseView::Sources => " Sources ",
-        BrowseView::Local => " Local source ",
-    };
-    let list = List::new(items)
+fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    app.browse_list_state.select(Some(0));
+    let item = ListItem::new(Line::from(vec![
+        Span::styled("Local source", Style::default().fg(c_text())),
+        Span::styled(
+            format!("  {} series", app.library.series.len()),
+            Style::default().fg(c_overlay0()),
+        ),
+    ]));
+    let list = List::new([item])
         .block(panel(
             Line::from(Span::styled(
-                title,
+                " Sources ",
                 Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             c_accent(),
@@ -472,60 +602,101 @@ fn draw_browse_list(frame: &mut Frame, area: Rect, app: &mut AppState) {
     frame.render_stateful_widget(list, area, &mut app.browse_list_state);
 }
 
-fn draw_browse_details(frame: &mut Frame, area: Rect, app: &AppState) {
-    let lines = match app.browse_view {
-        BrowseView::Sources => vec![
-            Line::from(Span::styled(
-                "Local source",
-                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            field("Type", "Built-in local source", c_blue()),
-            field("Path", &display_path(&app.library.root), c_overlay1()),
-            field("Series", &app.library.series.len().to_string(), c_green()),
-            Line::from(""),
-            Line::from(Span::styled(
-                "Lists series directories in the local library folder.",
-                Style::default().fg(c_overlay0()),
-            )),
-            Line::from(Span::styled(
-                "Enter opens the source.",
-                Style::default().fg(c_overlay0()),
-            )),
-        ],
-        BrowseView::Local => {
-            let Some(series) = app.selected_browse_series() else {
-                return draw_browse_empty(frame, area, "No series in the local directory.");
-            };
-            let mut lines = series_lines(series);
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Enter opens this series in Library.",
-                Style::default().fg(c_overlay0()),
-            )));
-            lines
-        }
+fn draw_browse_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let Some(cover) = app
+        .browse_detail_series()
+        .map(|series| series.cover.clone())
+    else {
+        draw_browse_empty(frame, area, "Series not found. Rescan the library.");
+        return;
+    };
+    app.ensure_cover_path(cover);
+
+    let Some(series) = app.browse_detail_series() else {
+        draw_browse_empty(frame, area, "Series not found. Rescan the library.");
+        return;
+    };
+    let cover_initial = series
+        .title
+        .chars()
+        .next()
+        .map(|character| character.to_uppercase().collect::<String>())
+        .unwrap_or_default();
+    let mut lines = series_lines(series);
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Enter opens chapters · Esc goes back.",
+        Style::default().fg(c_overlay0()),
+    )));
+
+    let block = panel(
+        Line::from(Span::styled(
+            " Series ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+
+    let (cover_area, text_area) = if inner.width >= 30 {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(inner.width / 3), Constraint::Min(0)])
+            .split(inner);
+        (Some(chunks[0]), chunks[1])
+    } else {
+        (None, inner)
     };
 
-    let paragraph = Paragraph::new(Text::from(lines))
-        .block(panel(
-            Line::from(Span::styled(
-                " Details ",
-                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
-            )),
-            c_surface1(),
-        ))
-        .style(Style::default().fg(c_subtext1()))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
+    if let Some(cover_area) = cover_area {
+        let cover_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(c_surface1()))
+            .style(Style::default().bg(c_surface0()));
+        let cover_inner = cover_block.inner(cover_area);
+        frame.render_widget(&cover_block, cover_area);
+        if let Some(protocol) = app.cover.as_mut() {
+            frame.render_stateful_widget(
+                StatefulImage::new().resize(Resize::Fit(None)),
+                cover_inner,
+                protocol,
+            );
+        } else {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                cover_inner,
+            );
+            if cover_inner.height > 0 {
+                frame.render_widget(
+                    Paragraph::new(cover_initial)
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                    Rect::new(
+                        cover_inner.x,
+                        cover_inner.y + cover_inner.height / 2,
+                        cover_inner.width,
+                        1,
+                    ),
+                );
+            }
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(c_subtext1()))
+            .wrap(Wrap { trim: true }),
+        text_area,
+    );
 }
 
 fn draw_browse_empty(frame: &mut Frame, area: Rect, message: &str) {
     let paragraph = Paragraph::new(message)
         .block(panel(
             Line::from(Span::styled(
-                " Details ",
-                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
+                " Series ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             c_surface1(),
         ))
@@ -736,112 +907,23 @@ fn chapter_kind_label(kind: ChapterKind) -> &'static str {
     }
 }
 
-fn draw_series_list(
-    frame: &mut Frame,
-    area: Rect,
-    library: &Library,
-    indices: &[usize],
-    category: Option<&str>,
-    list_state: &mut ListState,
-    selected: usize,
-) {
-    let series: Vec<&Series> = indices
-        .iter()
-        .filter_map(|index| library.series.get(*index))
-        .collect();
-
-    let items: Vec<ListItem> = series
-        .iter()
-        .map(|series| {
-            let title = Line::from(vec![
-                Span::raw(series.title.clone()),
-                Span::styled(
-                    format!("  {} ch", series.chapters.len()),
-                    Style::default().fg(c_overlay0()),
-                ),
-            ]);
-            ListItem::new(title)
-        })
-        .collect();
-
-    let count = series.len();
-    if count == 0 {
-        list_state.select(None);
-    } else {
-        list_state.select(Some(selected.min(count - 1)));
-    }
-
-    let category_name = category.unwrap_or("All");
-    let title = Line::from(vec![
-        Span::styled(
-            format!(" Library · {category_name} "),
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
-    ]);
-
-    let list = List::new(items)
-        .block(panel(title, c_accent()))
-        .style(Style::default().fg(c_text()))
-        .highlight_style(
-            Style::default()
-                .fg(c_accent())
-                .bg(c_surface0())
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("› ");
-
-    frame.render_stateful_widget(list, area, list_state);
-}
-
 fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
 
-fn draw_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let show_cover = app.view == LibraryView::Series;
-    let lines = match app.view {
-        LibraryView::Series => match app.selected_series() {
-            Some(series) => series_lines(series),
-            None => empty_lines(app),
-        },
-        LibraryView::Chapters | LibraryView::Reader => chapter_lines(app),
-    };
-
-    let block = panel(
-        Line::from(Span::styled(
-            " Details ",
-            Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
-        )),
-        c_surface1(),
-    );
-    let inner = block.inner(area);
-    frame.render_widget(&block, area);
-
-    let mut text_area = inner;
-    if show_cover {
-        if let Some(protocol) = app.cover.as_mut() {
-            if inner.width >= 28 && inner.height >= 8 {
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Length(inner.width / 3), Constraint::Min(0)])
-                    .split(inner);
-                frame.render_stateful_widget(
-                    StatefulImage::new().resize(Resize::Fit(None)),
-                    chunks[0],
-                    protocol,
-                );
-                text_area = chunks[1];
-            }
-        }
-    }
-
-    frame.render_widget(
-        Paragraph::new(Text::from(lines))
-            .style(Style::default().fg(c_subtext1()))
-            .wrap(Wrap { trim: true }),
-        text_area,
-    );
+fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
+    let lines = chapter_lines(app);
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(panel(
+            Line::from(Span::styled(
+                " Details ",
+                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
+            )),
+            c_surface1(),
+        ))
+        .style(Style::default().fg(c_subtext1()))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, area);
 }
 
 fn series_lines(series: &Series) -> Vec<Line<'static>> {
@@ -947,31 +1029,6 @@ fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
             status.clone(),
             Style::default().fg(c_peach()),
         )));
-    }
-
-    lines
-}
-
-fn empty_lines(app: &AppState) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from(Span::styled(
-        "No series found.",
-        Style::default().fg(c_subtext1()),
-    ))];
-
-    if let Some(status) = &app.status {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            status.clone(),
-            Style::default().fg(c_peach()),
-        )));
-    }
-    if !app.library.root.as_os_str().is_empty() {
-        lines.push(Line::from(""));
-        lines.push(field(
-            "Library",
-            &app.library.root.display().to_string(),
-            c_overlay1(),
-        ));
     }
 
     lines
@@ -1745,6 +1802,7 @@ mod tests {
     fn renders_header_content_tabs_and_commands() {
         let mut app = test_app();
         let text = render(&mut app, 80, 24);
+        println!("{text}");
 
         assert!(text.contains("Tsuiyomi"));
         assert!(text.contains("commands"));
@@ -1758,10 +1816,8 @@ mod tests {
         assert!(text.contains("More"));
         assert!(text.contains("Default"));
         assert!(text.contains("[ ]"));
-        assert!(text.contains("Library · Default"));
         assert!(!text.contains("1 Library"));
         assert!(text.contains("Test Series"));
-        assert!(text.contains("Details"));
     }
 
     #[test]
@@ -1808,21 +1864,45 @@ mod tests {
     }
 
     #[test]
+    fn library_grid_loads_tile_covers() {
+        let root = tempfile::tempdir().unwrap();
+        let cover = root.path().join("cover.jpg");
+        image::RgbImage::from_pixel(20, 30, image::Rgb([40, 120, 80]))
+            .save(&cover)
+            .unwrap();
+
+        let mut app = test_app();
+        app.set_image_picker(ratatui_image::picker::Picker::halfblocks());
+        app.library.series[0].cover = Some(cover.clone());
+
+        let _ = render(&mut app, 80, 30);
+        assert!(app.tile_covers.contains_key(&cover));
+    }
+
+    #[test]
     fn browse_view_renders_sources_and_local_items() {
         let mut app = test_app();
         app.tab = 3;
 
         let text = render(&mut app, 80, 30);
+        println!("{text}");
         assert!(text.contains("Browse · Sources"));
+        assert!(text.contains("Sources"));
         assert!(text.contains("Local source"));
-        assert!(text.contains("Built-in local source"));
-        assert!(text.contains("Enter opens the source"));
 
         app.browse_open();
         let text = render(&mut app, 80, 30);
+        println!("{text}");
         assert!(text.contains("Browse · Local source"));
         assert!(text.contains("Test Series"));
-        assert!(text.contains("Enter opens this series in Library"));
+        assert!(text.contains("1 ch"));
+
+        app.browse_open();
+        let text = render(&mut app, 80, 30);
+        println!("{text}");
+        assert!(text.contains("Series"));
+        assert!(text.contains("Test Series"));
+        assert!(text.contains("Enter opens chapters"));
     }
 
     #[test]
@@ -1836,6 +1916,9 @@ mod tests {
         let mut app = test_app();
         app.set_image_picker(ratatui_image::picker::Picker::halfblocks());
         app.library.series[0].cover = Some(cover);
+        app.tab = 3;
+        app.browse_view = BrowseView::Details;
+        app.browse_detail = Some(app.library.series[0].path.clone());
 
         let text = render(&mut app, 100, 30);
         assert!(app.cover.is_some());

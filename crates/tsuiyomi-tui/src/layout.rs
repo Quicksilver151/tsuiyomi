@@ -106,6 +106,100 @@ pub fn library_layout(area: Rect) -> LibraryLayout {
     }
 }
 
+/// Full-width area below the category row for the library tile grid.
+pub fn library_grid_area(area: Rect) -> Rect {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area);
+    rows[1]
+}
+
+pub const TILE_MIN_WIDTH: u16 = 14;
+pub const TILE_GAP: u16 = 1;
+pub const TILE_COVER_HEIGHT: u16 = 8;
+pub const TILE_TEXT_HEIGHT: u16 = 2;
+pub const TILE_HEIGHT: u16 = TILE_COVER_HEIGHT + TILE_TEXT_HEIGHT;
+
+pub fn grid_columns(area: Rect) -> usize {
+    let width = area.width.max(1);
+    ((width + TILE_GAP) / (TILE_MIN_WIDTH + TILE_GAP)).max(1) as usize
+}
+
+pub fn grid_tile_width(area: Rect, columns: usize) -> u16 {
+    let columns = columns.max(1) as u16;
+    let gaps = TILE_GAP.saturating_mul(columns - 1);
+    area.width.saturating_sub(gaps) / columns
+}
+
+pub fn grid_visible_rows(area: Rect) -> usize {
+    (area.height / TILE_HEIGHT).max(1) as usize
+}
+
+/// Keep the selected row visible, scrolling by whole tile rows.
+pub fn grid_row_offset(
+    area: Rect,
+    columns: usize,
+    selected: usize,
+    current: usize,
+    count: usize,
+) -> usize {
+    let columns = columns.max(1);
+    let visible = grid_visible_rows(area);
+    let selected_row = selected / columns;
+    let mut offset = current;
+    if selected_row < offset {
+        offset = selected_row;
+    }
+    if selected_row >= offset.saturating_add(visible) {
+        offset = selected_row + 1 - visible;
+    }
+    let total_rows = count.div_ceil(columns);
+    offset.min(total_rows.saturating_sub(visible))
+}
+
+pub fn grid_tile_rect(area: Rect, columns: usize, offset_row: usize, index: usize) -> Rect {
+    let columns = columns.max(1);
+    let tile_width = grid_tile_width(area, columns);
+    let stride = tile_width.saturating_add(TILE_GAP);
+    let row = index / columns;
+    let column = index % columns;
+    Rect::new(
+        area.x + column as u16 * stride,
+        area.y + (row.saturating_sub(offset_row)) as u16 * TILE_HEIGHT,
+        tile_width,
+        TILE_HEIGHT,
+    )
+}
+
+pub fn grid_index_at(
+    area: Rect,
+    columns: usize,
+    offset_row: usize,
+    column: u16,
+    row: u16,
+    count: usize,
+) -> Option<usize> {
+    if !contains(area, column, row) {
+        return None;
+    }
+    let columns = columns.max(1);
+    let tile_width = grid_tile_width(area, columns);
+    let stride = tile_width.saturating_add(TILE_GAP);
+    let relative_x = column - area.x;
+    let relative_y = row - area.y;
+    let grid_column = relative_x / stride;
+    if grid_column as usize >= columns || relative_x % stride >= tile_width {
+        return None;
+    }
+    let grid_row = relative_y as usize / TILE_HEIGHT as usize;
+    if grid_row >= grid_visible_rows(area) {
+        return None;
+    }
+    let index = (offset_row + grid_row) * columns + grid_column as usize;
+    (index < count).then_some(index)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct MoreLayout {
     pub sections: Rect,
@@ -202,4 +296,27 @@ pub fn contains(area: Rect, column: u16, row: u16) -> bool {
         && column < area.x.saturating_add(area.width)
         && row >= area.y
         && row < area.y.saturating_add(area.height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grid_geometry_matches_rendered_tiles() {
+        let area = Rect::new(0, 0, 78, 14);
+        let columns = grid_columns(area);
+        assert_eq!(columns, 5);
+        assert_eq!(grid_tile_width(area, columns), 14);
+        assert_eq!(grid_visible_rows(area), 1);
+    }
+
+    #[test]
+    fn grid_hit_testing_ignores_gaps_and_partial_rows() {
+        let area = Rect::new(4, 3, 78, 14);
+        assert_eq!(grid_index_at(area, 5, 0, 4, 3, 20), Some(0));
+        assert_eq!(grid_index_at(area, 5, 0, 19, 3, 20), Some(1));
+        assert_eq!(grid_index_at(area, 5, 0, 18, 3, 20), None);
+        assert_eq!(grid_index_at(area, 5, 0, 4, 13, 20), None);
+    }
 }

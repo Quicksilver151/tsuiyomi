@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crossterm::terminal;
 use ratatui::{layout::Size, widgets::ListState};
@@ -16,6 +19,9 @@ use crate::{
 
 /// Lines moved per arrow/wheel step in continuous scroll mode.
 const SCROLL_LINES: i32 = 5;
+
+/// Upper bound on decoded library tile covers kept in memory.
+const TILE_COVER_CACHE: usize = 64;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LibraryView {
@@ -66,6 +72,7 @@ pub enum BrowseView {
     #[default]
     Sources,
     Local,
+    Details,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -344,7 +351,6 @@ pub struct AppState {
     pub category_index: usize,
     pub selected: usize,
     pub chapter_index: usize,
-    pub list_state: ListState,
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
     pub image_picker: Option<Picker>,
@@ -363,6 +369,12 @@ pub struct AppState {
     pub browse_view: BrowseView,
     pub browse_selection: usize,
     pub browse_list_state: ListState,
+    pub browse_detail: Option<PathBuf>,
+    pub browse_columns: usize,
+    pub browse_grid_offset: usize,
+    pub library_columns: usize,
+    pub library_grid_offset: usize,
+    pub tile_covers: HashMap<PathBuf, StatefulProtocol>,
     pub more_section: MoreSection,
     pub more_focus: MoreFocus,
     pub settings_page: SettingsPage,
@@ -375,7 +387,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(library: Library, status: Option<String>) -> Self {
-        let mut app = Self {
+        Self {
             tab: 0,
             fullscreen: false,
             view: LibraryView::Series,
@@ -384,7 +396,6 @@ impl AppState {
             category_index: 0,
             selected: 0,
             chapter_index: 0,
-            list_state: ListState::default(),
             chapter_list_state: ListState::default(),
             reader: None,
             image_picker: None,
@@ -399,6 +410,12 @@ impl AppState {
             browse_view: BrowseView::Sources,
             browse_selection: 0,
             browse_list_state: ListState::default(),
+            browse_detail: None,
+            browse_columns: 1,
+            browse_grid_offset: 0,
+            library_columns: 1,
+            library_grid_offset: 0,
+            tile_covers: HashMap::new(),
             more_section: MoreSection::Settings,
             more_focus: MoreFocus::Content,
             settings_page: SettingsPage::Main,
@@ -407,11 +424,7 @@ impl AppState {
             accent: None,
             picker: None,
             status,
-        };
-        if app.visible_count() > 0 {
-            app.list_state.select(Some(0));
         }
-        app
     }
 
     pub fn set_image_picker(&mut self, picker: Picker) {
@@ -423,6 +436,10 @@ impl AppState {
         let path = self
             .selected_series()
             .and_then(|series| series.cover.clone());
+        self.ensure_cover_path(path);
+    }
+
+    pub fn ensure_cover_path(&mut self, path: Option<PathBuf>) {
         if self.cover_path == path {
             return;
         }
@@ -444,21 +461,69 @@ impl AppState {
         self.cover = Some(picker.new_resize_protocol(image));
     }
 
+    /// Load one library tile cover into the grid cache.
+    pub fn ensure_tile_cover(&mut self, path: &Path) {
+        if self.tile_covers.contains_key(path) {
+            return;
+        }
+        let Some(picker) = self.image_picker.as_ref() else {
+            return;
+        };
+        let Ok(bytes) = read_cover(path) else {
+            return;
+        };
+        let Ok(image) = image::load_from_memory(&bytes) else {
+            return;
+        };
+        if self.tile_covers.len() >= TILE_COVER_CACHE {
+            if let Some(oldest) = self.tile_covers.keys().next().cloned() {
+                self.tile_covers.remove(&oldest);
+            }
+        }
+        self.tile_covers
+            .insert(path.to_path_buf(), picker.new_resize_protocol(image));
+    }
+
     fn invalidate_cover(&mut self) {
         self.cover = None;
         self.cover_path = None;
     }
 
     pub fn browse_previous(&mut self) {
-        self.browse_selection = self.browse_selection.saturating_sub(1);
+        let step = match self.browse_view {
+            BrowseView::Local => self.browse_columns.max(1),
+            _ => 1,
+        };
+        self.browse_selection = self.browse_selection.saturating_sub(step);
         self.select_browse_entry(self.browse_selection);
     }
 
     pub fn browse_next(&mut self) {
         let count = self.browse_item_count();
         if count > 0 {
-            self.browse_selection = (self.browse_selection + 1).min(count - 1);
+            let step = match self.browse_view {
+                BrowseView::Local => self.browse_columns.max(1),
+                _ => 1,
+            };
+            self.browse_selection = (self.browse_selection + step).min(count - 1);
             self.select_browse_entry(self.browse_selection);
+        }
+    }
+
+    pub fn browse_previous_column(&mut self) {
+        if self.browse_view == BrowseView::Local {
+            self.browse_selection = self.browse_selection.saturating_sub(1);
+            self.select_browse_entry(self.browse_selection);
+        }
+    }
+
+    pub fn browse_next_column(&mut self) {
+        if self.browse_view == BrowseView::Local {
+            let count = self.browse_item_count();
+            if count > 0 {
+                self.browse_selection = (self.browse_selection + 1).min(count - 1);
+                self.select_browse_entry(self.browse_selection);
+            }
         }
     }
 
@@ -478,16 +543,29 @@ impl AppState {
                 else {
                     return;
                 };
-                self.open_browse_series(&path);
+                self.browse_detail = Some(path);
+                self.browse_view = BrowseView::Details;
+            }
+            BrowseView::Details => {
+                if let Some(path) = self.browse_detail.clone() {
+                    self.open_browse_series(&path);
+                }
             }
         }
     }
 
     pub fn browse_parent(&mut self) {
-        if self.browse_view == BrowseView::Local {
-            self.browse_view = BrowseView::Sources;
-            self.browse_selection = 0;
-            self.select_browse_entry(0);
+        match self.browse_view {
+            BrowseView::Details => {
+                self.browse_view = BrowseView::Local;
+                self.clamp_browse_selection();
+            }
+            BrowseView::Local => {
+                self.browse_view = BrowseView::Sources;
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+            }
+            BrowseView::Sources => {}
         }
     }
 
@@ -503,6 +581,7 @@ impl AppState {
         match self.browse_view {
             BrowseView::Sources => 1,
             BrowseView::Local => self.library.series.len(),
+            BrowseView::Details => 0,
         }
     }
 
@@ -524,6 +603,14 @@ impl AppState {
         }
         let index = *self.browse_local_indices().get(self.browse_selection)?;
         self.library.series.get(index)
+    }
+
+    pub fn browse_detail_series(&self) -> Option<&Series> {
+        let path = self.browse_detail.as_deref()?;
+        self.library
+            .series
+            .iter()
+            .find(|series| series.path == path)
     }
 
     pub fn select_browse_index(&mut self, index: usize) {
@@ -575,8 +662,8 @@ impl AppState {
             self.tab = 0;
             self.view = LibraryView::Series;
             self.selected = position;
-            self.list_state.select(Some(position));
             self.status = None;
+            self.open();
         }
     }
 
@@ -768,7 +855,7 @@ impl AppState {
     pub fn previous(&mut self) {
         match self.view {
             LibraryView::Series => {
-                self.selected = self.selected.saturating_sub(1);
+                self.selected = self.selected.saturating_sub(self.library_columns.max(1));
                 self.status = None;
             }
             LibraryView::Chapters => {
@@ -789,7 +876,7 @@ impl AppState {
         match self.view {
             LibraryView::Series => {
                 if let Some(last) = self.visible_count().checked_sub(1) {
-                    self.selected = (self.selected + 1).min(last);
+                    self.selected = (self.selected + self.library_columns.max(1)).min(last);
                     self.status = None;
                 }
             }
@@ -805,6 +892,22 @@ impl AppState {
                 } else {
                     self.change_page(true);
                 }
+            }
+        }
+    }
+
+    pub fn previous_column(&mut self) {
+        if self.view == LibraryView::Series {
+            self.selected = self.selected.saturating_sub(1);
+            self.status = None;
+        }
+    }
+
+    pub fn next_column(&mut self) {
+        if self.view == LibraryView::Series {
+            if let Some(last) = self.visible_count().checked_sub(1) {
+                self.selected = (self.selected + 1).min(last);
+                self.status = None;
             }
         }
     }
@@ -2082,6 +2185,7 @@ impl AppState {
             Ok(library) => {
                 self.library = library;
                 self.invalidate_cover();
+                self.tile_covers.clear();
                 self.view = LibraryView::Series;
                 self.reader = None;
                 self.chapter_index = 0;
@@ -2117,15 +2221,12 @@ impl AppState {
     fn reset_selection(&mut self) {
         self.selected = 0;
         self.status = None;
-        let count = self.visible_count();
-        self.list_state.select((count > 0).then_some(0));
     }
 
     fn clamp_selection(&mut self) {
         let count = self.visible_count();
         if count == 0 {
             self.selected = 0;
-            self.list_state.select(None);
         } else {
             self.selected = self.selected.min(count - 1);
         }
@@ -2554,13 +2655,64 @@ mod tests {
         app.select_browse_index(position);
 
         app.browse_open();
+        assert_eq!(app.browse_view, BrowseView::Details);
+        assert_eq!(
+            app.browse_detail_series()
+                .map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
 
+        app.browse_open();
         assert_eq!(app.tab, 0);
-        assert_eq!(app.view, LibraryView::Series);
+        assert_eq!(app.view, LibraryView::Chapters);
         assert_eq!(
             app.selected_series().map(|series| series.title.as_str()),
             Some("Berserk")
         );
+    }
+
+    #[test]
+    fn library_grid_arrows_move_by_row_and_column() {
+        let mut library = library();
+        for index in 0..6 {
+            library
+                .series
+                .push(series(&format!("Series {index}"), &["Default"]));
+        }
+        let mut app = AppState::new(library, None);
+        app.library_columns = 3;
+
+        app.next();
+        assert_eq!(app.selected, 3);
+        app.next_column();
+        assert_eq!(app.selected, 4);
+        app.previous();
+        assert_eq!(app.selected, 1);
+        app.previous_column();
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn browse_local_grid_uses_grid_navigation() {
+        let mut library = library();
+        for index in 0..6 {
+            library
+                .series
+                .push(series(&format!("Series {index}"), &["Default"]));
+        }
+        let mut app = AppState::new(library, None);
+        app.tab = 3;
+        app.browse_view = BrowseView::Local;
+        app.browse_columns = 2;
+
+        app.browse_next();
+        assert_eq!(app.browse_selection, 2);
+        app.browse_next_column();
+        assert_eq!(app.browse_selection, 3);
+        app.browse_previous();
+        assert_eq!(app.browse_selection, 1);
+        app.browse_previous_column();
+        assert_eq!(app.browse_selection, 0);
     }
 
     #[test]
