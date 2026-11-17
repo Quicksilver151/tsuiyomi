@@ -30,4 +30,7 @@ pub enum CoreError {
 
     #[error("missing page {name} in {path}")]
     MissingPage { path: PathBuf, name: String },
+
+    #[error("cannot import {path}: {message}")]
+    Import { path: PathBuf, message: String },
 }

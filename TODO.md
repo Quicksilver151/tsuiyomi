@@ -86,6 +86,8 @@ XML/JSON leaves the series usable.
 - [x] Add a category tab row inside Library, navigated with `[` and `]`.
 - [x] Add mouse support: click tabs, click a series, scroll the list.
 - [x] Add TestBackend rendering tests for loaded and empty/error states.
+- [x] Browse local files and import folders or archives into the library (copy, atomic
+      staging, collision suffixes).
 
 **Done when:** the TUI is responsive while scanning and handles empty or broken libraries
 without panics.

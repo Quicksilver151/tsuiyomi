@@ -14,8 +14,10 @@ compiling, but do not extend it. It will be replaced by the manga library.
 
 ## Status
 
-Early prototype. No stable API, no stable config format, no release. Large refactors are
-expected and welcome when they move the project toward the architecture below.
+Local-library MVP: scanning, browsing/import, metadata, covers, reading, progress, and
+settings work. Remote sources, updates/history, and backups are not implemented. The API
+and config format are still unstable, and large refactors are welcome when they move the
+project toward the architecture below.
 
 ## Environment
 
@@ -157,6 +159,11 @@ Rules:
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
+- Browse is a local filesystem importer (`import.rs`): it starts at `$HOME`, lists
+  directories and supported archives, and copies selections into the library root
+  (`i`, or `Enter` on an archive). Imports are staged in a hidden directory and renamed
+  into place; existing sources are never moved or deleted. Remote sources and Mihon
+  extensions remain unsupported.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,

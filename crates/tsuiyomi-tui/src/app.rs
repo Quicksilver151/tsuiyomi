@@ -1,11 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crossterm::terminal;
 use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::{
-    chapter_pages, read_page, save_config, scan_library, Chapter, Config, Library, LibrarySort,
-    Page, ProgressStore, ReadingMode, Series, Theme,
+    browse_home, chapter_pages, import_series, list_directory, read_cover, read_page, save_config,
+    scan_library, BrowseEntry, BrowseKind, Chapter, Config, Library, LibrarySort, Page,
+    ProgressStore, ReadingMode, Series, Theme,
 };
 
 use crate::{
@@ -162,9 +163,10 @@ const TRACKING_ROWS: [MoreRow; 3] = [
     MoreRow::Note("This build manages a local Mihon library only."),
 ];
 
-const BROWSE_ROWS: [MoreRow; 4] = [
+const BROWSE_ROWS: [MoreRow; 5] = [
     MoreRow::Divider("Local source"),
     MoreRow::Setting(SettingId::LibraryPath),
+    MoreRow::Note("Import folders or archives from the Browse tab."),
     MoreRow::Note("Remote sources and Mihon extensions are not available."),
     MoreRow::Note("Browse reads the same local/ layout as Mihon."),
 ];
@@ -352,6 +354,12 @@ pub struct AppState {
     /// Scroll-mode zoom percentage. 100 = fit width without upscaling.
     pub zoom: u16,
     pub config: Config,
+    pub browse_dir: PathBuf,
+    pub browse_entries: Vec<BrowseEntry>,
+    pub browse_selection: usize,
+    pub browse_list_state: ListState,
+    pub browse_status: Option<String>,
+    pub browse_error: bool,
     pub more_section: MoreSection,
     pub more_focus: MoreFocus,
     pub settings_page: SettingsPage,
@@ -385,6 +393,12 @@ impl AppState {
             scroll_cache: ScrollCacheConfig::default(),
             zoom: 100,
             config: Config::default(),
+            browse_dir: PathBuf::new(),
+            browse_entries: Vec::new(),
+            browse_selection: 0,
+            browse_list_state: ListState::default(),
+            browse_status: None,
+            browse_error: false,
             more_section: MoreSection::Settings,
             more_focus: MoreFocus::Content,
             settings_page: SettingsPage::Main,
@@ -421,7 +435,7 @@ impl AppState {
         let Some(picker) = self.image_picker.as_ref() else {
             return;
         };
-        let Ok(bytes) = std::fs::read(&path) else {
+        let Ok(bytes) = read_cover(&path) else {
             return;
         };
         let Ok(image) = image::load_from_memory(&bytes) else {
@@ -433,6 +447,148 @@ impl AppState {
     fn invalidate_cover(&mut self) {
         self.cover = None;
         self.cover_path = None;
+    }
+
+    /// Re-read the current directory for the Browse tab.
+    pub fn refresh_browse(&mut self) {
+        if self.browse_dir.as_os_str().is_empty() {
+            self.browse_dir = browse_home();
+        }
+        match list_directory(&self.browse_dir) {
+            Ok(entries) => {
+                self.browse_entries = entries;
+                self.browse_selection = self
+                    .browse_selection
+                    .min(self.browse_entries.len().saturating_sub(1));
+                self.select_browse_entry(self.browse_selection);
+                self.browse_status = None;
+                self.browse_error = false;
+            }
+            Err(error) => {
+                self.browse_entries.clear();
+                self.browse_selection = 0;
+                self.browse_list_state.select(None);
+                self.browse_status = Some(error.to_string());
+                self.browse_error = true;
+            }
+        }
+    }
+
+    pub fn browse_previous(&mut self) {
+        self.browse_selection = self.browse_selection.saturating_sub(1);
+        self.select_browse_entry(self.browse_selection);
+    }
+
+    pub fn browse_next(&mut self) {
+        if !self.browse_entries.is_empty() {
+            self.browse_selection = (self.browse_selection + 1).min(self.browse_entries.len() - 1);
+            self.select_browse_entry(self.browse_selection);
+        }
+    }
+
+    pub fn browse_open(&mut self) {
+        let Some(entry) = self.browse_entries.get(self.browse_selection).cloned() else {
+            return;
+        };
+        match entry.kind {
+            BrowseKind::Parent | BrowseKind::Directory => {
+                self.browse_dir = entry.path;
+                self.browse_selection = 0;
+                self.refresh_browse();
+            }
+            BrowseKind::Archive => self.import_browse_selected(),
+        }
+    }
+
+    pub fn browse_parent(&mut self) {
+        let Some(parent) = self.browse_dir.parent().map(Path::to_path_buf) else {
+            return;
+        };
+        self.browse_dir = parent;
+        self.browse_selection = 0;
+        self.refresh_browse();
+    }
+
+    pub fn browse_home(&mut self) {
+        self.browse_dir = browse_home();
+        self.browse_selection = 0;
+        self.refresh_browse();
+    }
+
+    pub fn browse_library(&mut self) {
+        if self.library.root.as_os_str().is_empty() {
+            self.browse_status = Some("No library path configured.".to_owned());
+            self.browse_error = true;
+            return;
+        }
+        self.browse_dir = self.library.root.clone();
+        self.browse_selection = 0;
+        self.refresh_browse();
+    }
+
+    /// Import the highlighted folder or archive into the library.
+    pub fn import_browse_selected(&mut self) {
+        let Some(entry) = self.browse_entries.get(self.browse_selection).cloned() else {
+            return;
+        };
+        if entry.kind == BrowseKind::Parent {
+            return;
+        }
+        if self.library.root.as_os_str().is_empty() {
+            self.browse_status = Some("No library path configured.".to_owned());
+            self.browse_error = true;
+            return;
+        }
+
+        match import_series(&entry.path, &self.library.root) {
+            Ok(imported) => {
+                let title = imported.title.clone();
+                self.refresh();
+                let category = self
+                    .library
+                    .series
+                    .iter()
+                    .find(|series| series.path == imported.path)
+                    .and_then(|series| series.categories.first())
+                    .cloned();
+                if let Some(category) = category {
+                    if let Some(index) = self
+                        .library
+                        .categories
+                        .iter()
+                        .position(|name| name == &category)
+                    {
+                        self.category_index = index;
+                    }
+                }
+                if let Some(position) = self
+                    .visible_indices()
+                    .into_iter()
+                    .position(|index| self.library.series[index].path == imported.path)
+                {
+                    self.selected = position;
+                    self.list_state.select(Some(position));
+                }
+                self.browse_status = Some(format!("Imported {title}"));
+                self.browse_error = false;
+            }
+            Err(error) => {
+                self.browse_status = Some(error.to_string());
+                self.browse_error = true;
+            }
+        }
+    }
+
+    pub fn select_browse_index(&mut self, index: usize) {
+        if index < self.browse_entries.len() {
+            self.browse_selection = index;
+            self.select_browse_entry(index);
+        }
+    }
+
+    fn select_browse_entry(&mut self, index: usize) {
+        self.browse_list_state
+            .select((!self.browse_entries.is_empty()).then_some(index));
     }
 
     pub(crate) fn set_scroll_worker(&mut self, worker: ScrollWorker) {
@@ -1901,19 +2057,23 @@ impl AppState {
     }
 
     pub fn select_tab(&mut self, index: usize) {
-        self.tab = index.min(TAB_COUNT - 1);
+        let index = index.min(TAB_COUNT - 1);
+        if index == 3 && self.tab != 3 {
+            self.refresh_browse();
+        }
+        self.tab = index;
     }
 
     pub fn next_tab(&mut self) {
-        self.tab = (self.tab + 1) % TAB_COUNT;
+        self.select_tab((self.tab + 1) % TAB_COUNT);
     }
 
     pub fn previous_tab(&mut self) {
-        self.tab = if self.tab == 0 {
+        self.select_tab(if self.tab == 0 {
             TAB_COUNT - 1
         } else {
             self.tab - 1
-        };
+        });
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -2076,7 +2236,7 @@ fn terminal_width() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{fs, time::Duration};
 
     use ratatui_image::picker::Picker;
 
@@ -2368,6 +2528,93 @@ mod tests {
             palette::current().accent,
             palette::palette_for(Theme::TokyoNight).yellow
         );
+    }
+
+    #[test]
+    fn browse_lists_directories_then_supported_archives() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("Beta")).unwrap();
+        fs::create_dir(root.path().join("alpha")).unwrap();
+        fs::create_dir(root.path().join(".hidden")).unwrap();
+        fs::write(root.path().join("Chapter 1.cbz"), b"archive").unwrap();
+        fs::write(root.path().join("notes.txt"), b"notes").unwrap();
+
+        let mut app = AppState {
+            browse_dir: root.path().to_path_buf(),
+            ..AppState::default()
+        };
+        app.refresh_browse();
+
+        let names: Vec<&str> = app
+            .browse_entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(names, ["..", "alpha", "Beta", "Chapter 1.cbz"]);
+        assert_eq!(app.browse_entries[0].kind, BrowseKind::Parent);
+        assert_eq!(app.browse_entries.last().unwrap().kind, BrowseKind::Archive);
+    }
+
+    #[test]
+    fn browse_imports_a_folder_into_the_library() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source/My Series");
+        fs::create_dir_all(source.join("Chapter 1")).unwrap();
+        fs::write(source.join("Chapter 1/001.jpg"), b"page").unwrap();
+        let library_root = root.path().join("library");
+        let library = Library {
+            root: library_root.clone(),
+            categories: vec!["Default".to_owned()],
+            ..Library::default()
+        };
+        let mut app = AppState::new(library, None);
+        app.browse_dir = source.parent().unwrap().to_path_buf();
+        app.refresh_browse();
+        let index = app
+            .browse_entries
+            .iter()
+            .position(|entry| entry.name == "My Series")
+            .unwrap();
+        app.select_browse_index(index);
+
+        app.import_browse_selected();
+
+        assert!(!app.browse_error, "{:?}", app.browse_status);
+        assert_eq!(app.browse_status.as_deref(), Some("Imported My Series"));
+        assert_eq!(app.library.series.len(), 1);
+        assert_eq!(app.library.series[0].title, "My Series");
+        assert_eq!(
+            app.selected_series().map(|series| series.title.as_str()),
+            Some("My Series")
+        );
+        assert_eq!(
+            fs::read(library_root.join("My Series/Chapter 1/001.jpg")).unwrap(),
+            b"page"
+        );
+    }
+
+    #[test]
+    fn browse_open_enters_directories_and_parent_returns() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("Series")).unwrap();
+
+        let mut app = AppState {
+            browse_dir: root.path().to_path_buf(),
+            ..AppState::default()
+        };
+        app.refresh_browse();
+        let index = app
+            .browse_entries
+            .iter()
+            .position(|entry| entry.name == "Series")
+            .unwrap();
+        app.select_browse_index(index);
+
+        app.browse_open();
+        assert_eq!(app.browse_dir, root.path().join("Series"));
+
+        app.browse_parent();
+        assert_eq!(app.browse_dir, root.path());
     }
 
     #[test]

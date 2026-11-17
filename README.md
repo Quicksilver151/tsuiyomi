@@ -4,8 +4,9 @@ A terminal UI for managing and reading a **local manga library**, built for libr
 laid out in [Mihon](https://mihon.app/)'s Local source format. The same files work in
 both apps.
 
-> **Status:** early prototype, pre-release. The current code still reflects the original
-> anime-browsing prototype; the manga-first rewrite is in progress.
+> **Status:** MVP for local Mihon libraries — scanning, local import, metadata, covers,
+> reading, progress, and settings. Remote sources, updates/history, and backups are not
+> implemented yet.
 
 ## Goals
 
@@ -88,6 +89,23 @@ file in the library root until the database layer exists (see
 Series that are not listed in any category appear in the system `Default` category.
 Switch categories with `[` and `]`. `downloads/` and `extensions/` are never treated as
 library entries.
+
+## Browse and import
+
+The Browse tab is a local filesystem browser. It starts in `$HOME` and lists directories
+plus supported chapter archives.
+
+- `↑↓` moves through entries.
+- `Enter` opens a directory; on an archive it imports the archive as a one-chapter series.
+- `i` imports the selected folder or archive.
+- `h` jumps to the home directory, `l` to the library root.
+- `Esc` or `Backspace` goes to the parent directory.
+- `r` rereads the current directory.
+
+Imports copy into the library root; the source is left untouched. A folder becomes a
+series directory, while a single archive becomes a series directory containing that
+archive. Name collisions get a ` (2)`, ` (3)`, … suffix. Failed imports are cleaned up,
+and sources already inside the library are rejected.
 
 ## Metadata
 
@@ -190,6 +208,7 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
 - [x] Parse series and chapter `ComicInfo.xml`, with legacy `details.json`/`.desc`
       fallback.
 - [x] Detect `cover.*` images and show them in the details pane.
+- [x] Browse local files and import folders or archives into the library.
 - [x] Terminal reader using Kitty/Sixel/iTerm2 graphics with a halfblocks fallback.
 - [x] Page-turn and continuous vertical scroll modes (`m` toggles).
 - [x] Reader bottom bar: previous/next chapter, page gauge, and mode toggle; tabs hidden.

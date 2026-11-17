@@ -105,7 +105,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         match action {
             Action::Quit => return Ok(()),
             Action::Previous => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_previous();
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
                     } else {
@@ -116,7 +118,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Next => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_next();
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
                     } else {
@@ -127,7 +131,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::PreviousPage => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_parent();
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
                         app.adjust_setting(-1);
                     }
@@ -136,7 +142,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::NextPage => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_open();
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
                         app.adjust_setting(1);
                     }
@@ -149,7 +157,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::PreviousChapter => app.previous_chapter(),
             Action::NextChapter => app.next_chapter(),
             Action::ScrollUp => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_previous();
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
                     } else {
@@ -160,7 +170,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::ScrollDown => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_next();
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
                     } else {
@@ -187,9 +199,32 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::SelectTab(index) => app.select_tab(index),
-            Action::Refresh => app.refresh(),
+            Action::Refresh => {
+                if app.tab == 3 {
+                    app.refresh_browse();
+                } else {
+                    app.refresh();
+                }
+            }
+            Action::Import => {
+                if app.tab == 3 {
+                    app.import_browse_selected();
+                }
+            }
+            Action::BrowseHome => {
+                if app.tab == 3 {
+                    app.browse_home();
+                }
+            }
+            Action::BrowseLibrary => {
+                if app.tab == 3 {
+                    app.browse_library();
+                }
+            }
             Action::Open => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_open();
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.focus_more_content();
                     } else {
@@ -200,7 +235,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Back => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.browse_parent();
+                } else if app.tab == 4 {
                     app.leave_more();
                 } else {
                     app.back();
@@ -249,6 +286,11 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         return;
     }
 
+    if app.tab == 3 {
+        handle_browse_click(layout.content, app, column, row);
+        return;
+    }
+
     if app.tab == 4 {
         handle_more_click(layout.content, app, column, row);
         return;
@@ -274,6 +316,16 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         let visible_row = (row - list_area.y) as usize;
         let index = app.list_state.offset() + visible_row;
         app.select_index(index);
+    }
+}
+
+fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
+    let layout = library_layout(area);
+    let list = inner(layout.list);
+    if contains(list, column, row) {
+        let visible_row = (row - list.y) as usize;
+        let index = app.browse_list_state.offset() + visible_row;
+        app.select_browse_index(index);
     }
 }
 

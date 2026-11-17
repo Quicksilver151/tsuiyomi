@@ -10,8 +10,8 @@ use ratatui_image::{
     Resize, StatefulImage,
 };
 use tsuiyomi_core::{
-    Chapter, ChapterDate, ChapterKind, Library, LibrarySort, ProgressStore, ReadingMode, Series,
-    Theme,
+    BrowseKind, Chapter, ChapterDate, ChapterKind, Library, LibrarySort, ProgressStore,
+    ReadingMode, Series, Theme,
 };
 
 use crate::{
@@ -54,12 +54,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
             "History",
             "Reading history is not implemented yet.",
         ),
-        3 => placeholder(
-            frame,
-            layout.content,
-            "Browse",
-            "Browsing remote sources is not implemented yet.",
-        ),
+        3 => draw_browse(frame, layout.content, app),
         _ => draw_more(frame, layout.content, app),
     }
 
@@ -247,6 +242,16 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("Esc", "back"),
             ]
         }
+    } else if app.tab == 3 {
+        &[
+            ("q", "quit"),
+            ("↑↓", "move"),
+            ("↵", "open"),
+            ("i", "import"),
+            ("h", "home"),
+            ("l", "library"),
+            ("Esc", "up"),
+        ]
     } else if app.tab == 4 {
         if app.more_focus == MoreFocus::Sections {
             &[
@@ -383,6 +388,167 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     ));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let layout = library_layout(area);
+    draw_browse_path(frame, layout.categories, app);
+    draw_browse_list(frame, layout.list, app);
+    draw_browse_details(frame, layout.details, app);
+}
+
+fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
+    let line = Line::from(vec![
+        Span::styled(
+            " Browse ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(display_path(&app.browse_dir), Style::default().fg(c_text())),
+        Span::styled(
+            format!("  {} entries", app.browse_entries.len()),
+            Style::default().fg(c_overlay0()),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_browse_list(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let items: Vec<ListItem> = app
+        .browse_entries
+        .iter()
+        .map(|entry| {
+            let (prefix, style) = match entry.kind {
+                BrowseKind::Parent => ("↰ ", Style::default().fg(c_overlay1())),
+                BrowseKind::Directory => ("▸ ", Style::default().fg(c_text())),
+                BrowseKind::Archive => ("≡ ", Style::default().fg(c_blue())),
+            };
+            ListItem::new(format!("{prefix}{}", entry.name)).style(style)
+        })
+        .collect();
+
+    if app.browse_entries.is_empty() {
+        app.browse_list_state.select(None);
+    } else {
+        app.browse_list_state
+            .select(Some(app.browse_selection.min(app.browse_entries.len() - 1)));
+    }
+
+    let list = List::new(items)
+        .block(panel(
+            Line::from(Span::styled(
+                " Files ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            )),
+            c_accent(),
+        ))
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, area, &mut app.browse_list_state);
+}
+
+fn draw_browse_details(frame: &mut Frame, area: Rect, app: &AppState) {
+    let mut lines = Vec::new();
+    if let Some(entry) = app.browse_entries.get(app.browse_selection) {
+        lines.push(Line::from(Span::styled(
+            entry.name.clone(),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+        let kind = match entry.kind {
+            BrowseKind::Parent => "Parent directory",
+            BrowseKind::Directory => "Series folder",
+            BrowseKind::Archive => "Chapter archive",
+        };
+        lines.push(field("Type", kind, c_blue()));
+        if let Some(size) = entry.size {
+            lines.push(field("Size", &format_size(size), c_green()));
+        }
+        lines.push(field(
+            "Path",
+            &entry.path.display().to_string(),
+            c_overlay1(),
+        ));
+
+        if entry.kind != BrowseKind::Parent {
+            if app.library.root.as_os_str().is_empty() {
+                lines.push(field("Library", "not configured", c_peach()));
+            } else {
+                let title = if entry.kind == BrowseKind::Archive {
+                    entry
+                        .path
+                        .file_stem()
+                        .map(|stem| stem.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| entry.name.clone())
+                } else {
+                    entry.name.clone()
+                };
+                lines.push(field(
+                    "Import",
+                    &display_path(&app.library.root.join(title)),
+                    c_teal(),
+                ));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                if entry.kind == BrowseKind::Archive {
+                    "Enter or i imports this archive."
+                } else {
+                    "Enter opens · i imports this folder."
+                },
+                Style::default().fg(c_overlay0()),
+            )));
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            "This directory is empty.",
+            Style::default().fg(c_overlay1()),
+        )));
+    }
+
+    if let Some(status) = &app.browse_status {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            status.clone(),
+            Style::default().fg(if app.browse_error {
+                c_peach()
+            } else {
+                c_green()
+            }),
+        )));
+    }
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(panel(
+            Line::from(Span::styled(
+                " Details ",
+                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
+            )),
+            c_surface1(),
+        ))
+        .style(Style::default().fg(c_subtext1()))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, area);
+}
+
+fn format_size(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let bytes = bytes as f64;
+    if bytes >= GIB {
+        format!("{:.1} GiB", bytes / GIB)
+    } else if bytes >= MIB {
+        format!("{:.1} MiB", bytes / MIB)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB", bytes / KIB)
+    } else {
+        format!("{bytes:.0} B")
+    }
 }
 
 fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -1317,6 +1483,11 @@ fn draw_more_help(frame: &mut Frame, area: Rect, app: &AppState) {
             "←→ page · Space screen · +/- zoom · m mode",
             c_green(),
         ),
+        field(
+            "Browse",
+            "Enter open · i import · h home · l library",
+            c_green(),
+        ),
         field("Display", "f fullscreen · r rescan · c More", c_green()),
     ];
     let paragraph = Paragraph::new(Text::from(lines))
@@ -1655,6 +1826,32 @@ mod tests {
         assert!(text.contains("next"));
         assert!(text.contains("Esc back"));
         assert!(!text.contains("Browse"));
+    }
+
+    #[test]
+    fn browse_view_renders_files_and_import_hint() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("My Series")).unwrap();
+        std::fs::write(root.path().join("Chapter 1.cbz"), b"archive").unwrap();
+
+        let mut app = test_app();
+        app.tab = 3;
+        app.browse_dir = root.path().to_path_buf();
+        app.refresh_browse();
+        let index = app
+            .browse_entries
+            .iter()
+            .position(|entry| entry.name == "My Series")
+            .unwrap();
+        app.select_browse_index(index);
+
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Browse"));
+        assert!(text.contains("Files"));
+        assert!(text.contains("My Series"));
+        assert!(text.contains("Chapter 1.cbz"));
+        assert!(text.contains("Series folder"));
+        assert!(text.contains("imports this folder"));
     }
 
     #[test]

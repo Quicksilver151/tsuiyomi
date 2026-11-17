@@ -159,6 +159,14 @@ fn apply_categories(library: &mut Library) {
     library.categories = categories;
 }
 
+/// Read a series cover image. Kept in core so frontends never touch the filesystem.
+pub fn read_cover(path: &Path) -> Result<Vec<u8>, CoreError> {
+    fs::read(path).map_err(|source| CoreError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
 /// Scan every series directory under `root`.
 ///
 /// A missing root produces an empty library instead of an error. Per-series problems are
