@@ -22,6 +22,7 @@ expected and welcome when they move the project toward the architecture below.
 - Target system is **NixOS** with flakes enabled. The devshell pins nixpkgs
   `nixos-unstable` through `flake.lock`.
 - The devshell is defined in `flake.nix`, entered via `direnv allow` or `nix develop`.
+  It includes `gcc` because `unrar_sys` compiles bundled UnRAR C++ sources.
 - Machine-local env vars live in `.env.local` (gitignored, copied from
   `.env.local.example`). `TSUIYOMI_LIBRARY` overrides the library root and `TSUIYOMI_LOG`
   sets the log level. Without an override the root defaults to
@@ -69,8 +70,8 @@ Rules (verified against upstream Mihon, 2026):
 - A **series** is one direct subdirectory of `local/`. Hidden entries (`.nomedia`,
   `.noxml`, `.DS_Store`, ...) are ignored.
 - A **chapter** is a subdirectory or a supported archive directly inside the series
-  directory: `.zip`/`.cbz`, `.rar`/`.cbr`, `.epub`. One directory or archive is one
-  chapter; subdirectories inside archives are ignored.
+  directory: `.zip`/`.cbz`, `.rar`/`.cbr`, `.7z`/`.cb7`, `.tar`/`.cbt`, `.epub`. One
+  directory or archive is one chapter; subdirectories inside archives are ignored.
 - Chapter title = directory name or archive file stem. Chapter numbers are parsed from
   that name using Mihon's `ChapterRecognition` semantics (numbers, `v2`, `c001`, ranges,
   specials, etc.).
@@ -132,9 +133,11 @@ Rules:
 ## Current gaps
 
 - Reader renders pages with `ratatui-image`: it auto-detects Kitty/Sixel/iTerm2 and falls
-  back to Unicode halfblocks. `rar`/`cbr` and `epub` pages are not supported yet
-  (`zip`/`cbz` and folders are). `m` toggles page-turn vs continuous scroll
-  (`SlicedProtocol`); left/right align page tops, space/page keys scroll a screen, and
+  back to Unicode halfblocks. Folders, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, `tar`/`cbt`,
+  and image-based `epub` chapters are supported. EPUB follows Mihon: spine XHTML pages are
+  scanned for `<img>`/`<image>` targets only; prose is not rendered. `m` toggles page-turn
+  vs continuous scroll (`SlicedProtocol`); left/right align page tops, space/page keys
+  scroll a screen, and
   `+`/`-` adjust zoom (no upscaling at 100%). Scroll mode reads page dimensions once,
   lazily decodes only visible/nearby pages, caches their protocols, and uses Kitty shared
   memory when available. Page decode/resize/encode runs on a background worker; the UI
@@ -143,11 +146,13 @@ Rules:
   expose it in config/settings later. Progress is stored in
   `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction, fit modes, and
   retransmit-free Kitty placement zoom are not implemented yet.
-- `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapter directories and
-  `zip`/`cbz` archives (RAR/EPUB metadata is not parsed). Series precedence is
-  `ComicInfo.xml` > `details.json` > directory name; malformed XML becomes a warning and
-  falls back to `details.json`. `cover.*` images are detected and rendered in the details
-  pane; cover fallback from the first chapter page is not implemented.
+- `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
+  directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
+  chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
+  Mihon. Series precedence is `ComicInfo.xml` > `details.json` > directory name;
+  malformed XML becomes a warning and falls back to `details.json`. `cover.*` images are
+  detected and rendered in the details pane; cover fallback from the first chapter page
+  is not implemented.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.

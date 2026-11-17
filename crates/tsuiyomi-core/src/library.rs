@@ -1,16 +1,16 @@
 use std::{
     cmp::Ordering,
-    fs,
-    io::{self, Read},
+    fs, io,
     path::{Path, PathBuf},
 };
 
 use serde::Deserialize;
-use zip::ZipArchive;
 
 use crate::{
+    archive,
     chapter::{natural_cmp, parse_chapter_number},
     comic_info::{parse_comic_info, ChapterDate, ComicInfo},
+    epub,
     error::CoreError,
 };
 
@@ -61,6 +61,8 @@ pub enum ChapterKind {
     Directory,
     Zip,
     Rar,
+    SevenZip,
+    Tar,
     Epub,
 }
 
@@ -385,8 +387,10 @@ fn read_chapter_comic_info(
 ) -> Option<ComicInfo> {
     match kind {
         ChapterKind::Directory => read_comic_info_file(&path.join("ComicInfo.xml"), warnings),
-        ChapterKind::Zip => read_zip_comic_info(path, warnings),
-        ChapterKind::Rar | ChapterKind::Epub => None,
+        ChapterKind::Epub => epub::chapter_metadata(path, warnings),
+        ChapterKind::Zip | ChapterKind::Rar | ChapterKind::SevenZip | ChapterKind::Tar => {
+            read_archived_comic_info(path, kind, warnings)
+        }
     }
 }
 
@@ -401,44 +405,34 @@ fn read_comic_info_file(path: &Path, warnings: &mut Vec<String>) -> Option<Comic
     }
 }
 
-fn read_zip_comic_info(path: &Path, warnings: &mut Vec<String>) -> Option<ComicInfo> {
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
+fn read_archived_comic_info(
+    path: &Path,
+    kind: ChapterKind,
+    warnings: &mut Vec<String>,
+) -> Option<ComicInfo> {
+    let name = match archive::find_root_entry(path, kind, "ComicInfo.xml") {
+        Ok(Some(name)) => name,
+        Ok(None) => return None,
         Err(error) => {
             warnings.push(format!("{}: {error}", file_name(path)));
             return None;
         }
     };
-    let mut archive = match ZipArchive::new(file) {
-        Ok(archive) => archive,
+    let data = match archive::read_entry_optional(path, kind, &name) {
+        Ok(Some(data)) => data,
+        Ok(None) => return None,
         Err(error) => {
             warnings.push(format!("{}: {error}", file_name(path)));
             return None;
         }
     };
-
-    let entry_name = archive
-        .file_names()
-        .filter_map(Result::ok)
-        .find(|name| {
-            !name.contains('/')
-                && !name.contains('\\')
-                && name.eq_ignore_ascii_case("ComicInfo.xml")
-        })
-        .map(|name| name.into_owned())?;
-    let mut entry = match archive.by_name(&entry_name) {
-        Ok(entry) => entry,
+    let text = match String::from_utf8(data) {
+        Ok(text) => text,
         Err(error) => {
             warnings.push(format!("{}: {error}", file_name(path)));
             return None;
         }
     };
-    let mut text = String::new();
-    if let Err(error) = entry.read_to_string(&mut text) {
-        warnings.push(format!("{}: {error}", file_name(path)));
-        return None;
-    }
-
     match parse_comic_info(&text) {
         Ok(info) => Some(info),
         Err(error) => {
@@ -461,6 +455,8 @@ fn archive_kind(path: &Path) -> Option<ChapterKind> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "zip" | "cbz" => Some(ChapterKind::Zip),
         "rar" | "cbr" => Some(ChapterKind::Rar),
+        "7z" | "cb7" => Some(ChapterKind::SevenZip),
+        "tar" | "cbt" => Some(ChapterKind::Tar),
         "epub" => Some(ChapterKind::Epub),
         _ => None,
     }
@@ -760,6 +756,83 @@ mod tests {
         assert_eq!(chapter.title, "Archive Title");
         assert_eq!(chapter.number, Some(3.0));
         assert_eq!(chapter.scanlator.as_deref(), Some("Archive Group"));
+    }
+
+    #[test]
+    fn reads_chapter_metadata_from_seven_zip() {
+        let root = tempdir().unwrap();
+        let series = root.path().join("Series");
+        fs::create_dir_all(&series).unwrap();
+        let chapter_path = series.join("Chapter 4.cb7");
+        let mut writer = sevenz_rust2::ArchiveWriter::create(&chapter_path).unwrap();
+        writer
+            .push_archive_entry(
+                sevenz_rust2::ArchiveEntry::new_file("ComicInfo.xml"),
+                Some(
+                    b"<ComicInfo><Title>7z Title</Title><Number>4</Number></ComicInfo>".as_slice(),
+                ),
+            )
+            .unwrap();
+        writer
+            .push_archive_entry(
+                sevenz_rust2::ArchiveEntry::new_file("001.jpg"),
+                Some(b"page".as_slice()),
+            )
+            .unwrap();
+        writer.finish().unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let chapter = &library.series[0].chapters[0];
+
+        assert_eq!(chapter.title, "7z Title");
+        assert_eq!(chapter.number, Some(4.0));
+    }
+
+    #[test]
+    fn reads_chapter_metadata_from_epub() {
+        use std::io::Write;
+
+        use zip::{write::SimpleFileOptions, ZipWriter};
+
+        let root = tempdir().unwrap();
+        let series = root.path().join("Series");
+        fs::create_dir_all(&series).unwrap();
+        let chapter_path = series.join("Chapter 1.epub");
+        let file = fs::File::create(&chapter_path).unwrap();
+        let mut writer = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer
+            .start_file("META-INF/container.xml", options)
+            .unwrap();
+        writer
+            .write_all(
+                b"<container><rootfiles><rootfile full-path=\"content.opf\"/></rootfiles></container>",
+            )
+            .unwrap();
+        writer.start_file("content.opf", options).unwrap();
+        writer
+            .write_all(
+                b"<package><metadata><dc:title>EPUB Chapter</dc:title>\
+                  <dc:creator>Writer</dc:creator><dc:publisher>Publisher</dc:publisher>\
+                  <dc:date>2025-06-07T00:00:00Z</dc:date></metadata>\
+                  <manifest/><spine/></package>",
+            )
+            .unwrap();
+        writer.finish().unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+        let chapter = &library.series[0].chapters[0];
+
+        assert_eq!(chapter.title, "EPUB Chapter");
+        assert_eq!(chapter.scanlator.as_deref(), Some("Publisher"));
+        assert_eq!(
+            chapter.date,
+            Some(ChapterDate {
+                year: 2025,
+                month: 6,
+                day: 7
+            })
+        );
     }
 
     #[test]

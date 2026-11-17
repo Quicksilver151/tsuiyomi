@@ -18,6 +18,8 @@
             packages = with pkgs; [
               cargo
               rustc
+              # unrar_sys compiles the bundled UnRAR C++ sources.
+              gcc
               rustfmt
               clippy
               rust-analyzer

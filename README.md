@@ -10,7 +10,8 @@ both apps.
 ## Goals
 
 - Browse a local manga library from the terminal.
-- Read chapters (directories and `cbz`/`zip`/`cbr`/`rar`/`epub` archives).
+- Read chapters from directories and `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, `tar`/`cbt`,
+  and image-based EPUB archives.
 - Understand Mihon metadata: `ComicInfo.xml`, legacy `details.json`, `cover.jpg`, and
   chapter numbering parsed from folder/file names.
 - Import and export Mihon backups (`.tachibk` / `.proto.gz`).
@@ -93,10 +94,11 @@ library entries.
 Series metadata follows Mihon: `ComicInfo.xml` wins, then legacy `details.json`, then the
 directory name. The parser reads series title, writer, artist credits, summary, genre,
 tags, categories, and publishing status. Chapter-level `ComicInfo.xml` is read from
-chapter directories and `zip`/`cbz` archives and can override title, number, scanlator,
-and date. Malformed XML becomes a metadata warning and falls back to `details.json`
-without hiding the series. RAR/EPUB reader support is still pending, so their embedded
-metadata is not parsed yet.
+chapter directories and `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives and
+can override title, number, scanlator, and date. EPUB chapters use OPF metadata
+(`dc:title`, publisher/creator, date) and their spine XHTML pages are scanned for images.
+Prose EPUBs are not rendered yet. Malformed metadata becomes a warning and falls back
+without hiding the series.
 
 A custom cover is any `cover.*` image in the series directory (`cover.jpg` is the usual
 name). It is shown beside the details pane when the terminal is wide enough.
@@ -180,7 +182,8 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
 
 - [x] Split the backend into a UI-agnostic core crate and a TUI crate.
 - [x] Scan a Mihon `local/` library and list chapters.
-- [x] Discover chapter pages in folders and `cbz`/`zip` archives.
+- [x] Discover chapter pages in folders and `cbz`/`zip`, `cbr`/`rar`, `cb7`/`7z`,
+      `cbt`/`tar`, and comic EPUB archives.
 - [x] Parse series and chapter `ComicInfo.xml`, with legacy `details.json`/`.desc`
       fallback.
 - [x] Detect `cover.*` images and show them in the details pane.

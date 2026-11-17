@@ -25,9 +25,6 @@ pub enum CoreError {
         source: serde_json::Error,
     },
 
-    #[error("unsupported archive format: {path}")]
-    UnsupportedArchive { path: PathBuf },
-
     #[error("failed to read archive {path}: {message}")]
     Archive { path: PathBuf, message: String },
 

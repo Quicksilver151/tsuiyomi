@@ -41,12 +41,15 @@ dependency, and no `anime` identifiers remain.
 - [ ] Add `SeriesId`/`ChapterId` when the reader lands.
 - [x] Scan `local/`: one series per direct subdirectory, skip hidden entries, sort
       case-insensitively and naturally.
-- [x] Discover chapters: subdirectories plus `.zip`/`.cbz`/`.rar`/`.cbr`/`.epub`.
+- [x] Discover chapters: subdirectories plus `.zip`/`.cbz`, `.rar`/`.cbr`, `.7z`/`.cb7`,
+      `.tar`/`.cbt`, and `.epub`.
 - [x] Derive chapter titles from directory names or archive stems.
 - [x] Parse chapter numbers from names (numbers, `c001`, `v2`, decimals, ranges,
       specials). Put this in its own module with heavy tests.
 - [x] Discover pages in a directory (image extensions, natural sort).
-- [x] List pages inside `zip`/`cbz` archives (ignore archive-internal directories).
+- [x] List pages inside `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives
+      (ignore archive-internal directories).
+- [x] Extract image pages from EPUB spine XHTML (Mihon-style; prose is not rendered).
 - [x] Collect per-series errors instead of failing the whole scan.
 - [x] Add fixture-based tests using `tempfile`.
 
@@ -58,8 +61,9 @@ and page order, and a broken folder does not abort the scan.
 - [x] Parse legacy `details.json` (`title`, `author`, `artist`, `description`, `genre`,
       `status`).
 - [x] Parse series-level `ComicInfo.xml` with `quick-xml`.
-- [x] Parse chapter-level `ComicInfo.xml` from folders and `zip`/`cbz` archives (title,
-      number, scanlator, date). RAR/EPUB chapter metadata is not parsed.
+- [x] Parse chapter-level `ComicInfo.xml` from folders and `zip`/`cbz`, `rar`/`cbr`,
+      `7z`/`cb7`, and `tar`/`cbt` archives (title, number, scanlator, date).
+- [x] Read EPUB chapter metadata from the OPF and extract spine images.
 - [x] Implement precedence: `ComicInfo.xml` > `details.json` > directory name.
 - [x] Detect `cover.*`; expose the path and render it in the TUI details pane.
 - [x] Treat malformed metadata as a warning attached to the series, not a failure.
@@ -171,7 +175,7 @@ Add these only in the phase that needs them:
 | Phase | Crate |
 | --- | --- |
 | 1 | `thiserror` (core errors) |
-| 2 | `natord` or `alphanumeric-sort`, `walkdir`, `zip` |
+| 2 | `natord` or `alphanumeric-sort`, `walkdir`, `zip`, `unrar`, `sevenz-rust2`, `tar` |
 | 3 | `quick-xml`, `serde_json` |
 | 5 | `ratatui-image`, `image` |
 | 6 | `directories`, `clap`, `toml` |

@@ -1,13 +1,12 @@
 use std::{
     fs,
-    io::Read,
     path::{Path, PathBuf},
 };
 
-use zip::ZipArchive;
-
 use crate::{
+    archive,
     chapter::natural_cmp,
+    epub,
     error::CoreError,
     library::{Chapter, ChapterKind},
 };
@@ -23,17 +22,21 @@ pub struct Page {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PageSource {
     File(PathBuf),
-    Archive { path: PathBuf, name: String },
+    Archive {
+        path: PathBuf,
+        name: String,
+        kind: ChapterKind,
+    },
 }
 
 /// List the pages of a chapter in natural reading order.
 pub fn chapter_pages(chapter: &Chapter) -> Result<Vec<Page>, CoreError> {
     match chapter.kind {
         ChapterKind::Directory => pages_in_directory(&chapter.path),
-        ChapterKind::Zip => pages_in_zip(&chapter.path),
-        ChapterKind::Rar | ChapterKind::Epub => Err(CoreError::UnsupportedArchive {
-            path: chapter.path.clone(),
-        }),
+        ChapterKind::Epub => pages_in_epub(&chapter.path),
+        ChapterKind::Zip | ChapterKind::Rar | ChapterKind::SevenZip | ChapterKind::Tar => {
+            pages_in_archive(&chapter.path, chapter.kind)
+        }
     }
 }
 
@@ -44,7 +47,7 @@ pub fn read_page(page: &Page) -> Result<Vec<u8>, CoreError> {
             path: path.clone(),
             source,
         }),
-        PageSource::Archive { path, name } => read_zip_entry(path, name),
+        PageSource::Archive { path, name, kind } => archive::read_entry(path, *kind, name),
     }
 }
 
@@ -83,72 +86,37 @@ fn pages_in_directory(path: &Path) -> Result<Vec<Page>, CoreError> {
     Ok(pages)
 }
 
-fn pages_in_zip(path: &Path) -> Result<Vec<Page>, CoreError> {
-    let file = fs::File::open(path).map_err(|source| CoreError::ReadFile {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut archive = ZipArchive::new(file).map_err(|error| CoreError::Archive {
-        path: path.to_path_buf(),
-        message: error.to_string(),
-    })?;
-
-    let mut pages = Vec::new();
-    for index in 0..archive.len() {
-        let entry = archive
-            .by_index(index)
-            .map_err(|error| CoreError::Archive {
-                path: path.to_path_buf(),
-                message: error.to_string(),
-            })?;
-        if entry.is_dir() {
-            continue;
-        }
-        let name = entry
-            .name()
-            .map_err(|error| CoreError::Archive {
-                path: path.to_path_buf(),
-                message: error.to_string(),
-            })?
-            .into_owned();
-        if name.starts_with('.') || !is_image_name(&name) {
-            continue;
-        }
-        pages.push(Page {
-            name: name.clone(),
+fn pages_in_archive(path: &Path, kind: ChapterKind) -> Result<Vec<Page>, CoreError> {
+    let mut names: Vec<String> = archive::list_entries(path, kind)?
+        .into_iter()
+        .filter(|name| !name.starts_with('.') && is_image_name(name))
+        .collect();
+    names.sort_by(|left, right| natural_cmp(left, right));
+    Ok(names
+        .into_iter()
+        .map(|name| Page {
             source: PageSource::Archive {
                 path: path.to_path_buf(),
-                name,
+                name: name.clone(),
+                kind,
             },
-        });
-    }
-
-    pages.sort_by(|left, right| natural_cmp(&left.name, &right.name));
-    Ok(pages)
+            name,
+        })
+        .collect())
 }
 
-fn read_zip_entry(path: &Path, name: &str) -> Result<Vec<u8>, CoreError> {
-    let file = fs::File::open(path).map_err(|source| CoreError::ReadFile {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut archive = ZipArchive::new(file).map_err(|error| CoreError::Archive {
-        path: path.to_path_buf(),
-        message: error.to_string(),
-    })?;
-    let mut entry = archive.by_name(name).map_err(|_| CoreError::MissingPage {
-        path: path.to_path_buf(),
-        name: name.to_owned(),
-    })?;
-
-    let mut data = Vec::new();
-    entry
-        .read_to_end(&mut data)
-        .map_err(|source| CoreError::ReadFile {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    Ok(data)
+fn pages_in_epub(path: &Path) -> Result<Vec<Page>, CoreError> {
+    Ok(epub::image_pages(path)?
+        .into_iter()
+        .map(|name| Page {
+            source: PageSource::Archive {
+                path: path.to_path_buf(),
+                name: name.clone(),
+                kind: ChapterKind::Epub,
+            },
+            name,
+        })
+        .collect())
 }
 
 fn is_image(path: &Path) -> bool {
@@ -231,9 +199,123 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_archives_return_an_error() {
+    fn lists_tar_pages() {
         let root = tempdir().unwrap();
-        let result = chapter_pages(&chapter(root.path().join("x.epub"), ChapterKind::Epub));
-        assert!(matches!(result, Err(CoreError::UnsupportedArchive { .. })));
+        let path = root.path().join("Chapter 1.cbt");
+        let file = fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(file);
+        for (name, data) in [
+            ("002.jpg", b"page two".as_slice()),
+            ("001.jpg", b"page one"),
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, name, data).unwrap();
+        }
+        builder.finish().unwrap();
+
+        let pages = chapter_pages(&chapter(path.clone(), ChapterKind::Tar)).unwrap();
+        let names: Vec<&str> = pages.iter().map(|page| page.name.as_str()).collect();
+
+        assert_eq!(names, ["001.jpg", "002.jpg"]);
+        assert_eq!(read_page(&pages[1]).unwrap(), b"page two");
+    }
+
+    #[test]
+    fn lists_seven_zip_pages() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("Chapter 1.cb7");
+        let mut writer = sevenz_rust2::ArchiveWriter::create(&path).unwrap();
+        for (name, data) in [
+            ("002.jpg", b"page two".as_slice()),
+            ("001.jpg", b"page one"),
+        ] {
+            writer
+                .push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(data))
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let pages = chapter_pages(&chapter(path.clone(), ChapterKind::SevenZip)).unwrap();
+        let names: Vec<&str> = pages.iter().map(|page| page.name.as_str()).collect();
+
+        assert_eq!(names, ["001.jpg", "002.jpg"]);
+        assert_eq!(read_page(&pages[1]).unwrap(), b"page two");
+    }
+
+    fn write_epub(path: &Path) {
+        let file = fs::File::create(path).unwrap();
+        let mut writer = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        let entries = [
+            (
+                "META-INF/container.xml",
+                r#"<?xml version="1.0"?>
+<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"#,
+            ),
+            (
+                "OEBPS/content.opf",
+                r#"<?xml version="1.0"?>
+<package>
+  <metadata>
+    <dc:title>Epub Chapter</dc:title>
+    <dc:creator>Creator Name</dc:creator>
+    <dc:publisher>Publisher Name</dc:publisher>
+    <dc:date>2024-01-02T03:04:05Z</dc:date>
+  </metadata>
+  <manifest>
+    <item id="p1" href="Text/page1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="p2" href="Text/page2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="p1"/><itemref idref="p2"/></spine>
+</package>"#,
+            ),
+            (
+                "OEBPS/Text/page1.xhtml",
+                r#"<html xmlns:xlink="http://www.w3.org/1999/xlink"><body>
+                    <img src="../Images/Page%201.jpg"/>
+                    <image xlink:href="../Images/two.png"/>
+                </body></html>"#,
+            ),
+            (
+                "OEBPS/Text/page2.xhtml",
+                r#"<html><body><img src="../Images/three.jpg"/></body></html>"#,
+            ),
+        ];
+        for (name, data) in entries {
+            writer.start_file(name, options).unwrap();
+            writer.write_all(data.as_bytes()).unwrap();
+        }
+        for (name, data) in [
+            ("OEBPS/Images/Page 1.jpg", b"page one".as_slice()),
+            ("OEBPS/Images/two.png", b"page two"),
+            ("OEBPS/Images/three.jpg", b"page three"),
+        ] {
+            writer.start_file(name, options).unwrap();
+            writer.write_all(data).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn reads_epub_spine_images_in_order() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("Chapter 1.epub");
+        write_epub(&path);
+
+        let pages = chapter_pages(&chapter(path.clone(), ChapterKind::Epub)).unwrap();
+        let names: Vec<&str> = pages.iter().map(|page| page.name.as_str()).collect();
+
+        assert_eq!(
+            names,
+            [
+                "OEBPS/Images/Page 1.jpg",
+                "OEBPS/Images/two.png",
+                "OEBPS/Images/three.jpg"
+            ]
+        );
+        assert_eq!(read_page(&pages[0]).unwrap(), b"page one");
     }
 }

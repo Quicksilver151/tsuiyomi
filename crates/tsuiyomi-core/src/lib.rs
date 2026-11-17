@@ -3,9 +3,11 @@
 //! Everything that touches the filesystem, Mihon metadata, or backups lives here. The
 //! TUI (and any future frontend) should only consume the plain data types in this crate.
 
+mod archive;
 pub mod chapter;
 pub mod comic_info;
 pub mod config;
+mod epub;
 pub mod error;
 pub mod library;
 pub mod pages;

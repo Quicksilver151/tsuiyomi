@@ -581,6 +581,8 @@ fn chapter_kind_label(kind: ChapterKind) -> &'static str {
         ChapterKind::Directory => "Folder",
         ChapterKind::Zip => "CBZ/ZIP",
         ChapterKind::Rar => "RAR/CBR",
+        ChapterKind::SevenZip => "CB7/7Z",
+        ChapterKind::Tar => "CBT/TAR",
         ChapterKind::Epub => "EPUB",
     }
 }

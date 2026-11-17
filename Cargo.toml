@@ -25,9 +25,12 @@ ratatui = { version = "0.30.2", features = ["crossterm"] }
 ratatui-image = { version = "12.0.0-rc.3", default-features = false, features = ["crossterm"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sevenz-rust2 = "0.20.2"
+tar = "0.4.46"
 tempfile = "3.16.0"
 thiserror = "2.0.21"
 toml = "0.9.0"
+unrar = "0.5.8"
 zip = { version = "9.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [profile.release]
