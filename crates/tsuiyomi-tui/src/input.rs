@@ -29,9 +29,6 @@ pub enum Action {
     Redraw,
     ScrollUp,
     ScrollDown,
-    Import,
-    BrowseHome,
-    BrowseLibrary,
     Char(char),
     Backspace,
     Click { column: u16, row: u16 },
@@ -75,9 +72,6 @@ fn key_action(code: KeyCode, text_mode: bool) -> Option<Action> {
         KeyCode::Char('+' | '=') => Action::ZoomIn,
         KeyCode::Char('-' | '_') => Action::ZoomOut,
         KeyCode::Char('r') => Action::Refresh,
-        KeyCode::Char('i') => Action::Import,
-        KeyCode::Char('h') => Action::BrowseHome,
-        KeyCode::Char('l') => Action::BrowseLibrary,
         KeyCode::Char('[') => Action::PreviousCategory,
         KeyCode::Char(']') => Action::NextCategory,
         KeyCode::Char('n') => Action::NextChapter,
@@ -166,19 +160,6 @@ mod tests {
         assert_eq!(key_action(KeyCode::Enter, false), Some(Action::Open));
         assert_eq!(key_action(KeyCode::Esc, false), Some(Action::Back));
         assert_eq!(key_action(KeyCode::Backspace, false), Some(Action::Back));
-    }
-
-    #[test]
-    fn browse_keys() {
-        assert_eq!(key_action(KeyCode::Char('i'), false), Some(Action::Import));
-        assert_eq!(
-            key_action(KeyCode::Char('h'), false),
-            Some(Action::BrowseHome)
-        );
-        assert_eq!(
-            key_action(KeyCode::Char('l'), false),
-            Some(Action::BrowseLibrary)
-        );
     }
 
     #[test]

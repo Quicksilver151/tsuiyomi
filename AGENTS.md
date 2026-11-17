@@ -159,11 +159,11 @@ Rules:
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
-- Browse is a local filesystem importer (`import.rs`): it starts at `$HOME`, lists
-  directories and supported archives, and copies selections into the library root
-  (`i`, or `Enter` on an archive). Imports are staged in a hidden directory and renamed
-  into place; existing sources are never moved or deleted. Remote sources and Mihon
-  extensions remain unsupported.
+- Browse follows Mihon's source model: it lists sources, currently only the built-in
+  Local source. Opening it lists the series directories under the library root (the same
+  local/ source Mihon sees), and Enter opens the selected series in Library. There is no
+  filesystem import browser; users place folders in local/ and rescan. Remote sources and
+  Mihon extensions remain unsupported.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,

@@ -10,14 +10,14 @@ use ratatui_image::{
     Resize, StatefulImage,
 };
 use tsuiyomi_core::{
-    BrowseKind, Chapter, ChapterDate, ChapterKind, Library, LibrarySort, ProgressStore,
-    ReadingMode, Series, Theme,
+    Chapter, ChapterDate, ChapterKind, Library, LibrarySort, ProgressStore, ReadingMode, Series,
+    Theme,
 };
 
 use crate::{
     app::{
-        AppState, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind, PickerState,
-        ReaderMode, SettingId, SettingsPage, MORE_SECTIONS, SETTINGS_PAGES,
+        AppState, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind,
+        PickerState, ReaderMode, SettingId, SettingsPage, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout, library_layout, more_layout, reader_bar_layout, setting_columns, settings_rows,
@@ -247,10 +247,8 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             ("q", "quit"),
             ("↑↓", "move"),
             ("↵", "open"),
-            ("i", "import"),
-            ("h", "home"),
-            ("l", "library"),
-            ("Esc", "up"),
+            ("r", "rescan"),
+            ("Esc", "back"),
         ]
     } else if app.tab == 4 {
         if app.more_focus == MoreFocus::Sections {
@@ -398,45 +396,68 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
 }
 
 fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
+    let (view, count) = match app.browse_view {
+        BrowseView::Sources => ("Sources", "1 source".to_owned()),
+        BrowseView::Local => (
+            "Local source",
+            format!("{} series", app.library.series.len()),
+        ),
+    };
     let line = Line::from(vec![
         Span::styled(
-            " Browse ",
+            format!(" Browse · {view} "),
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(display_path(&app.browse_dir), Style::default().fg(c_text())),
         Span::styled(
-            format!("  {} entries", app.browse_entries.len()),
-            Style::default().fg(c_overlay0()),
+            display_path(&app.library.root),
+            Style::default().fg(c_text()),
         ),
+        Span::styled(format!("  {count}"), Style::default().fg(c_overlay0())),
     ]);
     frame.render_widget(Paragraph::new(line), area);
 }
 
 fn draw_browse_list(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let items: Vec<ListItem> = app
-        .browse_entries
-        .iter()
-        .map(|entry| {
-            let (prefix, style) = match entry.kind {
-                BrowseKind::Parent => ("↰ ", Style::default().fg(c_overlay1())),
-                BrowseKind::Directory => ("▸ ", Style::default().fg(c_text())),
-                BrowseKind::Archive => ("≡ ", Style::default().fg(c_blue())),
-            };
-            ListItem::new(format!("{prefix}{}", entry.name)).style(style)
-        })
-        .collect();
+    let items: Vec<ListItem> = match app.browse_view {
+        BrowseView::Sources => vec![ListItem::new(Line::from(vec![
+            Span::styled("Local source", Style::default().fg(c_text())),
+            Span::styled(
+                format!("  {} series", app.library.series.len()),
+                Style::default().fg(c_overlay0()),
+            ),
+        ]))],
+        BrowseView::Local => app
+            .browse_local_indices()
+            .into_iter()
+            .map(|index| {
+                let series = &app.library.series[index];
+                ListItem::new(Line::from(vec![
+                    Span::raw(series.title.clone()),
+                    Span::styled(
+                        format!("  {} ch", series.chapters.len()),
+                        Style::default().fg(c_overlay0()),
+                    ),
+                ]))
+            })
+            .collect(),
+    };
 
-    if app.browse_entries.is_empty() {
+    let count = app.browse_item_count();
+    if count == 0 {
         app.browse_list_state.select(None);
     } else {
         app.browse_list_state
-            .select(Some(app.browse_selection.min(app.browse_entries.len() - 1)));
+            .select(Some(app.browse_selection.min(count - 1)));
     }
 
+    let title = match app.browse_view {
+        BrowseView::Sources => " Sources ",
+        BrowseView::Local => " Local source ",
+    };
     let list = List::new(items)
         .block(panel(
             Line::from(Span::styled(
-                " Files ",
+                title,
                 Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             c_accent(),
@@ -452,75 +473,39 @@ fn draw_browse_list(frame: &mut Frame, area: Rect, app: &mut AppState) {
 }
 
 fn draw_browse_details(frame: &mut Frame, area: Rect, app: &AppState) {
-    let mut lines = Vec::new();
-    if let Some(entry) = app.browse_entries.get(app.browse_selection) {
-        lines.push(Line::from(Span::styled(
-            entry.name.clone(),
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(""));
-        let kind = match entry.kind {
-            BrowseKind::Parent => "Parent directory",
-            BrowseKind::Directory => "Series folder",
-            BrowseKind::Archive => "Chapter archive",
-        };
-        lines.push(field("Type", kind, c_blue()));
-        if let Some(size) = entry.size {
-            lines.push(field("Size", &format_size(size), c_green()));
-        }
-        lines.push(field(
-            "Path",
-            &entry.path.display().to_string(),
-            c_overlay1(),
-        ));
-
-        if entry.kind != BrowseKind::Parent {
-            if app.library.root.as_os_str().is_empty() {
-                lines.push(field("Library", "not configured", c_peach()));
-            } else {
-                let title = if entry.kind == BrowseKind::Archive {
-                    entry
-                        .path
-                        .file_stem()
-                        .map(|stem| stem.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| entry.name.clone())
-                } else {
-                    entry.name.clone()
-                };
-                lines.push(field(
-                    "Import",
-                    &display_path(&app.library.root.join(title)),
-                    c_teal(),
-                ));
-            }
+    let lines = match app.browse_view {
+        BrowseView::Sources => vec![
+            Line::from(Span::styled(
+                "Local source",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            field("Type", "Built-in local source", c_blue()),
+            field("Path", &display_path(&app.library.root), c_overlay1()),
+            field("Series", &app.library.series.len().to_string(), c_green()),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Lists series directories in the local library folder.",
+                Style::default().fg(c_overlay0()),
+            )),
+            Line::from(Span::styled(
+                "Enter opens the source.",
+                Style::default().fg(c_overlay0()),
+            )),
+        ],
+        BrowseView::Local => {
+            let Some(series) = app.selected_browse_series() else {
+                return draw_browse_empty(frame, area, "No series in the local directory.");
+            };
+            let mut lines = series_lines(series);
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                if entry.kind == BrowseKind::Archive {
-                    "Enter or i imports this archive."
-                } else {
-                    "Enter opens · i imports this folder."
-                },
+                "Enter opens this series in Library.",
                 Style::default().fg(c_overlay0()),
             )));
+            lines
         }
-    } else {
-        lines.push(Line::from(Span::styled(
-            "This directory is empty.",
-            Style::default().fg(c_overlay1()),
-        )));
-    }
-
-    if let Some(status) = &app.browse_status {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            status.clone(),
-            Style::default().fg(if app.browse_error {
-                c_peach()
-            } else {
-                c_green()
-            }),
-        )));
-    }
+    };
 
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
@@ -535,20 +520,18 @@ fn draw_browse_details(frame: &mut Frame, area: Rect, app: &AppState) {
     frame.render_widget(paragraph, area);
 }
 
-fn format_size(bytes: u64) -> String {
-    const KIB: f64 = 1024.0;
-    const MIB: f64 = KIB * 1024.0;
-    const GIB: f64 = MIB * 1024.0;
-    let bytes = bytes as f64;
-    if bytes >= GIB {
-        format!("{:.1} GiB", bytes / GIB)
-    } else if bytes >= MIB {
-        format!("{:.1} MiB", bytes / MIB)
-    } else if bytes >= KIB {
-        format!("{:.1} KiB", bytes / KIB)
-    } else {
-        format!("{bytes:.0} B")
-    }
+fn draw_browse_empty(frame: &mut Frame, area: Rect, message: &str) {
+    let paragraph = Paragraph::new(message)
+        .block(panel(
+            Line::from(Span::styled(
+                " Details ",
+                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
+            )),
+            c_surface1(),
+        ))
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(c_overlay1()));
+    frame.render_widget(paragraph, area);
 }
 
 fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -1483,11 +1466,7 @@ fn draw_more_help(frame: &mut Frame, area: Rect, app: &AppState) {
             "←→ page · Space screen · +/- zoom · m mode",
             c_green(),
         ),
-        field(
-            "Browse",
-            "Enter open · i import · h home · l library",
-            c_green(),
-        ),
+        field("Browse", "Enter open · Esc back · r rescan", c_green()),
         field("Display", "f fullscreen · r rescan · c More", c_green()),
     ];
     let paragraph = Paragraph::new(Text::from(lines))
@@ -1829,29 +1808,21 @@ mod tests {
     }
 
     #[test]
-    fn browse_view_renders_files_and_import_hint() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir(root.path().join("My Series")).unwrap();
-        std::fs::write(root.path().join("Chapter 1.cbz"), b"archive").unwrap();
-
+    fn browse_view_renders_sources_and_local_items() {
         let mut app = test_app();
         app.tab = 3;
-        app.browse_dir = root.path().to_path_buf();
-        app.refresh_browse();
-        let index = app
-            .browse_entries
-            .iter()
-            .position(|entry| entry.name == "My Series")
-            .unwrap();
-        app.select_browse_index(index);
 
         let text = render(&mut app, 80, 30);
-        assert!(text.contains("Browse"));
-        assert!(text.contains("Files"));
-        assert!(text.contains("My Series"));
-        assert!(text.contains("Chapter 1.cbz"));
-        assert!(text.contains("Series folder"));
-        assert!(text.contains("imports this folder"));
+        assert!(text.contains("Browse · Sources"));
+        assert!(text.contains("Local source"));
+        assert!(text.contains("Built-in local source"));
+        assert!(text.contains("Enter opens the source"));
+
+        app.browse_open();
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Browse · Local source"));
+        assert!(text.contains("Test Series"));
+        assert!(text.contains("Enter opens this series in Library"));
     }
 
     #[test]

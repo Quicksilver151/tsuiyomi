@@ -206,21 +206,6 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.refresh();
                 }
             }
-            Action::Import => {
-                if app.tab == 3 {
-                    app.import_browse_selected();
-                }
-            }
-            Action::BrowseHome => {
-                if app.tab == 3 {
-                    app.browse_home();
-                }
-            }
-            Action::BrowseLibrary => {
-                if app.tab == 3 {
-                    app.browse_library();
-                }
-            }
             Action::Open => {
                 if app.tab == 3 {
                     app.browse_open();
