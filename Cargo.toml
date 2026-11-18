@@ -29,6 +29,8 @@ sevenz-rust2 = "0.20.2"
 tar = "0.4.46"
 tempfile = "3.16.0"
 thiserror = "2.0.21"
+tiny_http = "0.12.0"
+ureq = { version = "2.12.1", features = ["json"] }
 toml = "0.9.0"
 unrar = "0.5.8"
 zip = { version = "9.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

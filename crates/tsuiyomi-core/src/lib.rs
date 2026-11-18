@@ -12,6 +12,7 @@ pub mod error;
 pub mod library;
 pub mod pages;
 pub mod progress;
+pub mod suwayomi;
 
 pub use chapter::parse_chapter_number;
 pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
@@ -20,3 +21,7 @@ pub use error::CoreError;
 pub use library::{read_cover, scan_library, Chapter, ChapterKind, Library, ScanError, Series};
 pub use pages::{chapter_pages, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
+pub use suwayomi::{
+    fetch_bytes, ExtensionInfo, ExtensionStore, RemoteChapter, RemoteManga, RemoteMangaPage,
+    RemoteSource, SuwayomiClient,
+};

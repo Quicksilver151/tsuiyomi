@@ -187,10 +187,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::PreviousPage => {
                 if app.tab == 3 {
                     if app.view == LibraryView::Series {
-                        if app.browse_view == BrowseView::Details {
-                            app.browse_parent();
-                        } else {
-                            app.browse_previous_column();
+                        match app.browse_view {
+                            BrowseView::Local | BrowseView::RemoteResults => {
+                                app.browse_previous_column();
+                            }
+                            BrowseView::Details | BrowseView::RemoteDetails => {
+                                app.browse_parent();
+                            }
+                            BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {}
                         }
                     } else {
                         app.previous_page();
@@ -208,10 +212,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::NextPage => {
                 if app.tab == 3 {
                     if app.view == LibraryView::Series {
-                        if app.browse_view == BrowseView::Details {
-                            app.browse_open();
-                        } else {
-                            app.browse_next_column();
+                        match app.browse_view {
+                            BrowseView::Local | BrowseView::RemoteResults => {
+                                app.browse_next_column();
+                            }
+                            BrowseView::Sources
+                            | BrowseView::Details
+                            | BrowseView::RemoteDetails => app.browse_open(),
+                            BrowseView::Extensions | BrowseView::Stores => {}
                         }
                     } else {
                         app.next_page();
@@ -290,6 +298,65 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.refresh();
                 }
             }
+            Action::Search => {
+                if app.tab == 3
+                    && app.view == LibraryView::Series
+                    && app.browse_view == BrowseView::RemoteResults
+                {
+                    let query = app.suwayomi.query.clone();
+                    app.open_text_input(app::TextAction::SearchRemote, "Search source", &query);
+                }
+            }
+            Action::Latest => {
+                if app.tab == 3
+                    && app.view == LibraryView::Series
+                    && app.browse_view == BrowseView::RemoteResults
+                {
+                    app.load_remote_latest();
+                }
+            }
+            Action::Extensions => {
+                if app.tab == 3 && app.view == LibraryView::Series {
+                    app.open_extensions();
+                }
+            }
+            Action::Stores => {
+                if app.tab == 3 && app.view == LibraryView::Series {
+                    if app.browse_view == BrowseView::Stores {
+                        app.open_extensions();
+                    } else {
+                        app.open_stores();
+                    }
+                }
+            }
+            Action::AddStore => {
+                if app.tab == 3
+                    && app.view == LibraryView::Series
+                    && matches!(app.browse_view, BrowseView::Extensions | BrowseView::Stores)
+                {
+                    app.open_text_input(
+                        app::TextAction::AddExtensionStore,
+                        "Extension store URL",
+                        "",
+                    );
+                }
+            }
+            Action::DeleteStore => {
+                if app.tab == 3
+                    && app.view == LibraryView::Series
+                    && app.browse_view == BrowseView::Stores
+                {
+                    app.remove_selected_store();
+                }
+            }
+            Action::UpdateExtension => {
+                if app.tab == 3
+                    && app.view == LibraryView::Series
+                    && app.browse_view == BrowseView::Extensions
+                {
+                    app.update_selected_extension();
+                }
+            }
             Action::Open => {
                 if app.tab == 3 {
                     if app.view == LibraryView::Series {
@@ -311,6 +378,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 if app.tab == 3 {
                     if app.view == LibraryView::Series {
                         app.browse_parent();
+                    } else if app.suwayomi.reader {
+                        app.close_remote_reader();
                     } else {
                         app.back();
                     }
@@ -422,7 +491,7 @@ fn handle_chapter_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
 
 fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     match app.browse_view {
-        BrowseView::Local => {
+        BrowseView::Local | BrowseView::RemoteResults => {
             let grid_area = library_grid_area(area);
             if let Some(index) = grid_index_at(
                 grid_area,
@@ -436,13 +505,13 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_browse_index(index);
             }
         }
-        BrowseView::Sources => {
+        BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {
             let list = library_grid_area(area);
             if contains(list, column, row) {
                 app.select_browse_index((row - list.y) as usize);
             }
         }
-        BrowseView::Details => {}
+        BrowseView::Details | BrowseView::RemoteDetails => {}
     }
 }
 

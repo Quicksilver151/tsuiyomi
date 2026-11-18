@@ -54,6 +54,8 @@ pub enum Theme {
 pub struct Config {
     /// Root of the library, containing one directory per series.
     pub library_path: Option<PathBuf>,
+    /// Optional Suwayomi-Server base URL, e.g. `http://127.0.0.1:4567`.
+    pub suwayomi_url: Option<String>,
     /// Default reader mode.
     pub reading_mode: ReadingMode,
     /// UI color theme.
@@ -88,6 +90,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             library_path: default_library_path(),
+            suwayomi_url: None,
             reading_mode: ReadingMode::default(),
             theme: Theme::default(),
             accent: None,
@@ -140,6 +143,7 @@ mod tests {
         let config: Config = toml::from_str(
             r#"
 library_path = "/tmp/manga"
+suwayomi_url = "http://127.0.0.1:4567"
 theme = "default"
 
 [player]
@@ -149,6 +153,10 @@ external_mpv = ["mpv"]
         .unwrap();
 
         assert_eq!(config.library_path, Some(PathBuf::from("/tmp/manga")));
+        assert_eq!(
+            config.suwayomi_url.as_deref(),
+            Some("http://127.0.0.1:4567")
+        );
         assert_eq!(config.reading_mode, ReadingMode::Webtoon);
         // A legacy `theme` value is now a known key; unknown names fall back.
         assert_eq!(config.theme, Theme::Unknown);

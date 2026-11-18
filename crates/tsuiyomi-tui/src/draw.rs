@@ -79,6 +79,47 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
 
     draw_picker(frame, app);
     draw_quit_confirm(frame, app);
+    draw_text_input(frame, app);
+}
+
+fn draw_text_input(frame: &mut Frame, app: &AppState) {
+    let Some(input) = app.text_input.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 64.min(area.width);
+    let height = 5.min(area.height);
+    if width < 20 || height < 4 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            format!(" {} ", input.title),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let lines = vec![
+        Line::from(Span::styled(
+            format!("{}▏", input.value),
+            Style::default().fg(c_text()),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter apply · Esc cancel",
+            Style::default().fg(c_overlay0()),
+        )),
+    ];
+    frame.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn draw_quit_confirm(frame: &mut Frame, app: &AppState) {
@@ -152,8 +193,10 @@ fn draw_reader_bar(frame: &mut Frame, area: Rect, app: &AppState) {
     };
     let layout = reader_bar_layout(area);
 
-    let previous_enabled = app.chapter_index + 1 < app.chapter_count();
-    let next_enabled = app.chapter_index > 0;
+    let chapter_index = app.reader_chapter_index();
+    let chapter_count = app.reader_chapter_count();
+    let previous_enabled = chapter_index + 1 < chapter_count;
+    let next_enabled = chapter_index > 0;
     render_reader_button(
         frame,
         layout.previous,
@@ -609,15 +652,73 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
             app.browse_grid_offset = offset;
         }
         BrowseView::Details => draw_browse_detail(frame, content, app),
+        BrowseView::RemoteResults => draw_remote_grid(frame, content, app),
+        BrowseView::RemoteDetails => draw_remote_detail(frame, content, app),
+        BrowseView::Extensions => draw_extensions(frame, content, app),
+        BrowseView::Stores => draw_stores(frame, content, app),
+    }
+    if let Some(status) = &app.suwayomi.status {
+        if area.height > 0 {
+            let status_area = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
+            frame.render_widget(
+                Paragraph::new(format!(" {status}")).style(Style::default().fg(
+                    if app.suwayomi.error {
+                        c_peach()
+                    } else {
+                        c_green()
+                    },
+                )),
+                status_area,
+            );
+        }
     }
 }
 
 fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
-    let (view, count) = match app.browse_view {
-        BrowseView::Sources => ("Sources", "1 source".to_owned()),
+    let (view, detail, count) = match app.browse_view {
+        BrowseView::Sources => (
+            "Sources".to_owned(),
+            app.suwayomi_client
+                .as_ref()
+                .map(|client| client.base_url().to_owned())
+                .unwrap_or_else(|| "local only".to_owned()),
+            format!("{} sources", 1 + app.suwayomi.sources.len()),
+        ),
         BrowseView::Local | BrowseView::Details => (
-            "Local source",
+            "Local source".to_owned(),
+            display_path(&app.library.root),
             format!("{} series", app.library.series.len()),
+        ),
+        BrowseView::RemoteResults | BrowseView::RemoteDetails => (
+            app.suwayomi
+                .source
+                .as_ref()
+                .map(|source| source.display_name.clone())
+                .unwrap_or_else(|| "Remote source".to_owned()),
+            app.suwayomi_client
+                .as_ref()
+                .map(|client| client.base_url().to_owned())
+                .unwrap_or_default(),
+            match app.browse_view {
+                BrowseView::RemoteDetails => format!("{} chapters", app.suwayomi.chapters.len()),
+                _ => format!("{} results", app.suwayomi.results.len()),
+            },
+        ),
+        BrowseView::Extensions => (
+            "Extensions".to_owned(),
+            app.suwayomi_client
+                .as_ref()
+                .map(|client| client.base_url().to_owned())
+                .unwrap_or_default(),
+            format!("{} extensions", app.suwayomi.extensions.len()),
+        ),
+        BrowseView::Stores => (
+            "Extension stores".to_owned(),
+            app.suwayomi_client
+                .as_ref()
+                .map(|client| client.base_url().to_owned())
+                .unwrap_or_default(),
+            format!("{} stores", app.suwayomi.stores.len()),
         ),
     };
     let line = Line::from(vec![
@@ -625,28 +726,376 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             format!(" Browse · {view} "),
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            display_path(&app.library.root),
-            Style::default().fg(c_text()),
-        ),
+        Span::styled(detail, Style::default().fg(c_text())),
         Span::styled(format!("  {count}"), Style::default().fg(c_overlay0())),
     ]);
     frame.render_widget(Paragraph::new(line), area);
 }
 
 fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    app.browse_list_state.select(Some(0));
-    let item = ListItem::new(Line::from(vec![
+    let mut items = vec![ListItem::new(Line::from(vec![
         Span::styled("Local source", Style::default().fg(c_text())),
         Span::styled(
             format!("  {} series", app.library.series.len()),
             Style::default().fg(c_overlay0()),
         ),
-    ]));
-    let list = List::new([item])
+    ]))];
+    for source in &app.suwayomi.sources {
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(source.display_name.clone(), Style::default().fg(c_text())),
+            Span::styled(
+                format!("  {} · {}", source.lang, source.name),
+                Style::default().fg(c_overlay0()),
+            ),
+        ])));
+    }
+    let count = app.browse_item_count();
+    if count == 0 {
+        app.browse_list_state.select(None);
+    } else {
+        app.browse_list_state
+            .select(Some(app.browse_selection.min(count - 1)));
+    }
+    let list = List::new(items)
         .block(panel(
             Line::from(Span::styled(
                 " Sources ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            )),
+            c_accent(),
+        ))
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, area, &mut app.browse_list_state);
+}
+
+fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let results = app.suwayomi.results.clone();
+    let columns = grid_columns(area, app.config.thumbnail_width);
+    if results.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No results.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        app.browse_columns = columns;
+        return;
+    }
+    let cover_height = tile_cover_height(app.config.thumbnail_width, area.height);
+    let tile_height = cover_height + TILE_TEXT_HEIGHT;
+    let selected = app.browse_selection.min(results.len() - 1);
+    let visible_rows = grid_visible_rows(area, tile_height);
+    let offset = grid_row_offset(
+        area,
+        columns,
+        selected,
+        app.browse_grid_offset,
+        results.len(),
+        tile_height,
+    );
+    let start = offset.saturating_mul(columns);
+    let end = (offset.saturating_add(visible_rows))
+        .saturating_mul(columns)
+        .min(results.len());
+
+    for result in results[start..end].iter() {
+        if let Some(url) = &result.thumbnail_url {
+            app.ensure_remote_tile_cover(url);
+        }
+    }
+
+    for (position, result) in results[start..end].iter().enumerate() {
+        let index = start + position;
+        let tile = grid_tile_rect(area, columns, offset, index, tile_height);
+        let is_selected = index == selected;
+        if is_selected {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                tile,
+            );
+        }
+        let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
+        let mut rendered = false;
+        if let Some(url) = &result.thumbnail_url {
+            if let Some(protocol) = app.suwayomi.tile_covers.get_mut(url) {
+                render_centered_image(frame, cover_area, protocol);
+                rendered = true;
+            }
+        }
+        if !rendered {
+            let initial = result
+                .title
+                .chars()
+                .next()
+                .map(|character| character.to_uppercase().collect::<String>())
+                .unwrap_or_default();
+            frame.render_widget(
+                Paragraph::new(initial)
+                    .alignment(Alignment::Center)
+                    .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                Rect::new(
+                    cover_area.x,
+                    cover_area.y + cover_area.height / 2,
+                    cover_area.width,
+                    1,
+                ),
+            );
+        }
+        let title_style = if is_selected {
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_text())
+        };
+        frame.render_widget(
+            Paragraph::new(truncate_text(&result.title, tile.width))
+                .alignment(Alignment::Center)
+                .style(title_style),
+            Rect::new(tile.x, tile.y + cover_height, tile.width, 1),
+        );
+        frame.render_widget(
+            Paragraph::new(result.status.replace('_', " ").to_lowercase())
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay0())),
+            Rect::new(tile.x, tile.y + cover_height + 1, tile.width, 1),
+        );
+    }
+
+    app.browse_columns = columns;
+    app.browse_grid_offset = offset;
+}
+
+fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let Some(manga) = app.suwayomi.manga.clone() else {
+        draw_browse_empty(frame, area, "No manga selected.");
+        return;
+    };
+    let chapters = app.suwayomi.chapters.clone();
+    if let Some(url) = &manga.thumbnail_url {
+        app.ensure_remote_tile_cover(url);
+    }
+
+    let block = panel(
+        Line::from(Span::styled(
+            " Series ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+
+    let (cover_area, detail_area) = if inner.width >= 34 {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(inner.width / 3), Constraint::Min(0)])
+            .split(inner);
+        (Some(chunks[0]), chunks[1])
+    } else {
+        (None, inner)
+    };
+
+    if let Some(cover_area) = cover_area {
+        let mut rendered = false;
+        if let Some(url) = &manga.thumbnail_url {
+            if let Some(protocol) = app.suwayomi.tile_covers.get_mut(url) {
+                render_centered_image(frame, cover_area, protocol);
+                rendered = true;
+            }
+        }
+        if !rendered {
+            frame.render_widget(
+                Paragraph::new(
+                    manga
+                        .title
+                        .chars()
+                        .next()
+                        .map(|character| character.to_uppercase().collect::<String>())
+                        .unwrap_or_default(),
+                )
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                Rect::new(
+                    cover_area.x,
+                    cover_area.y + cover_area.height / 2,
+                    cover_area.width,
+                    1,
+                ),
+            );
+        }
+    }
+
+    let mut meta = vec![
+        Line::from(Span::styled(
+            manga.title.clone(),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+    if let Some(author) = &manga.author {
+        meta.push(field("Author", author, c_peach()));
+    }
+    if let Some(artist) = &manga.artist {
+        meta.push(field("Artist", artist, c_mauve()));
+    }
+    meta.push(field(
+        "Status",
+        &manga.status.replace('_', " ").to_lowercase(),
+        c_green(),
+    ));
+    if !manga.genre.is_empty() {
+        meta.push(field("Tags", &manga.genre.join(", "), c_teal()));
+    }
+    meta.push(field("Chapters", &chapters.len().to_string(), c_green()));
+
+    let chapter_items: Vec<ListItem> = chapters
+        .iter()
+        .map(|chapter| {
+            let status = if chapter.is_read { "read" } else { "" };
+            ListItem::new(Line::from(vec![
+                Span::raw(chapter.name.clone()),
+                Span::styled(
+                    format!("  {}", chapter.page_count.max(0)),
+                    Style::default().fg(c_overlay0()),
+                ),
+                Span::styled(format!("  {status}"), Style::default().fg(c_overlay1())),
+            ]))
+        })
+        .collect();
+    if chapters.is_empty() {
+        app.browse_list_state.select(None);
+    } else {
+        app.browse_list_state
+            .select(Some(app.browse_selection.min(chapters.len() - 1)));
+    }
+    let chapter_list = List::new(chapter_items)
+        .block(panel(
+            Line::from(Span::styled(
+                " Chapters ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            )),
+            c_surface1(),
+        ))
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(meta.len().min(10) as u16 + 1),
+            Constraint::Min(0),
+        ])
+        .split(detail_area);
+    frame.render_widget(
+        Paragraph::new(Text::from(meta))
+            .style(Style::default().fg(c_subtext1()))
+            .wrap(Wrap { trim: true }),
+        chunks[0],
+    );
+    frame.render_stateful_widget(chapter_list, chunks[1], &mut app.browse_list_state);
+}
+
+fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let extensions = app.suwayomi.extensions.clone();
+    if extensions.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No extensions. Press a to add a store URL.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        app.browse_list_state.select(None);
+        return;
+    }
+    let items: Vec<ListItem> = extensions
+        .iter()
+        .map(|extension| {
+            let status = if extension.has_update {
+                "update"
+            } else if extension.is_installed {
+                "installed"
+            } else {
+                "available"
+            };
+            ListItem::new(Line::from(vec![
+                Span::raw(extension.name.clone()),
+                Span::styled(
+                    format!("  {} · {}", extension.lang, extension.version_name),
+                    Style::default().fg(c_overlay0()),
+                ),
+                Span::styled(
+                    format!("  {status}"),
+                    Style::default().fg(if extension.has_update {
+                        c_yellow()
+                    } else if extension.is_installed {
+                        c_green()
+                    } else {
+                        c_overlay1()
+                    }),
+                ),
+            ]))
+        })
+        .collect();
+    app.browse_list_state
+        .select(Some(app.browse_selection.min(extensions.len() - 1)));
+    let list = List::new(items)
+        .block(panel(
+            Line::from(Span::styled(
+                " Extensions ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            )),
+            c_accent(),
+        ))
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, area, &mut app.browse_list_state);
+}
+
+fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let stores = app.suwayomi.stores.clone();
+    if stores.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No extension stores. Press a to add one.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        app.browse_list_state.select(None);
+        return;
+    }
+    let items: Vec<ListItem> = stores
+        .iter()
+        .map(|store| {
+            ListItem::new(Line::from(vec![
+                Span::raw(store.name.clone()),
+                Span::styled(
+                    format!("  {}", store.index_url),
+                    Style::default().fg(c_overlay0()),
+                ),
+            ]))
+        })
+        .collect();
+    app.browse_list_state
+        .select(Some(app.browse_selection.min(stores.len() - 1)));
+    let list = List::new(items)
+        .block(panel(
+            Line::from(Span::styled(
+                " Stores ",
                 Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             )),
             c_accent(),
@@ -1388,6 +1837,13 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
             "Incognito mode".to_owned(),
             if app.config.incognito { "On" } else { "Off" }.to_owned(),
         ),
+        SettingId::SuwayomiUrl => (
+            "Suwayomi server".to_owned(),
+            app.config
+                .suwayomi_url
+                .clone()
+                .unwrap_or_else(|| "not set".to_owned()),
+        ),
     }
 }
 
@@ -1797,7 +2253,10 @@ mod tests {
     use std::path::PathBuf;
 
     use ratatui::{backend::TestBackend, Terminal};
-    use tsuiyomi_core::{Chapter, ChapterKind, Library, Page, PageSource, Series};
+    use tsuiyomi_core::{
+        Chapter, ChapterKind, ExtensionInfo, Library, Page, PageSource, RemoteChapter, RemoteManga,
+        RemoteSource, Series,
+    };
 
     use crate::app::ReaderState;
 
@@ -1957,6 +2416,86 @@ mod tests {
         assert_eq!(app.view, LibraryView::Chapters);
         assert!(text.contains("Chapters"));
         assert!(text.contains("Chapter 1"));
+    }
+
+    #[test]
+    fn browse_renders_remote_sources_results_and_extensions() {
+        let mut app = test_app();
+        app.tab = 3;
+        app.suwayomi.sources = vec![RemoteSource {
+            id: 7,
+            name: "MangaDex".to_owned(),
+            lang: "en".to_owned(),
+            display_name: "MangaDex (EN)".to_owned(),
+            supports_latest: true,
+            icon_url: None,
+            content_warning: "SAFE".to_owned(),
+        }];
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("MangaDex (EN)"));
+
+        app.browse_view = BrowseView::RemoteResults;
+        app.suwayomi.results = vec![RemoteManga {
+            id: 3,
+            source_id: 7,
+            title: "Berserk".to_owned(),
+            author: Some("Miura".to_owned()),
+            artist: None,
+            description: Some("Dark fantasy".to_owned()),
+            genre: vec!["Action".to_owned()],
+            status: "ONGOING".to_owned(),
+            thumbnail_url: None,
+        }];
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Berserk"));
+
+        app.browse_view = BrowseView::RemoteDetails;
+        app.browse_selection = 0;
+        app.suwayomi.manga = app.suwayomi.results.first().cloned();
+        app.suwayomi.chapters = vec![RemoteChapter {
+            id: 11,
+            name: "Chapter 1".to_owned(),
+            chapter_number: 1.0,
+            scanlator: None,
+            source_order: 0,
+            page_count: 20,
+            upload_date: 0,
+            is_read: false,
+            last_page_read: 0,
+        }];
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Chapters"));
+        assert!(text.contains("Chapter 1"));
+
+        app.browse_view = BrowseView::Extensions;
+        app.suwayomi.extensions = vec![ExtensionInfo {
+            name: "MangaDex".to_owned(),
+            pkg_name: "eu.kanade.tachiyomi.extension.en.mangadex".to_owned(),
+            version_name: "1.5.0".to_owned(),
+            version_code: 15,
+            lang: "en".to_owned(),
+            is_installed: false,
+            has_update: false,
+            is_obsolete: false,
+            content_warning: "SAFE".to_owned(),
+            icon_url: None,
+            store_index_url: Some("https://example.org/index.min.json".to_owned()),
+        }];
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("available"));
+    }
+
+    #[test]
+    fn text_input_modal_renders() {
+        let mut app = test_app();
+        app.open_text_input(
+            crate::app::TextAction::AddExtensionStore,
+            "Extension store URL",
+            "https://example.org/index.min.json",
+        );
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Extension store URL"));
+        assert!(text.contains("https://example.org/index.min.json"));
     }
 
     #[test]

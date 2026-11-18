@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -27,6 +28,9 @@ pub enum PageSource {
         name: String,
         kind: ChapterKind,
     },
+    Remote {
+        url: String,
+    },
 }
 
 /// List the pages of a chapter in natural reading order.
@@ -48,6 +52,21 @@ pub fn read_page(page: &Page) -> Result<Vec<u8>, CoreError> {
             source,
         }),
         PageSource::Archive { path, name, kind } => archive::read_entry(path, *kind, name),
+        PageSource::Remote { url } => {
+            let response = ureq::get(url).call().map_err(|error| CoreError::Network {
+                url: url.clone(),
+                message: error.to_string(),
+            })?;
+            let mut data = Vec::new();
+            response
+                .into_reader()
+                .read_to_end(&mut data)
+                .map_err(|error| CoreError::Network {
+                    url: url.clone(),
+                    message: error.to_string(),
+                })?;
+            Ok(data)
+        }
     }
 }
 

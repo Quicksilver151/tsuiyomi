@@ -30,4 +30,7 @@ pub enum CoreError {
 
     #[error("missing page {name} in {path}")]
     MissingPage { path: PathBuf, name: String },
+
+    #[error("request to {url} failed: {message}")]
+    Network { url: String, message: String },
 }

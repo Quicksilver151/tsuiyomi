@@ -7,8 +7,10 @@ use crossterm::terminal;
 use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::{
-    chapter::natural_cmp, chapter_pages, read_cover, read_page, save_config, scan_library, Chapter,
-    Config, Library, LibrarySort, Page, ProgressStore, ReadingMode, Series, Theme,
+    chapter::natural_cmp, chapter_pages, fetch_bytes, read_cover, read_page, save_config,
+    scan_library, Chapter, Config, ExtensionInfo, ExtensionStore, Library, LibrarySort, Page,
+    PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteManga, RemoteSource, Series,
+    SuwayomiClient, Theme,
 };
 
 use crate::{
@@ -73,6 +75,70 @@ pub enum BrowseView {
     Sources,
     Local,
     Details,
+    RemoteResults,
+    RemoteDetails,
+    Extensions,
+    Stores,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAction {
+    SearchRemote,
+    AddExtensionStore,
+    SetSuwayomiUrl,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextInput {
+    pub action: TextAction,
+    pub title: String,
+    pub value: String,
+}
+
+pub struct SuwayomiState {
+    pub sources: Vec<RemoteSource>,
+    pub source: Option<RemoteSource>,
+    pub results: Vec<RemoteManga>,
+    pub query: String,
+    pub page: i32,
+    pub has_next_page: bool,
+    pub manga: Option<RemoteManga>,
+    pub chapters: Vec<RemoteChapter>,
+    pub chapter_index: usize,
+    pub reader: bool,
+    pub status: Option<String>,
+    pub error: bool,
+    pub columns: usize,
+    pub grid_offset: usize,
+    pub tile_covers: HashMap<String, StatefulProtocol>,
+    pub extensions: Vec<ExtensionInfo>,
+    pub stores: Vec<ExtensionStore>,
+    pub extension_list_state: ListState,
+}
+
+impl Default for SuwayomiState {
+    fn default() -> Self {
+        Self {
+            sources: Vec::new(),
+            source: None,
+            results: Vec::new(),
+            query: String::new(),
+            page: 1,
+            has_next_page: false,
+            manga: None,
+            chapters: Vec::new(),
+            chapter_index: 0,
+            reader: false,
+            status: None,
+            error: false,
+            columns: 1,
+            grid_offset: 0,
+            tile_covers: HashMap::new(),
+            extensions: Vec::new(),
+            stores: Vec::new(),
+            extension_list_state: ListState::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -106,6 +172,7 @@ pub enum SettingId {
     Fullscreen,
     ThumbnailSize,
     Incognito,
+    SuwayomiUrl,
 }
 
 /// Settings pages mirroring Mihon's `SettingsMainScreen` entries.
@@ -179,11 +246,12 @@ const TRACKING_ROWS: [MoreRow; 3] = [
     MoreRow::Note("This build manages a local Mihon library only."),
 ];
 
-const BROWSE_ROWS: [MoreRow; 5] = [
-    MoreRow::Divider("Local source"),
+const BROWSE_ROWS: [MoreRow; 6] = [
+    MoreRow::Divider("Sources"),
     MoreRow::Setting(SettingId::LibraryPath),
+    MoreRow::Setting(SettingId::SuwayomiUrl),
     MoreRow::Note("Local source lists series directories in the library folder."),
-    MoreRow::Note("Remote sources and Mihon extensions are not available."),
+    MoreRow::Note("Suwayomi supplies remote sources and Mihon extensions."),
     MoreRow::Note("Browse reads the same local/ layout as Mihon."),
 ];
 
@@ -370,6 +438,9 @@ pub struct AppState {
     pub zoom: u16,
     pub config: Config,
     pub browse_view: BrowseView,
+    pub suwayomi_client: Option<SuwayomiClient>,
+    pub suwayomi: SuwayomiState,
+    pub text_input: Option<TextInput>,
     pub browse_selection: usize,
     pub browse_list_state: ListState,
     pub browse_detail: Option<PathBuf>,
@@ -412,6 +483,9 @@ impl AppState {
             zoom: 100,
             config: Config::default(),
             browse_view: BrowseView::Sources,
+            suwayomi_client: None,
+            suwayomi: SuwayomiState::default(),
+            text_input: None,
             browse_selection: 0,
             browse_list_state: ListState::default(),
             browse_detail: None,
@@ -496,7 +570,7 @@ impl AppState {
 
     pub fn browse_previous(&mut self) {
         let step = match self.browse_view {
-            BrowseView::Local => self.browse_columns.max(1),
+            BrowseView::Local | BrowseView::RemoteResults => self.browse_columns.max(1),
             _ => 1,
         };
         self.browse_selection = self.browse_selection.saturating_sub(step);
@@ -507,7 +581,7 @@ impl AppState {
         let count = self.browse_item_count();
         if count > 0 {
             let step = match self.browse_view {
-                BrowseView::Local => self.browse_columns.max(1),
+                BrowseView::Local | BrowseView::RemoteResults => self.browse_columns.max(1),
                 _ => 1,
             };
             self.browse_selection = (self.browse_selection + step).min(count - 1);
@@ -516,14 +590,20 @@ impl AppState {
     }
 
     pub fn browse_previous_column(&mut self) {
-        if self.browse_view == BrowseView::Local {
+        if matches!(
+            self.browse_view,
+            BrowseView::Local | BrowseView::RemoteResults
+        ) {
             self.browse_selection = self.browse_selection.saturating_sub(1);
             self.select_browse_entry(self.browse_selection);
         }
     }
 
     pub fn browse_next_column(&mut self) {
-        if self.browse_view == BrowseView::Local {
+        if matches!(
+            self.browse_view,
+            BrowseView::Local | BrowseView::RemoteResults
+        ) {
             let count = self.browse_item_count();
             if count > 0 {
                 self.browse_selection = (self.browse_selection + 1).min(count - 1);
@@ -538,6 +618,20 @@ impl AppState {
                 if self.browse_selection == 0 {
                     self.browse_view = BrowseView::Local;
                     self.browse_selection = 0;
+                    self.select_browse_entry(0);
+                } else if let Some(source) = self
+                    .suwayomi
+                    .sources
+                    .get(self.browse_selection - 1)
+                    .cloned()
+                {
+                    self.suwayomi.source = Some(source);
+                    self.suwayomi.query.clear();
+                    self.suwayomi.page = 1;
+                    self.load_remote_results(false);
+                    self.browse_view = BrowseView::RemoteResults;
+                    self.browse_selection = 0;
+                    self.browse_grid_offset = 0;
                     self.select_browse_entry(0);
                 }
             }
@@ -556,6 +650,19 @@ impl AppState {
                     self.open_browse_series(&path);
                 }
             }
+            BrowseView::RemoteResults => {
+                let Some(manga) = self.suwayomi.results.get(self.browse_selection).cloned() else {
+                    return;
+                };
+                self.suwayomi.manga = Some(manga);
+                self.load_remote_chapters();
+                self.browse_view = BrowseView::RemoteDetails;
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+            }
+            BrowseView::RemoteDetails => self.open_remote_chapter(self.browse_selection),
+            BrowseView::Extensions => self.toggle_selected_extension(),
+            BrowseView::Stores => {}
         }
     }
 
@@ -565,7 +672,16 @@ impl AppState {
                 self.browse_view = BrowseView::Local;
                 self.clamp_browse_selection();
             }
-            BrowseView::Local => {
+            BrowseView::RemoteDetails => {
+                self.browse_view = BrowseView::RemoteResults;
+                self.browse_selection = 0;
+                self.browse_grid_offset = 0;
+                self.select_browse_entry(0);
+            }
+            BrowseView::Local
+            | BrowseView::RemoteResults
+            | BrowseView::Extensions
+            | BrowseView::Stores => {
                 self.browse_view = BrowseView::Sources;
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
@@ -574,19 +690,31 @@ impl AppState {
         }
     }
 
-    /// Rescan the local source when refreshing its item list.
+    /// Refresh the active Browse list.
     pub fn refresh_browse(&mut self) {
-        if self.browse_view == BrowseView::Local {
-            self.refresh();
+        match self.browse_view {
+            BrowseView::Sources => self.load_remote_sources(),
+            BrowseView::Local => self.refresh(),
+            BrowseView::RemoteResults => {
+                let search = !self.suwayomi.query.is_empty();
+                self.load_remote_results(search);
+            }
+            BrowseView::RemoteDetails => self.load_remote_chapters(),
+            BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
+            BrowseView::Details => {}
         }
         self.clamp_browse_selection();
     }
 
     pub fn browse_item_count(&self) -> usize {
         match self.browse_view {
-            BrowseView::Sources => 1,
+            BrowseView::Sources => 1 + self.suwayomi.sources.len(),
             BrowseView::Local => self.library.series.len(),
             BrowseView::Details => 0,
+            BrowseView::RemoteResults => self.suwayomi.results.len(),
+            BrowseView::RemoteDetails => self.suwayomi.chapters.len(),
+            BrowseView::Extensions => self.suwayomi.extensions.len(),
+            BrowseView::Stores => self.suwayomi.stores.len(),
         }
     }
 
@@ -616,6 +744,428 @@ impl AppState {
             .series
             .iter()
             .find(|series| series.path == path)
+    }
+
+    pub fn selected_remote_manga(&self) -> Option<&RemoteManga> {
+        self.suwayomi.manga.as_ref()
+    }
+
+    pub fn selected_remote_chapter(&self) -> Option<&RemoteChapter> {
+        if self.browse_view != BrowseView::RemoteDetails {
+            return None;
+        }
+        self.suwayomi.chapters.get(self.browse_selection)
+    }
+
+    pub fn selected_extension(&self) -> Option<&ExtensionInfo> {
+        self.suwayomi.extensions.get(self.browse_selection)
+    }
+
+    pub fn selected_store(&self) -> Option<&ExtensionStore> {
+        self.suwayomi.stores.get(self.browse_selection)
+    }
+
+    pub fn load_remote_sources(&mut self) {
+        let Some(client) = self.suwayomi_client.clone() else {
+            self.suwayomi.status = Some(
+                "Remote sources off. Set the Suwayomi server in More → Settings → Browse."
+                    .to_owned(),
+            );
+            self.suwayomi.error = false;
+            return;
+        };
+        match client.sources() {
+            Ok(mut sources) => {
+                sources.sort_by(|left, right| natural_cmp(&left.display_name, &right.display_name));
+                self.suwayomi.sources = sources;
+                self.suwayomi.status = None;
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn load_remote_latest(&mut self) {
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        let Some(source) = self.suwayomi.source.clone() else {
+            return;
+        };
+        match client.latest(source.id, 1) {
+            Ok(result) => {
+                self.suwayomi.results = result.mangas;
+                self.suwayomi.has_next_page = result.has_next_page;
+                self.suwayomi.query.clear();
+                self.suwayomi.page = 1;
+                self.suwayomi.status = None;
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+        self.browse_view = BrowseView::RemoteResults;
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(0);
+    }
+
+    pub fn search_remote(&mut self, query: &str) {
+        self.suwayomi.query = query.trim().to_owned();
+        self.suwayomi.page = 1;
+        self.load_remote_results(true);
+        self.browse_view = BrowseView::RemoteResults;
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(0);
+    }
+
+    fn load_remote_results(&mut self, search: bool) {
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        let Some(source) = self.suwayomi.source.clone() else {
+            return;
+        };
+        let page = self.suwayomi.page.max(1);
+        let result = if search && !self.suwayomi.query.is_empty() {
+            client.search(source.id, &self.suwayomi.query, page)
+        } else {
+            client.popular(source.id, page)
+        };
+        match result {
+            Ok(result) => {
+                self.suwayomi.results = result.mangas;
+                self.suwayomi.has_next_page = result.has_next_page;
+                self.suwayomi.status = None;
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    fn load_remote_chapters(&mut self) {
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        let Some(manga) = self.suwayomi.manga.clone() else {
+            return;
+        };
+        match client.chapters(manga.id) {
+            Ok(mut chapters) => {
+                chapters.sort_by(|left, right| {
+                    right
+                        .chapter_number
+                        .partial_cmp(&left.chapter_number)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| natural_cmp(&right.name, &left.name))
+                });
+                self.suwayomi.chapters = chapters;
+                self.suwayomi.status = None;
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn open_remote_chapter(&mut self, index: usize) {
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        let Some(manga) = self.suwayomi.manga.clone() else {
+            return;
+        };
+        let Some(chapter) = self.suwayomi.chapters.get(index).cloned() else {
+            return;
+        };
+        let urls = match client.chapter_pages(chapter.id) {
+            Ok(urls) => urls,
+            Err(error) => {
+                self.set_remote_error(error);
+                return;
+            }
+        };
+        if urls.is_empty() {
+            self.set_remote_error("Chapter has no pages.");
+            return;
+        }
+
+        let pages: Vec<Page> = urls
+            .into_iter()
+            .enumerate()
+            .map(|(page, url)| Page {
+                name: format!("{:03}.jpg", page + 1),
+                source: PageSource::Remote { url },
+            })
+            .collect();
+        let progress_key = PathBuf::from(format!(
+            "suwayomi://{}/{}/{}",
+            manga.source_id, manga.id, chapter.id
+        ));
+        let start_page = self
+            .progress
+            .entry(&progress_key)
+            .map(|entry| entry.page)
+            .unwrap_or(0)
+            .min(pages.len() - 1);
+
+        self.reader = Some(ReaderState {
+            series_title: manga.title,
+            chapter_title: chapter.name,
+            chapter_path: progress_key,
+            pages,
+            page_sizes: Vec::new(),
+            page_index: start_page,
+            protocol: None,
+            scroll: None,
+            pending_scroll: None,
+            error: None,
+        });
+        self.suwayomi.reader = true;
+        self.suwayomi.chapter_index = index;
+        self.browse_selection = index;
+        self.view = LibraryView::Reader;
+        self.status = None;
+        self.load_page();
+    }
+
+    pub fn close_remote_reader(&mut self) {
+        self.reader = None;
+        self.suwayomi.reader = false;
+        self.view = LibraryView::Series;
+        self.browse_view = BrowseView::RemoteDetails;
+        self.browse_selection = self.suwayomi.chapter_index;
+        self.select_browse_entry(self.browse_selection);
+    }
+
+    pub fn reader_chapter_index(&self) -> usize {
+        if self.view == LibraryView::Reader && self.suwayomi.reader {
+            self.suwayomi.chapter_index
+        } else {
+            self.chapter_index
+        }
+    }
+
+    pub fn reader_chapter_count(&self) -> usize {
+        if self.view == LibraryView::Reader && self.suwayomi.reader {
+            self.suwayomi.chapters.len()
+        } else {
+            self.chapter_count()
+        }
+    }
+
+    pub fn ensure_remote_tile_cover(&mut self, url: &str) {
+        if self.suwayomi.tile_covers.contains_key(url) {
+            return;
+        }
+        let Some(picker) = self.image_picker.as_ref() else {
+            return;
+        };
+        let Ok(bytes) = fetch_bytes(url) else {
+            return;
+        };
+        let Ok(image) = image::load_from_memory(&bytes) else {
+            return;
+        };
+        if self.suwayomi.tile_covers.len() >= TILE_COVER_CACHE {
+            if let Some(oldest) = self.suwayomi.tile_covers.keys().next().cloned() {
+                self.suwayomi.tile_covers.remove(&oldest);
+            }
+        }
+        self.suwayomi
+            .tile_covers
+            .insert(url.to_owned(), picker.new_resize_protocol(image));
+    }
+
+    pub fn open_text_input(&mut self, action: TextAction, title: &str, value: &str) {
+        self.text_input = Some(TextInput {
+            action,
+            title: title.to_owned(),
+            value: value.to_owned(),
+        });
+    }
+
+    pub fn input_char(&mut self, character: char) {
+        if let Some(input) = &mut self.text_input {
+            input.value.push(character);
+        }
+    }
+
+    pub fn input_backspace(&mut self) {
+        if let Some(input) = &mut self.text_input {
+            input.value.pop();
+        }
+    }
+
+    pub fn input_cancel(&mut self) {
+        self.text_input = None;
+    }
+
+    pub fn input_submit(&mut self) {
+        let Some(input) = self.text_input.take() else {
+            return;
+        };
+        match input.action {
+            TextAction::SearchRemote => self.search_remote(&input.value),
+            TextAction::AddExtensionStore => self.add_extension_store(&input.value),
+            TextAction::SetSuwayomiUrl => self.set_suwayomi_url(&input.value),
+        }
+    }
+
+    fn set_suwayomi_url(&mut self, url: &str) {
+        let url = url.trim();
+        self.config.suwayomi_url = (!url.is_empty()).then(|| url.to_owned());
+        self.suwayomi_client = self.config.suwayomi_url.as_deref().map(SuwayomiClient::new);
+        self.suwayomi.sources.clear();
+        self.suwayomi.results.clear();
+        self.suwayomi.manga = None;
+        self.suwayomi.chapters.clear();
+        self.suwayomi.extensions.clear();
+        self.suwayomi.stores.clear();
+        self.suwayomi.status = None;
+        self.suwayomi.error = false;
+        if self.suwayomi_client.is_some() {
+            self.load_remote_sources();
+        }
+        self.persist_settings();
+        self.browse_view = BrowseView::Sources;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+    }
+
+    pub fn open_extensions(&mut self) {
+        self.browse_view = BrowseView::Extensions;
+        self.browse_selection = 0;
+        self.load_extensions();
+        self.select_browse_entry(0);
+    }
+
+    pub fn open_stores(&mut self) {
+        self.browse_view = BrowseView::Stores;
+        self.browse_selection = 0;
+        if self.suwayomi.stores.is_empty() {
+            self.load_extensions();
+        }
+        self.select_browse_entry(0);
+    }
+
+    pub fn load_extensions(&mut self) {
+        let Some(client) = self.suwayomi_client.clone() else {
+            self.suwayomi.status = Some(
+                "Set the Suwayomi server in More → Settings → Browse to manage extensions."
+                    .to_owned(),
+            );
+            self.suwayomi.error = false;
+            return;
+        };
+        match (client.extensions(), client.extension_stores()) {
+            (Ok(mut extensions), Ok(mut stores)) => {
+                extensions.sort_by(|left, right| {
+                    left.name.to_lowercase().cmp(&right.name.to_lowercase())
+                });
+                stores.sort_by(|left, right| {
+                    left.name.to_lowercase().cmp(&right.name.to_lowercase())
+                });
+                self.suwayomi.extensions = extensions;
+                self.suwayomi.stores = stores;
+                self.suwayomi.status = None;
+                self.suwayomi.error = false;
+            }
+            (Err(error), _) | (_, Err(error)) => self.set_remote_error(error),
+        }
+    }
+
+    fn toggle_selected_extension(&mut self) {
+        let Some(extension) = self.selected_extension().cloned() else {
+            return;
+        };
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        let result = if extension.is_installed {
+            client.update_extension(&extension.pkg_name, false, false, true)
+        } else {
+            client.update_extension(&extension.pkg_name, true, false, false)
+        };
+        match result {
+            Ok(()) => {
+                let action = if extension.is_installed {
+                    "Uninstalled"
+                } else {
+                    "Installed"
+                };
+                let name = extension.name;
+                self.load_extensions();
+                self.load_remote_sources();
+                self.suwayomi.status = Some(format!("{action} {name}"));
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn update_selected_extension(&mut self) {
+        let Some(extension) = self.selected_extension().cloned() else {
+            return;
+        };
+        if !extension.has_update {
+            return;
+        }
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        match client.update_extension(&extension.pkg_name, false, true, false) {
+            Ok(()) => {
+                let name = extension.name;
+                self.load_extensions();
+                self.load_remote_sources();
+                self.suwayomi.status = Some(format!("Updated {name}"));
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    fn add_extension_store(&mut self, url: &str) {
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        match client.add_extension_store(url.trim()) {
+            Ok(()) => {
+                self.load_extensions();
+                self.load_remote_sources();
+                self.browse_view = BrowseView::Extensions;
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+                self.suwayomi.status = Some("Extension store added".to_owned());
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn remove_selected_store(&mut self) {
+        let Some(store) = self.selected_store().cloned() else {
+            return;
+        };
+        let Some(client) = self.suwayomi_client.clone() else {
+            return;
+        };
+        match client.remove_extension_store(&store.index_url) {
+            Ok(()) => {
+                self.load_extensions();
+                self.load_remote_sources();
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+                self.suwayomi.status = Some(format!("Removed {}", store.name));
+                self.suwayomi.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    fn set_remote_error(&mut self, error: impl std::fmt::Display) {
+        self.suwayomi.status = Some(error.to_string());
+        self.suwayomi.error = true;
     }
 
     pub fn select_browse_index(&mut self, index: usize) {
@@ -984,6 +1534,12 @@ impl AppState {
         self.accent = config.accent.clone();
         palette::apply(self.theme, self.accent.as_deref());
         self.fullscreen = config.fullscreen;
+        self.suwayomi_client = config
+            .suwayomi_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .map(SuwayomiClient::new);
         config.thumbnail_width = config.thumbnail_width.clamp(8, 28);
         self.zoom = config.reader_zoom.clamp(50, 300);
         self.scroll_cache = ScrollCacheConfig {
@@ -1093,6 +1649,10 @@ impl AppState {
                 self.persist_settings();
             }
             SettingId::RescanLibrary => self.refresh(),
+            SettingId::SuwayomiUrl => {
+                let current = self.config.suwayomi_url.clone().unwrap_or_default();
+                self.open_text_input(TextAction::SetSuwayomiUrl, "Suwayomi server URL", &current);
+            }
             SettingId::ReadingMode | SettingId::LibrarySort | SettingId::DefaultCategory => {
                 self.adjust_setting(1)
             }
@@ -1484,7 +2044,7 @@ impl AppState {
             SettingId::Incognito => {
                 self.config.incognito = !self.config.incognito;
             }
-            SettingId::LibraryPath | SettingId::RescanLibrary => return,
+            SettingId::LibraryPath | SettingId::RescanLibrary | SettingId::SuwayomiUrl => return,
         }
 
         self.persist_settings();
@@ -1608,6 +2168,7 @@ impl AppState {
         let Some(chapter) = self.selected_chapter().cloned() else {
             return;
         };
+        self.suwayomi.reader = false;
         let series_title = self
             .selected_series()
             .map(|series| series.title.clone())
@@ -1694,7 +2255,17 @@ impl AppState {
     }
 
     pub fn next_chapter(&mut self) {
-        if self.view != LibraryView::Reader || self.chapter_index == 0 {
+        if self.view != LibraryView::Reader {
+            return;
+        }
+        if self.suwayomi.reader {
+            if self.suwayomi.chapter_index > 0 {
+                self.suwayomi.chapter_index -= 1;
+                self.open_remote_chapter(self.suwayomi.chapter_index);
+            }
+            return;
+        }
+        if self.chapter_index == 0 {
             return;
         }
         self.chapter_index -= 1;
@@ -1702,7 +2273,17 @@ impl AppState {
     }
 
     pub fn previous_chapter(&mut self) {
-        if self.view != LibraryView::Reader || self.chapter_index + 1 >= self.chapter_count() {
+        if self.view != LibraryView::Reader {
+            return;
+        }
+        if self.suwayomi.reader {
+            if self.suwayomi.chapter_index + 1 < self.suwayomi.chapters.len() {
+                self.suwayomi.chapter_index += 1;
+                self.open_remote_chapter(self.suwayomi.chapter_index);
+            }
+            return;
+        }
+        if self.chapter_index + 1 >= self.chapter_count() {
             return;
         }
         self.chapter_index += 1;
@@ -2165,6 +2746,9 @@ impl AppState {
         if index == 3 && self.tab != 3 {
             self.browse_view = BrowseView::Sources;
             self.browse_selection = 0;
+            if self.suwayomi_client.is_some() {
+                self.load_remote_sources();
+            }
             self.select_browse_entry(0);
         }
         self.tab = index;
@@ -2384,6 +2968,63 @@ mod tests {
             categories: vec!["Default".to_owned(), "Reading".to_owned()],
             errors: Vec::new(),
         }
+    }
+
+    #[test]
+    fn text_input_edits_and_cancels() {
+        let mut app = AppState::default();
+        app.open_text_input(TextAction::SearchRemote, "Search source", "one");
+
+        app.input_char(' ');
+        app.input_char('p');
+        app.input_backspace();
+        assert_eq!(app.text_input.as_ref().unwrap().value, "one ");
+
+        app.input_cancel();
+        assert!(app.text_input.is_none());
+
+        app.open_text_input(TextAction::SearchRemote, "Search source", "berserk");
+        app.input_submit();
+        assert!(app.text_input.is_none());
+        assert_eq!(app.browse_view, BrowseView::RemoteResults);
+        assert_eq!(app.suwayomi.query, "berserk");
+    }
+
+    #[test]
+    fn remote_reader_uses_remote_chapter_navigation_counts() {
+        let mut app = AppState {
+            view: LibraryView::Reader,
+            ..AppState::default()
+        };
+        app.suwayomi.reader = true;
+        app.suwayomi.chapter_index = 1;
+        app.suwayomi.chapters = vec![
+            RemoteChapter {
+                id: 1,
+                name: "Chapter 2".to_owned(),
+                chapter_number: 2.0,
+                scanlator: None,
+                source_order: 0,
+                page_count: 10,
+                upload_date: 0,
+                is_read: false,
+                last_page_read: 0,
+            },
+            RemoteChapter {
+                id: 2,
+                name: "Chapter 1".to_owned(),
+                chapter_number: 1.0,
+                scanlator: None,
+                source_order: 1,
+                page_count: 12,
+                upload_date: 0,
+                is_read: false,
+                last_page_read: 0,
+            },
+        ];
+
+        assert_eq!(app.reader_chapter_index(), 1);
+        assert_eq!(app.reader_chapter_count(), 2);
     }
 
     #[test]

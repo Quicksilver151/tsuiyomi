@@ -14,10 +14,10 @@ compiling, but do not extend it. It will be replaced by the manga library.
 
 ## Status
 
-Local-library MVP: scanning, browsing/import, metadata, covers, reading, progress, and
-settings work. Remote sources, updates/history, and backups are not implemented. The API
-and config format are still unstable, and large refactors are welcome when they move the
-project toward the architecture below.
+Local-library and Suwayomi MVP: scanning, browsing, metadata, covers, reading, progress,
+settings, remote sources, and extension management work. Updates/history and backups are
+not implemented. The API and config format are still unstable, and large refactors are
+welcome when they move the project toward the architecture below.
 
 ## Environment
 
@@ -159,18 +159,21 @@ Rules:
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
 - Scanning is synchronous on refresh; move it to a background task.
-- Browse follows Mihon's source model: it lists sources, currently only the built-in
-  Local source. Opening it shows the series under the library root as a cover tile grid;
-  Enter opens a series detail screen inside Browse, and Enter again opens its chapter list
-  inside Browse. Chapters and the reader stay under the Browse tab; Browse never switches
-  to Library. Library itself also uses a tile grid, not a list. Category keys only affect
-  Library's series grid. There is no filesystem import browser; users place folders in
-  local/ and rescan. Remote sources and Mihon extensions remain unsupported.
+- Browse follows Mihon's source model. Sources include the built-in Local source and all
+  sources exposed by an optional Suwayomi-Server configured with `suwayomi_url`. Remote
+  results, manga details, chapters, and the reader stay under the Browse tab; Browse never
+  switches to Library. Extensions are managed through Suwayomi (repo URLs, install,
+  update, uninstall). tsuiyomi never loads APK bytecode itself; Suwayomi supplies the JVM
+  AndroidCompat/dex2jar runtime. Remote progress uses synthetic
+  `suwayomi://source/manga/chapter` keys. Remote network calls are currently synchronous.
+  Library itself also uses a tile grid, not a list. Category keys only affect Library's
+  series grid. There is no filesystem import browser; users place folders in local/ and
+  rescan.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
-  `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`, and
-  `incognito`, and preserves unknown keys from existing files.
+  `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
+  `incognito`, and `suwayomi_url`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

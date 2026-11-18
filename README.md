@@ -4,9 +4,9 @@ A terminal UI for managing and reading a **local manga library**, built for libr
 laid out in [Mihon](https://mihon.app/)'s Local source format. The same files work in
 both apps.
 
-> **Status:** MVP for local Mihon libraries — scanning, source browsing, metadata, covers,
-> reading, progress, and settings. Remote sources, updates/history, and backups are not
-> implemented yet.
+> **Status:** MVP for local Mihon libraries plus Suwayomi-backed remote sources and
+> extensions — scanning, browsing, metadata, covers, reading, progress, and settings.
+> Updates/history and backups are not implemented yet.
 
 ## Goals
 
@@ -100,24 +100,47 @@ the chapter list. `[`/`]` switch categories and `r` rescans. Tile width is adjus
 
 ## Browse
 
-Browse follows Mihon's source model. It lists sources; this build has one built-in source:
+Browse follows Mihon's source model:
 
-- **Local source** — lists the series directories inside the library root as a cover tile
-  grid, sorted by title.
+- **Local source** — series directories in the library root.
+- **Suwayomi sources** — every source exposed by a configured Suwayomi server, including
+  installed Mihon/Tachiyomi extensions.
 
 Controls:
 
 - `↑↓` moves by grid row and `←→` by tile.
-- `Enter` opens the Local source, then opens the selected series detail screen.
-- From the detail screen, `Enter` opens that series' chapter list inside Browse.
-- Opening a chapter from Browse keeps you in the Browse tab; `Esc` walks back through
-  reader → chapters → detail → local grid → sources.
+- `Enter` opens the selected source, series detail, chapter, or extension action.
+- From a detail screen, `Enter` opens the chapter list inside Browse.
+- Remote sources open with popular results. `s` searches the current remote source.
+- Opening a chapter keeps you in the Browse tab; `Esc` walks back through
+  reader → detail → results → sources.
 - `Esc` or `Backspace` goes back one level.
-- `r` rescans the local source while viewing its items.
+- `r` refreshes the current list.
+- `e` opens Extensions, `a` adds an extension store URL, `t` switches between extensions
+  and stores, `u` updates the selected extension, and `d` removes a selected store.
 
-There is no filesystem import browser. To add manga, place the folder or archive in the
-Mihon `local/` directory and rescan. Remote sources and Mihon extensions are not
-available.
+There is no filesystem import browser. To add local manga, place the folder or archive
+in the Mihon `local/` directory and rescan.
+
+## Remote sources and extensions
+
+Mihon extension APKs require an Android-compatible runtime. tsuiyomi does not load APK
+bytecode itself; it uses a local [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server)
+as the JVM extension host. Suwayomi handles extension repos, APK installs, `dex2jar`, and
+the Android compatibility layer.
+
+Set `suwayomi_url` in `config.toml`, start Suwayomi, then open Browse. Add the Keiyoushi
+repository through Extensions → `a`:
+
+```text
+https://github.com/keiyoushi/extensions/raw/repo/index.pb
+```
+
+Install extensions, and their sources appear in the Browse source list. Suwayomi handles
+both legacy JSON stores and protobuf stores such as Keiyoushi’s.
+
+Remote pages are fetched through `read_page` and use the same page/scroll reader and
+progress store as local chapters. Remote progress keys are `suwayomi://source/manga/chapter`.
 
 ## Metadata
 
@@ -142,6 +165,7 @@ The default is `webtoon` (continuous vertical scroll). Set it in
 `~/.config/tsuiyomi/config.toml`:
 
 ```toml
+suwayomi_url = "http://127.0.0.1:4567" # optional JVM extension host
 reading_mode = "webtoon"
 reader_zoom = 100
 scroll_prefetch_behind = 2
@@ -184,7 +208,7 @@ categories:
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
 - **Downloads** — informational; this build reads a local library directly.
 - **Tracking** — informational; no remote tracking services.
-- **Browse** — local source path; Mihon extensions are Android-only.
+- **Browse** — local source path and the Suwayomi sidecar URL for extension sources.
 - **Data and storage** — storage locations and backup status.
 - **Security** — Incognito mode, which stops writing reading progress.
 - **Advanced** — logging and diagnostic notes.
@@ -222,6 +246,7 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
       fallback.
 - [x] Detect `cover.*` images and show them in the details pane.
 - [x] Browse the built-in Local source and open its series in Library.
+- [x] Browse Suwayomi remote sources and manage Mihon extensions through the JVM sidecar.
 - [x] Terminal reader using Kitty/Sixel/iTerm2 graphics with a halfblocks fallback.
 - [x] Page-turn and continuous vertical scroll modes (`m` toggles).
 - [x] Reader bottom bar: previous/next chapter, page gauge, and mode toggle; tabs hidden.
