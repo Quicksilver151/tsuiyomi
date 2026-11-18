@@ -39,15 +39,16 @@ use crate::{
 
 /// Run the TUI until the user quits.
 pub fn run(mut app: AppState) -> io::Result<()> {
-    let mut terminal = ratatui::init();
-
-    // Queries the terminal for Kitty/Sixel/iTerm2 support and font size. Must happen
-    // before any input events are read. Prefer Kitty shared memory for transmissions.
+    // Query capabilities before entering the alternate screen. This also drains the
+    // terminal's query responses before the event loop starts, so the first keypress
+    // does not trigger a stray redraw/flash.
     let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
         kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
         ..Default::default()
     })
     .unwrap_or_else(|_| Picker::halfblocks());
+
+    let mut terminal = ratatui::init();
     app.set_image_picker(picker);
     app.set_progress(ProgressStore::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
@@ -91,6 +92,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         };
 
+        if app.quit_confirm {
+            match action {
+                Action::Quit | Action::Open | Action::Confirm => return Ok(()),
+                Action::Back | Action::NextChapter => app.quit_confirm = false,
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -107,7 +118,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         }
 
         match action {
-            Action::Quit => return Ok(()),
+            Action::Quit => app.quit_confirm = true,
+            Action::Confirm => {}
             Action::Previous => {
                 if app.tab == 3 {
                     if app.view == LibraryView::Series {

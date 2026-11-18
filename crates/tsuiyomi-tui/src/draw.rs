@@ -78,6 +78,51 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     }
 
     draw_picker(frame, app);
+    draw_quit_confirm(frame, app);
+}
+
+fn draw_quit_confirm(frame: &mut Frame, app: &AppState) {
+    if !app.quit_confirm {
+        return;
+    }
+    let area = frame.area();
+    let width = 46.min(area.width);
+    let height = 5.min(area.height);
+    if width < 16 || height < 4 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Quit ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "Quit tsuiyomi?",
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "q / Enter / y  exit    n / Esc  cancel",
+            Style::default().fg(c_overlay0()),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).alignment(Alignment::Center),
+        inner,
+    );
 }
 
 fn draw_header(frame: &mut Frame, area: Rect) {
@@ -2044,6 +2089,17 @@ mod tests {
         assert!(!text.contains("Tsuiyomi"));
         assert!(!text.contains("commands"));
         assert!(text.contains("Library"));
+    }
+
+    #[test]
+    fn quit_confirmation_renders_as_a_centered_panel() {
+        let mut app = test_app();
+        app.quit_confirm = true;
+
+        let text = render(&mut app, 80, 24);
+        assert!(text.contains("Quit tsuiyomi?"));
+        assert!(text.contains("exit"));
+        assert!(text.contains("cancel"));
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub enum Action {
     Redraw,
     ScrollUp,
     ScrollDown,
+    Confirm,
     Char(char),
     Backspace,
     Click { column: u16, row: u16 },
@@ -64,6 +65,7 @@ fn key_action(code: KeyCode, text_mode: bool) -> Option<Action> {
 
     let action = match code {
         KeyCode::Char('q') => Action::Quit,
+        KeyCode::Char('y') => Action::Confirm,
         KeyCode::Esc => Action::Back,
         KeyCode::Enter => Action::Open,
         KeyCode::Char('c') => Action::OpenConfig,
@@ -160,6 +162,7 @@ mod tests {
         assert_eq!(key_action(KeyCode::Enter, false), Some(Action::Open));
         assert_eq!(key_action(KeyCode::Esc, false), Some(Action::Back));
         assert_eq!(key_action(KeyCode::Backspace, false), Some(Action::Back));
+        assert_eq!(key_action(KeyCode::Char('y'), false), Some(Action::Confirm));
     }
 
     #[test]

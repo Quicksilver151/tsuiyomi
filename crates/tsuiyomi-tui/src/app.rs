@@ -385,6 +385,7 @@ pub struct AppState {
     pub theme: Theme,
     pub accent: Option<String>,
     pub picker: Option<PickerState>,
+    pub quit_confirm: bool,
     pub status: Option<String>,
 }
 
@@ -426,6 +427,7 @@ impl AppState {
             theme: Theme::default(),
             accent: None,
             picker: None,
+            quit_confirm: false,
             status,
         }
     }
