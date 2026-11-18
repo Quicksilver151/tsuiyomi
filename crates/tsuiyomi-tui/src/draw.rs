@@ -428,6 +428,12 @@ fn draw_series_grid(
         let series = &app.library.series[*series_index];
         let tile = grid_tile_rect(area, columns, offset, index, tile_height);
         let is_selected = index == selected;
+        if is_selected {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                tile,
+            );
+        }
         let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
         let mut rendered_cover = false;
         if let Some(path) = &series.cover {
