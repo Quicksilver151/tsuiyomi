@@ -379,7 +379,7 @@ fn draw_series_grid(
     current_offset: usize,
 ) -> (usize, usize) {
     let columns = grid_columns(area, app.config.thumbnail_width);
-    let cover_height = tile_cover_height(app.config.thumbnail_width);
+    let cover_height = tile_cover_height(app.config.thumbnail_width, area.height);
     let tile_height = cover_height + TILE_TEXT_HEIGHT;
     let selected = selected.min(indices.len().saturating_sub(1));
     if indices.is_empty() {
@@ -471,14 +471,11 @@ fn draw_series_grid(
             Style::default().fg(c_text())
         };
         let count_area = Rect::new(title_area.x, title_area.y + 1, title_area.width, 1);
-        let title = if is_selected {
-            format!(
-                "› {}",
-                truncate_text(&series.title, title_area.width.saturating_sub(2))
-            )
-        } else {
-            truncate_text(&series.title, title_area.width)
-        };
+        let marker = if is_selected { "› " } else { "  " };
+        let title = format!(
+            "{marker}{}",
+            truncate_text(&series.title, title_area.width.saturating_sub(2))
+        );
         frame.render_widget(
             Paragraph::new(title)
                 .alignment(Alignment::Center)

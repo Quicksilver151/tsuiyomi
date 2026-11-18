@@ -118,9 +118,15 @@ pub fn library_grid_area(area: Rect) -> Rect {
 pub const TILE_GAP: u16 = 1;
 pub const TILE_TEXT_HEIGHT: u16 = 2;
 
-/// Cover height follows the configured tile width so changing thumbnail size is visible.
-pub fn tile_cover_height(min_width: u16) -> u16 {
-    (u32::from(min_width) * 2 / 3).clamp(5, 16) as u16
+/// Cover height follows the configured tile width, capped so the viewport can show
+/// two complete rows on short terminals.
+pub fn tile_cover_height(min_width: u16, area_height: u16) -> u16 {
+    let ideal = (u32::from(min_width) * 2 / 3).clamp(5, 16) as u16;
+    let cap = area_height
+        .saturating_div(2)
+        .saturating_sub(TILE_TEXT_HEIGHT)
+        .max(4);
+    ideal.min(cap)
 }
 
 pub fn grid_columns(area: Rect, min_width: u16) -> usize {
@@ -320,8 +326,8 @@ mod tests {
         assert_eq!(columns, 5);
         assert_eq!(grid_tile_width(area, columns), 14);
         assert_eq!(
-            grid_visible_rows(area, tile_cover_height(14) + TILE_TEXT_HEIGHT),
-            1
+            grid_visible_rows(area, tile_cover_height(14, area.height) + TILE_TEXT_HEIGHT),
+            2
         );
 
         let columns = grid_columns(area, 18);
@@ -332,11 +338,12 @@ mod tests {
     #[test]
     fn grid_hit_testing_ignores_gaps_and_partial_rows() {
         let area = Rect::new(4, 3, 78, 16);
-        let tile_height = tile_cover_height(14) + TILE_TEXT_HEIGHT;
+        let tile_height = tile_cover_height(14, area.height) + TILE_TEXT_HEIGHT;
         assert_eq!(grid_index_at(area, 5, 0, 4, 3, 20, tile_height), Some(0));
         assert_eq!(grid_index_at(area, 5, 0, 19, 3, 20, tile_height), Some(1));
         assert_eq!(grid_index_at(area, 5, 0, 18, 3, 20, tile_height), None);
-        assert_eq!(grid_index_at(area, 5, 0, 4, 13, 20, tile_height), Some(0));
-        assert_eq!(grid_index_at(area, 5, 0, 4, 14, 20, tile_height), None);
+        assert_eq!(grid_index_at(area, 5, 0, 4, 13, 20, tile_height), Some(5));
+        assert_eq!(grid_index_at(area, 5, 0, 4, 14, 20, tile_height), Some(5));
+        assert_eq!(grid_index_at(area, 5, 0, 4, 19, 20, tile_height), None);
     }
 }

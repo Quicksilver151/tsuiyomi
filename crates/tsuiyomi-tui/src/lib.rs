@@ -358,7 +358,7 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             column,
             row,
             app.visible_count(),
-            tile_cover_height(app.config.thumbnail_width) + TILE_TEXT_HEIGHT,
+            tile_cover_height(app.config.thumbnail_width, grid_area.height) + TILE_TEXT_HEIGHT,
         ) {
             app.select_index(index);
         }
@@ -389,7 +389,7 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 column,
                 row,
                 app.browse_item_count(),
-                tile_cover_height(app.config.thumbnail_width) + TILE_TEXT_HEIGHT,
+                tile_cover_height(app.config.thumbnail_width, grid_area.height) + TILE_TEXT_HEIGHT,
             ) {
                 app.select_browse_index(index);
             }
