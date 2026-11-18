@@ -471,11 +471,7 @@ fn draw_series_grid(
             Style::default().fg(c_text())
         };
         let count_area = Rect::new(title_area.x, title_area.y + 1, title_area.width, 1);
-        let marker = if is_selected { "› " } else { "  " };
-        let title = format!(
-            "{marker}{}",
-            truncate_text(&series.title, title_area.width.saturating_sub(2))
-        );
+        let title = truncate_text(&series.title, title_area.width);
         frame.render_widget(
             Paragraph::new(title)
                 .alignment(Alignment::Center)
