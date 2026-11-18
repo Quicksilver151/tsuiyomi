@@ -1,70 +1,145 @@
-# Mihon Extension Support Plan
+# Extension Host Plan
 
 ## Goal
 
-Run the Mihon/Tachiyomi extension ecosystem from the tsuiyomi terminal UI.
+Run Mihon/Tachiyomi extension APKs from a single tsuiyomi executable, with no external
+server installation.
 
-Direct APK execution in Rust is not viable. Mihon loads extension APKs with
-Android's `DexClassLoader`; Suwayomi proves that desktop support requires a JVM plus an
-Android compatibility layer and `dex2jar`. tsuiyomi will use a JVM extension host as a
-local sidecar and talk to it over Suwayomi's GraphQL API.
+## Why a JVM host
 
-## Architecture
+Extensions are JVM bytecode that calls `android.*` and the Tachiyomi source API. Running
+them requires a classloader, Android compatibility shims, and the source API. That is a
+JVM. There is no pure-Rust path.
+
+The chosen host is **miwayomi**: a headless Kotlin/JVM 21 service that loads extension
+APKs (or repo-published JVM jars), runs them, and exposes them over a small REST API.
 
 ```
-tsuiyomi TUI (Rust)
-    |
-    | GraphQL + image HTTP
-    v
-Suwayomi Server (JVM)
-    | AndroidCompat + dex2jar + URLClassLoader
-    v
-Mihon/Tachiyomi extension APK
+tsuiyomi (Rust, single executable)
+├── TUI
+├── embedded runtime archive (zip)
+│   ├── jre/                 jlink'd JRE 21
+│   └── miwayomi.jar
+└── first run: extract to $XDG_CACHE_HOME/tsuiyomi/host/<version>/
+        |
+        └── java -jar miwayomi.jar --host 127.0.0.1 --port <free> \
+                 --data $XDG_DATA_HOME/tsuiyomi/host --no-open --flaresolverr ""
+                |
+                └── REST at http://127.0.0.1:<port>/api/v1
 ```
 
-- `tsuiyomi-core` owns the Suwayomi client, remote source types, and extension metadata.
-- `tsuiyomi-tui` owns source browsing, extension management, chapters, and reader flow.
-- Local Mihon-compatible libraries remain a built-in source.
-- Suwayomi is configured by URL. tsuiyomi never loads APK bytecode itself.
+No WebView support in v1. Sources that need one fail with a clear error. Cloudflare
+sources can be served by an optional external FlareSolverr; it is not bundled.
 
-## Phase 1 — Sources and remote reading
+## Host API used
 
-- [x] Add `suwayomi_url` to config.
-- [x] Add a blocking HTTP/GraphQL client in core with timeouts.
-- [x] Implement source list, search/popular, chapter list, and page image URLs.
-- [x] Add remote source models separate from path-based local series.
-- [x] Browse sources list includes Local and all Suwayomi sources.
-- [x] Remote source results use the cover grid.
-- [x] Remote manga detail and chapter list stay inside Browse.
-- [x] Reader pulls remote page bytes through `read_page`.
-- [x] Mock-server tests for GraphQL and page URL resolution.
-- [x] Add latest browsing to the remote result grid.
-- [ ] Add result pagination controls.
-- [ ] Move remote network calls off the UI thread.
+```
+GET  /api/v1/health
+GET  /api/v1/sources                                  -> { manga: [Source], anime: [...] }
+GET  /api/v1/manga/{sourceId}/popular?page=N
+GET  /api/v1/manga/{sourceId}/latest?page=N
+GET  /api/v1/manga/{sourceId}/search?query=&page=N
+GET  /api/v1/manga/{sourceId}/details?url=
+GET  /api/v1/manga/{sourceId}/chapters?url=
+GET  /api/v1/manga/{sourceId}/pages?url=
+GET  /api/v1/image?sourceId=&url=&imageUrl=           (patched; page-aware fetch)
+GET  /api/v1/proxy?sourceId=&url=&headers=
+GET  /api/v1/extensions/repo?url=                     -> { extensions: [RepoEntry] }
+GET  /api/v1/extensions/installed
+POST /api/v1/extensions/install    { repoUrl, apk }
+POST /api/v1/extensions/uninstall  { pkg }
+GET  /api/v1/extensions/repos
+POST /api/v1/extensions/repos      { repos: [..] }
+```
 
-## Phase 2 — Extension management
+Details, chapters, and pages are URL-addressed, so browsing needs no host-side library or
+database rows. tsuiyomi owns reading progress.
 
-- [x] Browse → Extensions view.
-- [x] List installed and available extensions with language, version, and update state.
-- [x] Add/remove extension store URLs via GraphQL.
-- [x] Install, update, uninstall extensions.
-- [x] Surface server errors and unavailable-server state.
-- [ ] Show source counts and content-warning badges in the extension list.
-- [ ] Mock GraphQL tests for extension mutations.
+## Phase 1 — Host client (core)
 
-## Phase 3 — Library, categories, and progress
+- [x] Replace the Suwayomi GraphQL client with a miwayomi REST client in
+      `crates/tsuiyomi-core/src/host.rs`.
+- [x] Types: `RemoteSource`, `RemoteManga`, `RemoteMangaPage`, `RemoteChapter`,
+      `ExtensionInfo`.
+- [x] Map manga status codes, comma-separated genres, and proxy image URLs through the
+      host so hotlink-protected images work.
+- [x] Surface `ErrorDto.error` and Cloudflare challenge messages instead of raw HTTP
+      codes.
+- [x] Mock-server tests for sources, search, chapters, pages, extensions, and errors.
 
-- [x] Use stable synthetic remote keys: source ID + manga ID + chapter ID.
-- [x] Persist and resume remote chapter page progress through the existing store.
-- [x] Keep local category behavior intact.
-- [ ] Add remote manga to Suwayomi's library via GraphQL.
-- [ ] Mirror read state to Suwayomi.
-- [ ] Show remote history entries.
-- [ ] Replace synthetic keys with a typed local/remote progress key enum.
+## Phase 2 — TUI
 
-## Later
+- [x] Rename the remote state from Suwayomi-specific names to host-neutral ones.
+- [x] Browse: sources, results grid, details, chapters, reader, extensions, stores.
+- [x] Search, latest, pagination-ready state.
+- [x] Extension management through repos: add/remove repo URLs, install, uninstall,
+      update-by-reinstall.
+- [x] Progress keys: `remote://<source>/<manga>/<chapter>` hashes, independent of paths.
+- [x] Settings shows the host URL instead of a Suwayomi URL.
 
-- [ ] Auto-start/stop Suwayomi as a managed sidecar.
-- [ ] Nix package for the JVM sidecar.
-- [ ] Suwayomi library/category sync.
-- [ ] Optional Android device bridge.
+## Phase 3 — Bundled runtime
+
+- [x] Runtime discovery: external `host_url`, explicit `host_jar`, versioned cache dir,
+      and an optional build-time embedded archive.
+- [x] Atomic extraction of the embedded archive into the versioned cache.
+- [x] Supervisor: loopback-only port, XDG data dir, health check, log file, graceful
+      shutdown, stale-process cleanup.
+- [x] Self-update guard: the host's download target is replaced by a directory, so a
+      bundled jar can never be swapped under the binary.
+- [x] Archive builder: `scripts/build-host-runtime.sh` pins miwayomi 0.2.9 by SHA-256,
+      builds a `jlink` JRE 21, and writes `crates/tsuiyomi-core/runtime/host.zip`.
+- [x] Prefer the repository's desktop JVM jar over `dex2jar` output.
+- [x] Vendor the host patches: `scripts/host-patches/miwayomi-0.2.9.patch` adds the 1.6
+      source API, `AppInfo`, and the page-aware image endpoint.
+- [x] Build the archive from pinned source in `scripts/build-host-runtime.sh`.
+- [ ] Nix derivation / `nix bundle` output so the JRE keeps valid store paths on NixOS.
+- [ ] Cache Gradle dependencies for an offline/reproducible host build.
+
+## Phase 4 — Later
+
+- [ ] Background networking; the UI currently blocks on host calls.
+- [ ] Pagination controls in the results grid.
+- [ ] Read-state mirroring back to the host.
+- [ ] Optional FlareSolverr configuration in Settings.
+- [ ] Optional remote-WebView bridge for the ~1% of sources that need one.
+
+## Findings from a live host run
+
+Verified against miwayomi 0.2.9 on a real Keiyoushi install:
+
+- The REST shape matches the client. `sources`, repo parsing (`index.pb`, 1714 entries),
+  install, and extension listing all work as documented.
+- `dex2jar` output from a Keiyoushi APK can fail verification. MangaDex 1.6.4 threw
+  `VerifyError: Expecting a stackmap frame at branch target 45` and loaded zero sources.
+- The `.jar` published in the same release directory loads that extension cleanly (62
+  sources). `index.pb` carries both URLs, so the jar is always available.
+- The host omits `eu.kanade.tachiyomi.AppInfo`, which MangaDex calls at request time
+  (`ClassNotFoundException`). Upstream Suwayomi ships this class; miwayomi does not.
+  Injecting a compiled `AppInfo` class into the release jar fixes it.
+- miwayomi 0.2.9 implements the pre-1.6 source API: extensions must implement
+  `mangaDetailsParse`/`chapterListParse` and it never calls `getMangaUpdate`. Current
+  Keiyoushi extensions (MangaDex 1.6.4 and most sampled jars) implement the 1.6 suspend
+  API, so details and chapters fail with `AbstractMethodError` even though the extension
+  loads. The library endpoints and `getPageList` are already compatible.
+- Required host patch: add `SMangaUpdate`, add `MangaSource.getMangaUpdate`, make the
+  legacy parse methods `open` with a throwing default, and route details/chapters through
+  `getMangaUpdate`. This is a small, well-scoped change to the host source.
+- MangaDex splits a page across a server list (`Page.url`) and a relative path
+  (`Page.imageUrl`), so the client cannot GET either field directly. The patch adds
+  `GET /api/v1/image?sourceId=&url=&imageUrl=`, which rebuilds the `Page` and lets the
+  source execute the request. tsuiyomi uses that endpoint for every remote page.
+- The patched build was verified against MangaDex 1.6.4: 62 sources load; popular,
+  details, chapters, 11 pages, and a 7.2 MB image all succeed.
+- Workaround now implemented: after installing an APK, tsuiyomi downloads the sibling
+  `.jar`, writes it beside the APK, and restarts the host so the loader prefers it.
+- Remaining gap: extensions that call `AppInfo` still need the class. The long-term fix
+  is a small vendored patch to the host, not a tsuiyomi-side workaround.
+
+## Notes
+
+- Keiyoushi publishes `index.pb` (gzip + protobuf). Its entries carry absolute `.apk`
+  and `.jar` URLs. The host currently converts the APK with `dex2jar`; preferring the
+  published jar is a planned host patch.
+- The host auto-downloads updates on boot. The bundled jar must be patched to disable
+  that, otherwise the pinned API can drift under the binary.
+- JRE and host licenses must ship in the bundle.

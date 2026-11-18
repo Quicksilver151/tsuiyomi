@@ -27,3 +27,11 @@ test:
 # Build an optimized binary
 build:
     cargo build --release
+
+# Download and package the extension-host runtime (JRE + miwayomi jar)
+host-runtime:
+    ./scripts/build-host-runtime.sh
+
+# Build an optimized binary with the extension host embedded
+dist: host-runtime
+    cargo build --release

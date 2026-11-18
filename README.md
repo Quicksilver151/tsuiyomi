@@ -4,8 +4,8 @@ A terminal UI for managing and reading a **local manga library**, built for libr
 laid out in [Mihon](https://mihon.app/)'s Local source format. The same files work in
 both apps.
 
-> **Status:** MVP for local Mihon libraries plus Suwayomi-backed remote sources and
-> extensions — scanning, browsing, metadata, covers, reading, progress, and settings.
+> **Status:** MVP for local Mihon libraries plus extension-backed remote sources —
+> scanning, browsing, metadata, covers, reading, progress, and settings.
 > Updates/history and backups are not implemented yet.
 
 ## Goals
@@ -103,8 +103,8 @@ the chapter list. `[`/`]` switch categories and `r` rescans. Tile width is adjus
 Browse follows Mihon's source model:
 
 - **Local source** — series directories in the library root.
-- **Suwayomi sources** — every source exposed by a configured Suwayomi server, including
-  installed Mihon/Tachiyomi extensions.
+- **Extension sources** — every source exposed by the extension host, including installed
+  Mihon/Tachiyomi extensions.
 
 Controls:
 
@@ -124,23 +124,66 @@ in the Mihon `local/` directory and rescan.
 
 ## Remote sources and extensions
 
-Mihon extension APKs require an Android-compatible runtime. tsuiyomi does not load APK
-bytecode itself; it uses a local [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server)
-as the JVM extension host. Suwayomi handles extension repos, APK installs, `dex2jar`, and
-the Android compatibility layer.
+Mihon extension APKs are JVM bytecode. tsuiyomi does not load them itself; it runs a
+headless [miwayomi](https://github.com/miwayomi/miwayomi) host on loopback and talks to
+its REST API.
 
-Set `suwayomi_url` in `config.toml`, start Suwayomi, then open Browse. Add the Keiyoushi
-repository through Extensions → `a`:
+The host is started automatically when you first open Browse. It is discovered in this
+order:
+
+1. `host_url` in the config (use an already-running server).
+2. `host_jar` in the config, or `TSUIYOMI_HOST_JAR` (development override).
+3. The bundled runtime extracted to `$XDG_CACHE_HOME/tsuiyomi/host/<version>/`.
+4. `TSUIYOMI_JAVA`, `JAVA_HOME`, then `java` on `PATH` for the JVM.
+
+Host data (extensions, converted jars, logs) lives in
+`$XDG_DATA_HOME/tsuiyomi/host/`. `host.log` has the JVM output, and the process is
+stopped when tsuiyomi exits.
+
+Add the Keiyoushi repository through Browse → Extensions (`e`) → `a`:
 
 ```text
 https://github.com/keiyoushi/extensions/raw/repo/index.pb
 ```
 
-Install extensions, and their sources appear in the Browse source list. Suwayomi handles
-both legacy JSON stores and protobuf stores such as Keiyoushi’s.
+Then install extensions; their sources appear in the Browse source list. JSON stores and
+protobuf stores such as Keiyoushi's are both supported. `Enter` installs or uninstalls,
+`u` reinstalls (updates) the selected extension, `t` switches to the stores list, and `d`
+removes a store.
 
 Remote pages are fetched through `read_page` and use the same page/scroll reader and
-progress store as local chapters. Remote progress keys are `suwayomi://source/manga/chapter`.
+progress store as local chapters. Remote progress keys are
+`remote://<source>/<manga-hash>/<chapter-hash>`.
+
+Sources that need an Android WebView are not supported. Cloudflare-protected sources can
+work when an external FlareSolverr is configured for the host.
+
+### Bundling the host
+
+A normal `cargo build` produces a binary without a JVM, which falls back to `java` on
+`PATH`. For a genuinely single-file distribution, build the runtime archive first:
+
+```sh
+just host-runtime   # pinned miwayomi 0.2.9, patched, + jlink'd JRE 21
+just dist           # embeds the archive and builds the release binary
+```
+
+`just host-runtime` downloads the pinned host source, applies
+`scripts/host-patches/miwayomi-0.2.9.patch`, runs Gradle, and packages the jar with a
+`jlink` runtime. It needs a JDK 21 and network access and takes a few minutes. Set
+`TSUIYOMI_HOST_JAR_PATH` to reuse an already-built patched jar.
+
+The patch matters: the released host implements the pre-1.6 source API and lacks
+`eu.kanade.tachiyomi.AppInfo`, so current Keiyoushi extensions load but fail on details,
+chapters, and pages. The patch adds the 1.6 suspend API, `SMangaUpdate`, `AppInfo`, and a
+page-aware image endpoint for sources such as MangaDex.
+
+The archive is embedded at compile time, extracted once to
+`$XDG_CACHE_HOME/tsuiyomi/host/0.2.9/`, and reused afterwards. On NixOS prefer
+`nix bundle`, which keeps the JRE's store paths valid instead of shipping a distro JRE.
+
+The archive is not committed (it is over 100 MB). Host source is pinned to commit
+`a3a776ebd26f91f558cd59a4bd57fff9119ee987` (v0.2.9).
 
 ## Metadata
 
@@ -165,7 +208,8 @@ The default is `webtoon` (continuous vertical scroll). Set it in
 `~/.config/tsuiyomi/config.toml`:
 
 ```toml
-suwayomi_url = "http://127.0.0.1:4567" # optional JVM extension host
+# host_url = "http://127.0.0.1:4567"  # use an external extension host
+# host_jar = "/path/to/miwayomi.jar"  # development override
 reading_mode = "webtoon"
 reader_zoom = 100
 scroll_prefetch_behind = 2
@@ -208,7 +252,7 @@ categories:
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
 - **Downloads** — informational; this build reads a local library directly.
 - **Tracking** — informational; no remote tracking services.
-- **Browse** — local source path and the Suwayomi sidecar URL for extension sources.
+- **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.
 - **Security** — Incognito mode, which stops writing reading progress.
 - **Advanced** — logging and diagnostic notes.
@@ -246,7 +290,7 @@ See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
       fallback.
 - [x] Detect `cover.*` images and show them in the details pane.
 - [x] Browse the built-in Local source and open its series in Library.
-- [x] Browse Suwayomi remote sources and manage Mihon extensions through the JVM sidecar.
+- [x] Browse remote sources and manage Mihon extensions through the bundled JVM host.
 - [x] Terminal reader using Kitty/Sixel/iTerm2 graphics with a halfblocks fallback.
 - [x] Page-turn and continuous vertical scroll modes (`m` toggles).
 - [x] Reader bottom bar: previous/next chapter, page gauge, and mode toggle; tabs hidden.

@@ -303,7 +303,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     && app.view == LibraryView::Series
                     && app.browse_view == BrowseView::RemoteResults
                 {
-                    let query = app.suwayomi.query.clone();
+                    let query = app.remote.query.clone();
                     app.open_text_input(app::TextAction::SearchRemote, "Search source", &query);
                 }
             }
@@ -378,7 +378,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 if app.tab == 3 {
                     if app.view == LibraryView::Series {
                         app.browse_parent();
-                    } else if app.suwayomi.reader {
+                    } else if app.remote.reader {
                         app.close_remote_reader();
                     } else {
                         app.back();

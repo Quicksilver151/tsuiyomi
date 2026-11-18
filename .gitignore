@@ -7,3 +7,6 @@
 
 # Machine-local devshell env vars
 /.env.local
+
+# Generated extension-host runtime (100+ MB, built by `just host-runtime`)
+/crates/tsuiyomi-core/runtime/

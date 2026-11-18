@@ -54,8 +54,11 @@ pub enum Theme {
 pub struct Config {
     /// Root of the library, containing one directory per series.
     pub library_path: Option<PathBuf>,
-    /// Optional Suwayomi-Server base URL, e.g. `http://127.0.0.1:4567`.
-    pub suwayomi_url: Option<String>,
+    /// External extension-host base URL, e.g. `http://127.0.0.1:4567`. When unset,
+    /// tsuiyomi starts the bundled host.
+    pub host_url: Option<String>,
+    /// Explicit `miwayomi.jar` path for development. `None` uses the bundled runtime.
+    pub host_jar: Option<PathBuf>,
     /// Default reader mode.
     pub reading_mode: ReadingMode,
     /// UI color theme.
@@ -90,7 +93,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             library_path: default_library_path(),
-            suwayomi_url: None,
+            host_url: None,
+            host_jar: None,
             reading_mode: ReadingMode::default(),
             theme: Theme::default(),
             accent: None,
@@ -123,6 +127,10 @@ pub fn load_config() -> Config {
     if let Some(path) = env::var_os("TSUIYOMI_LIBRARY") {
         config.library_path = Some(PathBuf::from(path));
     }
+    if let Ok(url) = env::var("TSUIYOMI_HOST_URL") {
+        let url = url.trim();
+        config.host_url = (!url.is_empty()).then(|| url.to_owned());
+    }
 
     config
 }
@@ -143,7 +151,7 @@ mod tests {
         let config: Config = toml::from_str(
             r#"
 library_path = "/tmp/manga"
-suwayomi_url = "http://127.0.0.1:4567"
+host_url = "http://127.0.0.1:4567"
 theme = "default"
 
 [player]
@@ -153,10 +161,7 @@ external_mpv = ["mpv"]
         .unwrap();
 
         assert_eq!(config.library_path, Some(PathBuf::from("/tmp/manga")));
-        assert_eq!(
-            config.suwayomi_url.as_deref(),
-            Some("http://127.0.0.1:4567")
-        );
+        assert_eq!(config.host_url.as_deref(), Some("http://127.0.0.1:4567"));
         assert_eq!(config.reading_mode, ReadingMode::Webtoon);
         // A legacy `theme` value is now a known key; unknown names fall back.
         assert_eq!(config.theme, Theme::Unknown);

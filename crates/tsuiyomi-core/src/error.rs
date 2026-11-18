@@ -33,4 +33,7 @@ pub enum CoreError {
 
     #[error("request to {url} failed: {message}")]
     Network { url: String, message: String },
+
+    #[error("extension host error: {message}")]
+    Host { message: String },
 }
