@@ -12,7 +12,10 @@ mod scroll_worker;
 
 pub use app::AppState;
 
-use std::{io, time::Duration};
+use std::{
+    io,
+    time::{Duration, Instant},
+};
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
@@ -76,7 +79,30 @@ pub fn run(mut app: AppState) -> io::Result<()> {
 
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<()> {
     let mut needs_draw = true;
+    let mut pending_action = None;
+    let mut startup = true;
     loop {
+        if startup {
+            startup = false;
+            // Apply terminal resize events that arrive while entering the alternate screen
+            // before the first frame, instead of letting them look like a resize triggered
+            // by the first keypress.
+            let deadline = Instant::now() + Duration::from_millis(20);
+            while Instant::now() < deadline {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if !event::poll(remaining)? {
+                    break;
+                }
+                let event = event::read()?;
+                if matches!(event, event::Event::Resize(_, _)) {
+                    terminal.autoresize()?;
+                } else {
+                    pending_action = input::action_from_event(event, false);
+                    break;
+                }
+            }
+            terminal.autoresize()?;
+        }
         if app.poll_scroll_results() {
             needs_draw = true;
         }
@@ -85,10 +111,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = false;
         }
 
-        if !event::poll(Duration::from_millis(30))? {
+        let action = if let Some(action) = pending_action.take() {
+            Some(action)
+        } else if event::poll(Duration::from_millis(30))? {
+            input::read(app.picker.is_some())?
+        } else {
             continue;
-        }
-        let Some(action) = input::read(app.picker.is_some())? else {
+        };
+        let Some(action) = action else {
             continue;
         };
 

@@ -41,11 +41,15 @@ pub enum Action {
 /// drain background scroll-page results between inputs. `text_mode` routes printable
 /// keys to `Action::Char` so dialogs can accept typed input.
 pub fn read(text_mode: bool) -> io::Result<Option<Action>> {
-    match event::read()? {
-        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(key_action(key.code, text_mode)),
-        Event::Mouse(mouse) => Ok(mouse_action(mouse.kind, mouse.column, mouse.row)),
-        Event::Resize(_, _) => Ok(Some(Action::Redraw)),
-        _ => Ok(None),
+    Ok(action_from_event(event::read()?, text_mode))
+}
+
+pub(crate) fn action_from_event(event: Event, text_mode: bool) -> Option<Action> {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => key_action(key.code, text_mode),
+        Event::Mouse(mouse) => mouse_action(mouse.kind, mouse.column, mouse.row),
+        Event::Resize(_, _) => Some(Action::Redraw),
+        _ => None,
     }
 }
 
