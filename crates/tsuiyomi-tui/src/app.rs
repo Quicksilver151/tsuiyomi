@@ -1158,6 +1158,9 @@ impl AppState {
                                 known.apk = entry.apk;
                                 known.version = entry.version;
                                 known.source_count = known.source_count.max(entry.source_count);
+                                if known.lang.is_empty() {
+                                    known.lang = entry.lang;
+                                }
                             }
                             None => merged.push(entry),
                         }
@@ -1207,7 +1210,7 @@ impl AppState {
             return;
         }
         match client.install_extension(&extension.repo_url, &extension.apk) {
-            Ok(()) => {
+            Ok(outcome) => {
                 let name = extension.name;
                 let swapped = self.install_desktop_jar(&extension.apk);
                 if swapped {
@@ -1215,8 +1218,12 @@ impl AppState {
                 }
                 self.load_extensions();
                 self.load_remote_sources();
-                self.remote.status = Some(format!("Installed {name}"));
-                self.remote.error = false;
+                self.remote.status = Some(if outcome.sources == 0 {
+                    format!("Installed {name} but it exposed no sources")
+                } else {
+                    format!("Installed {name} ({} sources)", outcome.sources)
+                });
+                self.remote.error = outcome.sources == 0;
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -1234,7 +1241,7 @@ impl AppState {
             return;
         };
         match client.install_extension(&extension.repo_url, &extension.apk) {
-            Ok(()) => {
+            Ok(outcome) => {
                 let name = extension.name;
                 let swapped = self.install_desktop_jar(&extension.apk);
                 if swapped {
@@ -1242,8 +1249,9 @@ impl AppState {
                 }
                 self.load_extensions();
                 self.load_remote_sources();
-                self.remote.status = Some(format!("Reinstalled {name}"));
-                self.remote.error = false;
+                self.remote.status =
+                    Some(format!("Reinstalled {name} ({} sources)", outcome.sources));
+                self.remote.error = outcome.sources == 0;
             }
             Err(error) => self.set_remote_error(error),
         }

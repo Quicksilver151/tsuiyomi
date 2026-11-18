@@ -51,6 +51,11 @@ cargo test           # unit tests, especially parsers
 `justfile` wraps the common commands; `just` lists them. `./run.sh` is the user-facing
 entry point: it uses the active devshell or falls back to `nix develop --command just run`.
 
+`just host-runtime` builds the extension-host archive (`miwayomi` patched + `jlink` JRE)
+and needs a JDK 21 plus network access. Release builds embed that archive, so run it
+before `just dist`; a plain `cargo build` works without it and falls back to `java` on
+`PATH`.
+
 ## Mihon compatibility contract
 
 This is the core requirement. Do not invent a private on-disk format; read and write the

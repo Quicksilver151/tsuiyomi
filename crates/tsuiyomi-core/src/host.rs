@@ -82,6 +82,16 @@ pub struct ExtensionInfo {
     pub repo_url: String,
 }
 
+/// Result of installing one extension.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InstallOutcome {
+    pub name: Option<String>,
+    pub pkg: Option<String>,
+    /// Sources the host managed to instantiate. Zero usually means the extension needs a
+    /// newer host API or a WebView.
+    pub sources: usize,
+}
+
 #[derive(Clone)]
 pub struct HostClient {
     base_url: String,
@@ -170,6 +180,9 @@ impl HostClient {
         Ok(data
             .manga
             .into_iter()
+            // The host ships offline demo sources with no package. They are useful for
+            // host development, not for readers.
+            .filter(|row| row.pkg.is_some())
             .map(|row| RemoteSource {
                 id: row.id,
                 name: row.name,
@@ -356,11 +369,23 @@ impl HostClient {
             .collect())
     }
 
-    pub fn install_extension(&self, repo_url: &str, apk: &str) -> Result<(), CoreError> {
+    pub fn install_extension(
+        &self,
+        repo_url: &str,
+        apk: &str,
+    ) -> Result<InstallOutcome, CoreError> {
         #[derive(Deserialize)]
         struct Result_ {
             #[serde(default)]
             ok: bool,
+            #[serde(default)]
+            name: Option<String>,
+            #[serde(default)]
+            pkg: Option<String>,
+            #[serde(default)]
+            manga: usize,
+            #[serde(default)]
+            anime: usize,
             #[serde(default)]
             error: Option<String>,
         }
@@ -369,7 +394,11 @@ impl HostClient {
             json!({ "repoUrl": repo_url, "apk": apk }),
         )?;
         if result.ok {
-            Ok(())
+            Ok(InstallOutcome {
+                name: result.name,
+                pkg: result.pkg,
+                sources: result.manga + result.anime,
+            })
         } else {
             Err(CoreError::Network {
                 url: self.absolute_url("/api/v1/extensions/install"),
@@ -682,7 +711,7 @@ mod tests {
     #[test]
     fn reads_manga_sources() {
         let (address, requests) = server(vec![
-            r#"{"manga":[{"id":"7","name":"MangaDex","lang":"en","type":"manga","pkg":"eu.kanade.tachiyomi.extension.en.mangadex"}],"anime":[]}"#,
+            r#"{"manga":[{"id":"1","name":"Demo","lang":"en","type":"manga"},{"id":"7","name":"MangaDex","lang":"en","type":"manga","pkg":"eu.kanade.tachiyomi.extension.en.mangadex"}],"anime":[]}"#,
         ]);
         let client = HostClient::new(address);
 
@@ -764,7 +793,8 @@ mod tests {
         ]);
         let client = HostClient::new(address);
 
-        client.install_extension("https://repo", "x.apk").unwrap();
+        let installed = client.install_extension("https://repo", "x.apk").unwrap();
+        assert_eq!(installed.sources, 1);
         client.uninstall_extension("en.comick").unwrap();
 
         assert!(requests

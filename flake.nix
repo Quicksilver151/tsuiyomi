@@ -25,6 +25,10 @@
               rust-analyzer
               cargo-watch
               just
+              # `just host-runtime` builds the extension host (Gradle + jlink).
+              jdk21
+              curl
+              patch
             ];
 
             RUST_BACKTRACE = "1";

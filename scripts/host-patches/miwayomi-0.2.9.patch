@@ -1,3 +1,19 @@
+diff --git a/server/src/main/kotlin/miwayomi/Main.kt b/server/src/main/kotlin/miwayomi/Main.kt
+index 6405438..13bd319 100644
+--- a/server/src/main/kotlin/miwayomi/Main.kt
++++ b/server/src/main/kotlin/miwayomi/Main.kt
+@@ -27,9 +27,9 @@ fun buildServer(config: ServerConfig): EmbeddedServer<*, *> {
+     ConfigHolder.config = config
+     Injekt.importModule(AppModule)
+ 
++    // tsuiyomi pins the host version and embeds it in the binary. The self-updater would
++    // otherwise replace the running jar and drift from the API the client expects.
+     UpdateManager.configure(config.dataDir)
+-    UpdateManager.applyPendingUpdate(config.dataDir)
+-    UpdateManager.start()
+ 
+     if (config.flareSolverrUrl != null) {
+         println("[miwayomi] FlareSolverr enabled at ${config.flareSolverrUrl}")
 diff --git a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt b/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
 index e2ec6fa..617ff72 100644
 --- a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt

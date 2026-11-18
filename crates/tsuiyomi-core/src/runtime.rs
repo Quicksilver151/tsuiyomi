@@ -460,6 +460,18 @@ mod tests {
         zip.finish().unwrap();
     }
 
+    #[cfg(embedded_host)]
+    #[test]
+    #[ignore = "extracts into the real XDG cache directory"]
+    fn extracts_the_embedded_runtime() {
+        let runtime = ensure_runtime(None)
+            .expect("extraction")
+            .expect("embedded runtime");
+        assert!(runtime.jar.is_file());
+        assert!(runtime.java.is_file());
+        assert!(runtime.jar.file_name().unwrap() == "miwayomi.jar");
+    }
+
     #[test]
     fn blocks_host_self_updates() {
         let root = tempfile::tempdir().unwrap();

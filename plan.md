@@ -84,16 +84,20 @@ database rows. tsuiyomi owns reading progress.
 - [x] Atomic extraction of the embedded archive into the versioned cache.
 - [x] Supervisor: loopback-only port, XDG data dir, health check, log file, graceful
       shutdown, stale-process cleanup.
-- [x] Self-update guard: the host's download target is replaced by a directory, so a
-      bundled jar can never be swapped under the binary.
-- [x] Archive builder: `scripts/build-host-runtime.sh` pins miwayomi 0.2.9 by SHA-256,
-      builds a `jlink` JRE 21, and writes `crates/tsuiyomi-core/runtime/host.zip`.
+- [x] Self-update disabled in the host patch (Main.kt no longer starts `UpdateManager`),
+      plus a defensive directory at the download target in case an external jar is used.
+- [x] Archive builder: `scripts/build-host-runtime.sh` pins the miwayomi source commit,
+      applies the patch, builds the host, adds a `jlink` JRE 21, and writes
+      `crates/tsuiyomi-core/runtime/host.zip` (currently 128 MB).
 - [x] Prefer the repository's desktop JVM jar over `dex2jar` output.
 - [x] Vendor the host patches: `scripts/host-patches/miwayomi-0.2.9.patch` adds the 1.6
       source API, `AppInfo`, and the page-aware image endpoint.
 - [x] Build the archive from pinned source in `scripts/build-host-runtime.sh`.
 - [ ] Nix derivation / `nix bundle` output so the JRE keeps valid store paths on NixOS.
 - [ ] Cache Gradle dependencies for an offline/reproducible host build.
+- [x] Verified the release binary on a clean cache: 135 MB executable, 128 MB embedded
+      archive, 157 MB extracted, extraction + host start + health check in 2.2 s. With a
+      Keiyoushi MangaDex jar in the data directory it exposed 62 sources.
 
 ## Phase 4 — Later
 

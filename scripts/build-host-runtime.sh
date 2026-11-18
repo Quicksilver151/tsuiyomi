@@ -31,13 +31,21 @@ die() { echo "host-runtime: $*" >&2; exit 1; }
 
 command -v java >/dev/null 2>&1 || die "java not found; enter the devshell first"
 command -v jlink >/dev/null 2>&1 || die "jlink not found; a JDK 21 is required"
-command -v zip >/dev/null 2>&1 || die "zip not found"
+command -v jar >/dev/null 2>&1 || die "jar not found; a JDK 21 is required"
 command -v tar >/dev/null 2>&1 || die "tar not found"
 
 JAVA_VERSION="$(java -version 2>&1 | head -1)"
 echo "host-runtime: using $JAVA_VERSION"
 
 mkdir -p "${WORK}"
+
+# Rebuild when the patch or the pinned source changes, not just when the jar is missing.
+STAMP="${WORK}/.host-build-id"
+BUILD_ID="${HOST_COMMIT}:$(sha256sum "${PATCH}" | cut -d' ' -f1)"
+if [[ -f "${JAR}" && "$(cat "${STAMP}" 2>/dev/null)" != "${BUILD_ID}" ]]; then
+    echo "host-runtime: host sources changed, rebuilding"
+    rm -f "${JAR}"
+fi
 
 if [[ -n "${TSUIYOMI_HOST_JAR_PATH:-}" ]]; then
     cp "${TSUIYOMI_HOST_JAR_PATH}" "${JAR}"
@@ -56,12 +64,12 @@ elif [[ ! -f "${JAR}" ]]; then
     echo "host-runtime: building the host (this takes several minutes)"
     (cd "${SRC}" && ./gradlew :server:shadowJar --no-daemon -q) || die "host build failed"
     cp "${SRC}/server/build/libs/miwayomi-all.jar" "${JAR}"
+    echo "${BUILD_ID}" > "${STAMP}"
 fi
 
-command -v unzip >/dev/null 2>&1 || die "unzip not found"
-unzip -l "${JAR}" | grep -q "eu/kanade/tachiyomi/AppInfo.class" \
+jar --list --file "${JAR}" | grep -q "eu/kanade/tachiyomi/AppInfo.class" \
     || die "host jar is missing the AppInfo patch; rebuild with scripts/host-patches"
-unzip -l "${JAR}" | grep -q "eu/kanade/tachiyomi/source/model/SMangaUpdate.class" \
+jar --list --file "${JAR}" | grep -q "eu/kanade/tachiyomi/source/model/SMangaUpdate.class" \
     || die "host jar is missing the SMangaUpdate patch; rebuild with scripts/host-patches"
 
 # A fixed module list is more reliable than `jdeps` on a shaded jar. Modules that are
@@ -97,7 +105,7 @@ cp -a "${JRE}" "${STAGE}/jre"
 
 mkdir -p "$(dirname "${OUT}")"
 rm -f "${OUT}"
-(cd "${STAGE}" && zip -q -r -9 "${OUT}" miwayomi.jar jre)
+(cd "${STAGE}" && jar --create --file "${OUT}" miwayomi.jar jre)
 
 echo "host-runtime: wrote ${OUT} ($(du -h "${OUT}" | cut -f1))"
 echo "host-runtime: next run \`cargo build --release\` or \`just dist\`"

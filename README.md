@@ -111,7 +111,7 @@ Controls:
 - `↑↓` moves by grid row and `←→` by tile.
 - `Enter` opens the selected source, series detail, chapter, or extension action.
 - From a detail screen, `Enter` opens the chapter list inside Browse.
-- Remote sources open with popular results. `s` searches the current remote source.
+- Remote sources open with popular results. `s` searches and `l` loads latest updates.
 - Opening a chapter keeps you in the Browse tab; `Esc` walks back through
   reader → detail → results → sources.
 - `Esc` or `Backspace` goes back one level.
@@ -175,12 +175,24 @@ just dist           # embeds the archive and builds the release binary
 
 The patch matters: the released host implements the pre-1.6 source API and lacks
 `eu.kanade.tachiyomi.AppInfo`, so current Keiyoushi extensions load but fail on details,
-chapters, and pages. The patch adds the 1.6 suspend API, `SMangaUpdate`, `AppInfo`, and a
-page-aware image endpoint for sources such as MangaDex.
+chapters, and pages. The patch adds the 1.6 suspend API, `SMangaUpdate`, `AppInfo`, a
+page-aware image endpoint for sources such as MangaDex, and disables the host's
+self-updater so a bundled runtime cannot be swapped underneath tsuiyomi.
 
-The archive is embedded at compile time, extracted once to
-`$XDG_CACHE_HOME/tsuiyomi/host/0.2.9/`, and reused afterwards. On NixOS prefer
-`nix bundle`, which keeps the JRE's store paths valid instead of shipping a distro JRE.
+Verify a packaged binary without a terminal:
+
+```sh
+TSUIYOMI_HOST_SELFTEST=1 ./target/release/tsuiyomi
+```
+
+It extracts the runtime, starts the host, checks `/api/v1/health`, lists sources, and
+exits.
+
+The resulting executable is about 135 MB. The archive is embedded at compile time,
+extracted once to
+`$XDG_CACHE_HOME/tsuiyomi/host/0.2.9/` (about 157 MB on disk), and reused afterwards.
+The extracted host runs on a random loopback port and is stopped when tsuiyomi exits.
+On NixOS prefer `nix bundle` so the JRE's store paths remain valid.
 
 The archive is not committed (it is over 100 MB). Host source is pinned to commit
 `a3a776ebd26f91f558cd59a4bd57fff9119ee987` (v0.2.9).
