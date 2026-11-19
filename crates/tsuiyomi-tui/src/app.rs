@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
@@ -10,12 +11,12 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedPr
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
-    ensure_runtime, fetch_bytes, host_data_dir, is_downloaded, load_cached_story, page_dimensions,
-    read_cover, read_page, remote_cover_path, save_cached_story, save_config, scan_library,
-    series_dir_name, source_dir_name, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
-    ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore,
-    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series,
-    Theme,
+    ensure_runtime, fetch_bytes, host_data_dir, is_downloaded, legacy_remote_cover_path,
+    load_cached_story, page_dimensions, read_cover, read_page, remote_cover_path,
+    save_cached_story, save_config, scan_library, series_dir_name, source_dir_name, BookmarkStore,
+    CachedStory, Chapter, ChapterKind, Config, ExtensionInfo, HostClient, HostProcess, Library,
+    LibrarySort, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -40,6 +41,9 @@ const SCROLL_PREFETCH_SCALE: usize = 2;
 
 /// Upper bound on decoded library tile covers kept in memory.
 const TILE_COVER_CACHE: usize = 64;
+
+/// Unique suffix for atomic cover writes; the loader thread and UI can race.
+static COVER_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LibraryView {
@@ -557,6 +561,7 @@ pub struct AppState {
     host_starting: bool,
     host_start_epoch: u64,
     pending_browse_sources: bool,
+    cover_recovery_checked: bool,
     /// Story refresh currently running (source+URL key).
     story_refresh: Option<String>,
     /// Stories already refreshed in this session.
@@ -638,6 +643,7 @@ impl AppState {
             host_starting: false,
             host_start_epoch: 0,
             pending_browse_sources: false,
+            cover_recovery_checked: false,
             story_refresh: None,
             story_refreshed: HashSet::new(),
             size_generation: 0,
@@ -689,13 +695,17 @@ impl AppState {
         if self.tile_covers.contains_key(path) {
             return;
         }
-        let Some(picker) = self.image_picker.as_ref() else {
-            return;
-        };
         let Ok(bytes) = read_cover(path) else {
             return;
         };
         let Ok(image) = image::load_from_memory(&bytes) else {
+            return;
+        };
+        self.insert_tile_cover(path.to_path_buf(), image);
+    }
+
+    fn insert_tile_cover(&mut self, path: PathBuf, image: image::DynamicImage) {
+        let Some(picker) = self.image_picker.as_ref() else {
             return;
         };
         if self.tile_covers.len() >= TILE_COVER_CACHE {
@@ -703,8 +713,8 @@ impl AppState {
                 self.tile_covers.remove(&oldest);
             }
         }
-        self.tile_covers
-            .insert(path.to_path_buf(), picker.new_resize_protocol(image));
+        let protocol = picker.new_resize_protocol(image);
+        self.tile_covers.insert(path, protocol);
     }
 
     pub fn browse_previous(&mut self) {
@@ -1307,10 +1317,10 @@ impl AppState {
                 let Ok(bytes) = fetch_bytes(&url) else {
                     continue;
                 };
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
+                if image::load_from_memory(&bytes).is_err() {
+                    continue;
                 }
-                let _ = std::fs::write(&path, bytes);
+                write_cover_atomically(&path, &bytes);
             }
         });
     }
@@ -1789,6 +1799,15 @@ impl AppState {
         let key = path.to_string_lossy().into_owned();
         if !self.tile_covers.contains_key(&path) && path.exists() {
             self.ensure_tile_cover(&path);
+            if !self.tile_covers.contains_key(&path) {
+                // Corrupt or unreadable cache entry; let the source replace it.
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        if !self.tile_covers.contains_key(&path)
+            && migrate_legacy_cover(&path, source_id, manga_url)
+        {
+            self.ensure_tile_cover(&path);
         }
         if self.tile_covers.contains_key(&path) {
             self.failed_covers.remove(&key);
@@ -1806,16 +1825,43 @@ impl AppState {
                 return None;
             }
         };
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&path, &bytes);
-        self.ensure_tile_cover(&path);
+        let Ok(image) = image::load_from_memory(&bytes) else {
+            self.failed_covers.insert(key);
+            return None;
+        };
+        write_cover_atomically(&path, &bytes);
+        self.insert_tile_cover(path.clone(), image);
         if self.tile_covers.contains_key(&path) {
             Some(path)
         } else {
             self.failed_covers.insert(key);
             None
+        }
+    }
+
+    /// Restore missing library covers once per session by starting the host in the
+    /// background. Covers live in the data directory, but old cache cleanups or a
+    /// corrupt file can still leave gaps.
+    pub fn maybe_recover_covers(&mut self) {
+        if self.cover_recovery_checked {
+            return;
+        }
+        self.cover_recovery_checked = true;
+        if !self.host_autostart
+            || self.remote.favorites_loaded
+            || self.config.remote_library.is_empty()
+        {
+            return;
+        }
+        let missing = self.config.remote_library.iter().any(|favorite| {
+            let current = remote_cover_path(&favorite.source_id, &favorite.url)
+                .is_some_and(|path| path.exists());
+            let legacy = legacy_remote_cover_path(&favorite.source_id, &favorite.url)
+                .is_some_and(|path| path.exists());
+            !current && !legacy
+        });
+        if missing {
+            self.begin_host_start(true);
         }
     }
 
@@ -5326,6 +5372,36 @@ pub(crate) fn build_scroll_block(
         ));
     }
     result
+}
+
+fn write_cover_atomically(path: &Path, bytes: &[u8]) {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let id = COVER_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_extension(format!("img.{id}.tmp"));
+    if std::fs::write(&temporary, bytes).is_ok() {
+        let _ = std::fs::rename(&temporary, path);
+    }
+}
+
+fn migrate_legacy_cover(path: &Path, source_id: &str, manga_url: &str) -> bool {
+    let Some(legacy) = legacy_remote_cover_path(source_id, manga_url) else {
+        return false;
+    };
+    if !legacy.exists() {
+        return false;
+    }
+    let Ok(bytes) = std::fs::read(&legacy) else {
+        return false;
+    };
+    if image::load_from_memory(&bytes).is_err() {
+        let _ = std::fs::remove_file(&legacy);
+        return false;
+    }
+    write_cover_atomically(path, &bytes);
+    let _ = std::fs::remove_file(legacy);
+    true
 }
 
 fn remote_story_key(source_id: &str, url: &str) -> String {

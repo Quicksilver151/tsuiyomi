@@ -92,12 +92,27 @@ pub fn host_data_dir() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|dirs| dirs.data_dir().join("tsuiyomi").join("host"))
 }
 
-/// `$XDG_CACHE_HOME/tsuiyomi/covers/<hash>.img` for a saved remote manga.
+/// `$XDG_DATA_HOME/tsuiyomi/covers/<hash>.img` for a saved remote manga.
 ///
 /// A source's cover URL is a proxy URL tied to one host process, so saving the URL
 /// alone loses the cover after a restart. The image bytes are cached under a stable
-/// name derived from the source and manga URL instead.
+/// name derived from the source and manga URL. This lives in the data directory
+/// rather than the cache directory so routine cache cleanup does not remove saved
+/// library artwork.
 pub fn remote_cover_path(source_id: &str, manga_url: &str) -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| {
+        dirs.data_dir()
+            .join("tsuiyomi")
+            .join("covers")
+            .join(format!(
+                "{}.img",
+                stable_hash(&format!("{source_id}\n{manga_url}"))
+            ))
+    })
+}
+
+/// Previous cover location (`$XDG_CACHE_HOME/tsuiyomi/covers`), used for migration.
+pub fn legacy_remote_cover_path(source_id: &str, manga_url: &str) -> Option<PathBuf> {
     directories::BaseDirs::new().map(|dirs| {
         dirs.cache_dir()
             .join("tsuiyomi")

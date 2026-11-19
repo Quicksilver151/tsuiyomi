@@ -38,6 +38,7 @@ pub use library::{
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
 pub use runtime::{
-    ensure_runtime, host_data_dir, remote_cover_path, HostProcess, HostRuntime, HOST_VERSION,
+    ensure_runtime, host_data_dir, legacy_remote_cover_path, remote_cover_path, HostProcess,
+    HostRuntime, HOST_VERSION,
 };
 pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};

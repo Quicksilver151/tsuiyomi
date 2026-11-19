@@ -188,8 +188,11 @@ Rules:
   Opening a saved manga shows the same
   details screen as Browse (cover, source, author/artist, status, tags, description,
   chapters). Remote covers are fetched through the host while it runs and written to
-  `$XDG_CACHE_HOME/tsuiyomi/covers` (proxy URLs are process-local, so the bytes, not the
-  URL, are cached); `remote_library` itself stores no thumbnail URLs. Extensions are
+  `$XDG_DATA_HOME/tsuiyomi/covers` (proxy URLs are process-local, so the bytes, not the
+  URL, are cached); `remote_library` itself stores no thumbnail URLs. Covers are written
+  atomically and validated before being stored, corrupt entries are replaced, and old
+  `$XDG_CACHE_HOME` covers migrate on first load. If any saved cover is missing at
+  startup, the host starts in the background once to reload favorites and refill them. Extensions are
   managed through the host (repo URLs, install, uninstall).
   tsuiyomi never loads APK bytecode itself; the host supplies the JVM, AndroidCompat, and
   dex2jar runtime. The bundled host is extracted from an optional archive in the binary

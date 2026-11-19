@@ -134,6 +134,8 @@ database rows. tsuiyomi owns reading progress.
       tab renders immediately instead of freezing during JVM startup.
 - [x] Extensions use separate keys: `i`/Enter installs, `x`/Delete uninstalls after `y`
       confirmation. The commands bar lists both.
+- [x] Saved remote covers live in the data directory, survive cache cleanup, migrate from
+      the old cache path, and are restored in the background when missing.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

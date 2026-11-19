@@ -69,6 +69,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_download_worker(DownloadWorker::spawn());
     app.set_story_worker(StoryWorker::spawn());
     app.set_host_worker(HostWorker::spawn());
+    app.maybe_recover_covers();
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
