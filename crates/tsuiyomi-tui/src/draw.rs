@@ -13,7 +13,8 @@ use ratatui_image::{
     Resize, StatefulImage,
 };
 use tsuiyomi_core::{
-    Chapter, ChapterDate, ChapterKind, LibrarySort, ProgressStore, ReadingMode, Series, Theme,
+    Chapter, ChapterDate, ChapterKind, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
+    RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -470,7 +471,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("f", "full"),
                 ("Esc", "back"),
             ],
-            LibraryView::Chapters | LibraryView::RemoteChapters => &[
+            LibraryView::Chapters | LibraryView::RemoteDetails => &[
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
@@ -514,8 +515,8 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let layout = library_layout(area);
 
     match app.view {
-        LibraryView::RemoteChapters => {
-            draw_remote_library_chapters(frame, area, app);
+        LibraryView::RemoteDetails => {
+            draw_library_remote_detail(frame, area, app);
             return;
         }
         LibraryView::Series => {
@@ -552,59 +553,6 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     }
 
     draw_details(frame, layout.details, app);
-}
-
-fn draw_remote_library_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let title = app
-        .library_remote
-        .manga
-        .as_ref()
-        .map(|manga| manga.title.clone())
-        .unwrap_or_else(|| "Saved manga".to_owned());
-    let chapters = app.library_remote.chapters.clone();
-    if chapters.is_empty() {
-        frame.render_widget(
-            Paragraph::new("No chapters.")
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(c_overlay1())),
-            Rect::new(area.x, area.y, area.width, 1),
-        );
-        return;
-    }
-    let items: Vec<ListItem> = chapters
-        .iter()
-        .map(|chapter| {
-            let scanlator = chapter.scanlator.clone().unwrap_or_default();
-            ListItem::new(Line::from(vec![
-                Span::raw(chapter.name.clone()),
-                Span::styled(format!("  {scanlator}"), Style::default().fg(c_overlay1())),
-            ]))
-        })
-        .collect();
-    let count = chapters.len();
-    app.library_remote
-        .list_state
-        .select(Some(app.library_remote.chapter_index.min(count - 1)));
-    let list = List::new(items)
-        .block(panel(
-            Line::from(vec![
-                Span::styled(
-                    format!(" {title} · Chapters "),
-                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
-            ]),
-            c_accent(),
-        ))
-        .style(Style::default().fg(c_text()))
-        .highlight_style(
-            Style::default()
-                .fg(c_accent())
-                .bg(c_surface0())
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("› ");
-    frame.render_stateful_widget(list, area, &mut app.library_remote.list_state);
 }
 
 fn draw_series_grid(
@@ -652,32 +600,30 @@ fn draw_series_grid(
         .saturating_mul(columns)
         .min(indices.len());
 
-    let covers: Vec<PathBuf> = indices[start..end]
-        .iter()
-        .filter_map(|index| app.library.series[*index].cover.clone())
-        .collect();
-    for cover in covers {
-        app.ensure_tile_cover(&cover);
-    }
+    let mut covers: Vec<Option<PathBuf>> = Vec::with_capacity(end.saturating_sub(start));
     for index in &indices[start..end] {
-        if let Some(url) = app.library.series[*index]
-            .remote
-            .as_ref()
-            .and_then(|remote| remote.thumbnail_url.clone())
-        {
-            app.ensure_remote_tile_cover(&url);
-        }
+        let remote = app.library.series[*index].remote.clone();
+        let local = app.library.series[*index].cover.clone();
+        let path = if let Some(remote) = remote {
+            app.ensure_library_cover(
+                &remote.source_id,
+                &remote.url,
+                remote.thumbnail_url.as_deref(),
+            )
+        } else {
+            if let Some(path) = &local {
+                app.ensure_tile_cover(path);
+            }
+            local
+        };
+        covers.push(path);
     }
 
     for (position, series_index) in indices[start..end].iter().enumerate() {
         let index = start + position;
         let series = &app.library.series[*series_index];
         let title = series.title.clone();
-        let local_cover = series.cover.clone();
-        let remote_cover = series
-            .remote
-            .as_ref()
-            .and_then(|remote| remote.thumbnail_url.clone());
+        let cover_path = covers.get(position).cloned().flatten();
         let detail = if let Some(remote) = &series.remote {
             app.remote
                 .sources
@@ -698,12 +644,7 @@ fn draw_series_grid(
         }
         let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
         let mut rendered_cover = false;
-        if let Some(url) = &remote_cover {
-            if let Some(protocol) = app.remote.tile_covers.get_mut(url) {
-                render_centered_image(frame, cover_area, protocol);
-                rendered_cover = true;
-            }
-        } else if let Some(path) = &local_cover {
+        if let Some(path) = &cover_path {
             if let Some(protocol) = app.tile_covers.get_mut(path) {
                 render_centered_image(frame, cover_area, protocol);
                 rendered_cover = true;
@@ -1281,7 +1222,98 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
     if let Some(url) = &manga.thumbnail_url {
         app.ensure_remote_tile_cover(url);
     }
+    let saved = app.is_favorite(&manga.source_id, &manga.url);
+    let source = app
+        .remote
+        .sources
+        .iter()
+        .find(|source| source.id == manga.source_id)
+        .map(RemoteSource::display_name);
+    let selection = app.browse_selection;
+    let cover = manga
+        .thumbnail_url
+        .as_ref()
+        .and_then(|url| app.remote.tile_covers.get_mut(url));
+    let detail = RemoteDetail {
+        title: manga.title.clone(),
+        author: manga.author.clone(),
+        artist: manga.artist.clone(),
+        status: manga.status.clone(),
+        genre: manga.genre.clone(),
+        description: manga.description.clone(),
+        source,
+        note: if saved {
+            "saved · F removes".to_owned()
+        } else {
+            "not saved · F adds".to_owned()
+        },
+        chapters,
+        selection,
+    };
+    draw_remote_series(frame, area, &detail, cover, &mut app.browse_list_state);
+}
 
+/// The saved-manga details screen. It mirrors Browse's details so a manga looks the
+/// same whether it is opened from a source or from the library.
+fn draw_library_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let Some(manga) = app.library_remote.manga.clone() else {
+        draw_browse_empty(frame, area, "No saved manga selected.");
+        return;
+    };
+    let chapters = app.library_remote.chapters.clone();
+    let cover_path =
+        app.ensure_library_cover(&manga.source_id, &manga.url, manga.thumbnail_url.as_deref());
+    let source = app
+        .remote
+        .sources
+        .iter()
+        .find(|source| source.id == manga.source_id)
+        .map(RemoteSource::display_name);
+    let selection = app.library_remote.chapter_index;
+    let cover = cover_path
+        .as_ref()
+        .and_then(|path| app.tile_covers.get_mut(path));
+    let detail = RemoteDetail {
+        title: manga.title.clone(),
+        author: manga.author.clone(),
+        artist: manga.artist.clone(),
+        status: manga.status.clone(),
+        genre: manga.genre.clone(),
+        description: manga.description.clone(),
+        source,
+        note: "saved to library".to_owned(),
+        chapters,
+        selection,
+    };
+    draw_remote_series(
+        frame,
+        area,
+        &detail,
+        cover,
+        &mut app.library_remote.list_state,
+    );
+}
+
+struct RemoteDetail {
+    title: String,
+    author: Option<String>,
+    artist: Option<String>,
+    status: String,
+    genre: Vec<String>,
+    description: Option<String>,
+    source: Option<String>,
+    note: String,
+    chapters: Vec<RemoteChapter>,
+    selection: usize,
+}
+
+fn draw_remote_series(
+    frame: &mut Frame,
+    area: Rect,
+    detail: &RemoteDetail,
+    cover: Option<&mut StatefulProtocol>,
+    list_state: &mut ListState,
+) {
     let block = panel(
         Line::from(Span::styled(
             " Series ",
@@ -1304,16 +1336,14 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     if let Some(cover_area) = cover_area {
         let mut rendered = false;
-        if let Some(url) = &manga.thumbnail_url {
-            if let Some(protocol) = app.remote.tile_covers.get_mut(url) {
-                render_centered_image(frame, cover_area, protocol);
-                rendered = true;
-            }
+        if let Some(protocol) = cover {
+            render_centered_image(frame, cover_area, protocol);
+            rendered = true;
         }
         if !rendered {
             frame.render_widget(
                 Paragraph::new(
-                    manga
+                    detail
                         .title
                         .chars()
                         .next()
@@ -1334,33 +1364,47 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     let mut meta = vec![
         Line::from(Span::styled(
-            manga.title.clone(),
+            detail.title.clone(),
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
-    if let Some(author) = &manga.author {
+    if let Some(author) = &detail.author {
         meta.push(field("Author", author, c_peach()));
     }
-    if let Some(artist) = &manga.artist {
+    if let Some(artist) = &detail.artist {
         meta.push(field("Artist", artist, c_mauve()));
     }
-    meta.push(field("Status", &manga.status, c_green()));
-    if !manga.genre.is_empty() {
-        meta.push(field("Tags", &manga.genre.join(", "), c_teal()));
+    if let Some(source) = &detail.source {
+        meta.push(field("Source", source, c_blue()));
     }
-    meta.push(field("Chapters", &chapters.len().to_string(), c_green()));
+    meta.push(field("Status", &detail.status, c_green()));
+    if !detail.genre.is_empty() {
+        meta.push(field("Tags", &detail.genre.join(", "), c_teal()));
+    }
     meta.push(field(
-        "Library",
-        if app.is_favorite(&manga.source_id, &manga.url) {
-            "saved · F removes"
-        } else {
-            "not saved · F adds"
-        },
-        c_yellow(),
+        "Chapters",
+        &detail.chapters.len().to_string(),
+        c_green(),
     ));
+    meta.push(field("Library", &detail.note, c_yellow()));
 
-    let chapter_items: Vec<ListItem> = chapters
+    meta.push(Line::from(""));
+    let description = detail.description.as_deref().unwrap_or("").trim();
+    let description_lines = if description.is_empty() {
+        meta.push(Line::from(Span::styled(
+            "No description.",
+            Style::default().fg(c_overlay1()),
+        )));
+        1
+    } else {
+        meta.push(Line::from(description.to_owned()));
+        let characters = description.chars().count().min(usize::from(u16::MAX)) as u16;
+        characters.div_ceil(detail_area.width.max(1))
+    };
+
+    let chapter_items: Vec<ListItem> = detail
+        .chapters
         .iter()
         .map(|chapter| {
             let scanlator = chapter.scanlator.clone().unwrap_or_default();
@@ -1370,18 +1414,23 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
             ]))
         })
         .collect();
-    if chapters.is_empty() {
-        app.browse_list_state.select(None);
+    if detail.chapters.is_empty() {
+        list_state.select(None);
     } else {
-        app.browse_list_state
-            .select(Some(app.browse_selection.min(chapters.len() - 1)));
+        list_state.select(Some(detail.selection.min(detail.chapters.len() - 1)));
     }
     let chapter_list = List::new(chapter_items)
         .block(panel(
-            Line::from(Span::styled(
-                " Chapters ",
-                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-            )),
+            Line::from(vec![
+                Span::styled(
+                    " Chapters ",
+                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{} ", detail.chapters.len()),
+                    Style::default().fg(c_overlay0()),
+                ),
+            ]),
             c_surface1(),
         ))
         .highlight_style(
@@ -1392,12 +1441,11 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         )
         .highlight_symbol("› ");
 
+    let meta_height = (meta.len() as u16).saturating_sub(1) + description_lines;
+    let meta_height = meta_height.min(detail_area.height.saturating_sub(4).max(3));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(meta.len().min(10) as u16 + 1),
-            Constraint::Min(0),
-        ])
+        .constraints([Constraint::Length(meta_height), Constraint::Min(0)])
         .split(detail_area);
     frame.render_widget(
         Paragraph::new(Text::from(meta))
@@ -1405,7 +1453,7 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
             .wrap(Wrap { trim: true }),
         chunks[0],
     );
-    frame.render_stateful_widget(chapter_list, chunks[1], &mut app.browse_list_state);
+    frame.render_stateful_widget(chapter_list, chunks[1], list_state);
 }
 
 fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {

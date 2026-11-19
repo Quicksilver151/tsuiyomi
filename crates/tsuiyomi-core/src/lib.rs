@@ -29,4 +29,6 @@ pub use library::{
 };
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
-pub use runtime::{ensure_runtime, host_data_dir, HostProcess, HostRuntime, HOST_VERSION};
+pub use runtime::{
+    ensure_runtime, host_data_dir, remote_cover_path, HostProcess, HostRuntime, HOST_VERSION,
+};

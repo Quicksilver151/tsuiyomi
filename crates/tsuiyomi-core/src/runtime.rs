@@ -92,6 +92,32 @@ pub fn host_data_dir() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|dirs| dirs.data_dir().join("tsuiyomi").join("host"))
 }
 
+/// `$XDG_CACHE_HOME/tsuiyomi/covers/<hash>.img` for a saved remote manga.
+///
+/// A source's cover URL is a proxy URL tied to one host process, so saving the URL
+/// alone loses the cover after a restart. The image bytes are cached under a stable
+/// name derived from the source and manga URL instead.
+pub fn remote_cover_path(source_id: &str, manga_url: &str) -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| {
+        dirs.cache_dir()
+            .join("tsuiyomi")
+            .join("covers")
+            .join(format!(
+                "{}.img",
+                stable_hash(&format!("{source_id}\n{manga_url}"))
+            ))
+    })
+}
+
+fn stable_hash(value: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
 /// Extract the embedded runtime archive on first use, then return the layout.
 ///
 /// Returns `Ok(None)` when this build has no embedded archive and no runtime is cached.
@@ -441,6 +467,17 @@ fn looks_like_host(_pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cover_cache_paths_are_stable_and_distinct() {
+        let first = remote_cover_path("7", "/manga/1").unwrap();
+        let again = remote_cover_path("7", "/manga/1").unwrap();
+        let other = remote_cover_path("7", "/manga/2").unwrap();
+
+        assert_eq!(first, again);
+        assert_ne!(first, other);
+        assert!(first.to_string_lossy().contains("tsuiyomi/covers"));
+    }
 
     #[test]
     fn extracts_a_runtime_archive() {

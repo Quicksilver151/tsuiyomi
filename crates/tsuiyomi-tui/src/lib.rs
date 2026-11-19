@@ -521,17 +521,8 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         return;
     }
 
-    if app.view == LibraryView::RemoteChapters {
-        let list_area = Rect::new(
-            layout.content.x + 1,
-            layout.content.y + 1,
-            layout.content.width.saturating_sub(2),
-            layout.content.height.saturating_sub(2),
-        );
-        if contains(list_area, column, row) {
-            let offset = app.library_remote.list_state.offset();
-            app.select_index(offset + (row - list_area.y) as usize);
-        }
+    if app.view == LibraryView::RemoteDetails {
+        // The saved-manga details screen has no clickable rows, like Browse details.
         return;
     }
 

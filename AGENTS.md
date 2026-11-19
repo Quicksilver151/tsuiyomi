@@ -176,8 +176,12 @@ Rules:
   an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
   source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
-  through the same remote chapter/reader path. Extensions are managed through the host
-  (repo URLs, install, uninstall).
+  through the same remote chapter/reader path. Opening a saved manga shows the same
+  details screen as Browse (cover, source, author/artist, status, tags, description,
+  chapters). Remote covers are fetched through the host while it runs and written to
+  `$XDG_CACHE_HOME/tsuiyomi/covers` (proxy URLs are process-local, so the bytes, not the
+  URL, are cached); `remote_library` itself stores no thumbnail URLs. Extensions are
+  managed through the host (repo URLs, install, uninstall).
   tsuiyomi never loads APK bytecode itself; the host supplies the JVM, AndroidCompat, and
   dex2jar runtime. The bundled host is extracted from an optional archive in the binary
   into `$XDG_CACHE_HOME/tsuiyomi/host/<version>/` and supervised on loopback; `host_url`

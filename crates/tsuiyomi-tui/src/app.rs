@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -9,10 +9,10 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedPr
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     chapter::natural_cmp, chapter_pages, ensure_runtime, fetch_bytes, host_data_dir,
-    page_dimensions, read_cover, read_page, save_config, scan_library, Chapter, Config,
-    ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore,
-    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series,
-    Theme,
+    page_dimensions, read_cover, read_page, remote_cover_path, save_config, scan_library, Chapter,
+    Config, ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource,
+    ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries,
+    RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -32,7 +32,8 @@ pub enum LibraryView {
     #[default]
     Series,
     Chapters,
-    RemoteChapters,
+    /// Saved remote manga: cover, metadata, and chapters, like Browse details.
+    RemoteDetails,
 }
 
 #[derive(Default)]
@@ -545,6 +546,8 @@ pub struct AppState {
     pub library_columns: usize,
     pub library_grid_offset: usize,
     pub tile_covers: HashMap<PathBuf, StatefulProtocol>,
+    /// Remote covers that recently failed to load, so drawing does not retry every frame.
+    pub failed_covers: HashSet<String>,
     pub more_section: MoreSection,
     pub more_focus: MoreFocus,
     pub settings_page: SettingsPage,
@@ -603,6 +606,7 @@ impl AppState {
             library_columns: 1,
             library_grid_offset: 0,
             tile_covers: HashMap::new(),
+            failed_covers: HashSet::new(),
             more_section: MoreSection::Settings,
             more_focus: MoreFocus::Content,
             settings_page: SettingsPage::Main,
@@ -1232,9 +1236,55 @@ impl AppState {
                 self.config.remote_library = persisted;
                 self.persist_settings();
                 self.merge_remote_library();
+                self.cache_favorite_covers();
             }
             Err(error) => self.set_remote_error(error),
         }
+    }
+
+    /// Fill the on-disk cover cache for saved manga in the background.
+    ///
+    /// The covers must be fetched while the host is running because the proxy URL is
+    /// process-local. Keeping the bytes means the library still has covers at the next
+    /// start, before the JVM is launched.
+    fn cache_favorite_covers(&self) {
+        let jobs: Vec<(String, String, String)> = self
+            .remote
+            .favorites
+            .iter()
+            .filter_map(|favorite| {
+                let path = remote_cover_path(&favorite.source_id, &favorite.url)?;
+                if path.exists() {
+                    return None;
+                }
+                Some((
+                    favorite.source_id.clone(),
+                    favorite.url.clone(),
+                    favorite.thumbnail_url.clone()?,
+                ))
+            })
+            .collect();
+        if jobs.is_empty() {
+            return;
+        }
+
+        std::thread::spawn(move || {
+            for (source_id, manga_url, url) in jobs {
+                let Some(path) = remote_cover_path(&source_id, &manga_url) else {
+                    continue;
+                };
+                if path.exists() {
+                    continue;
+                }
+                let Ok(bytes) = fetch_bytes(&url) else {
+                    continue;
+                };
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&path, bytes);
+            }
+        });
     }
 
     pub fn is_favorite(&self, source_id: &str, url: &str) -> bool {
@@ -1266,6 +1316,13 @@ impl AppState {
         } else {
             match client.add_favorite(&manga) {
                 Ok(()) => {
+                    // Cache the cover now: the proxy URL is only valid while the host
+                    // runs, and the library should keep showing it after a restart.
+                    self.ensure_library_cover(
+                        &manga.source_id,
+                        &manga.url,
+                        manga.thumbnail_url.as_deref(),
+                    );
                     self.remote.status = Some(format!("Added {} to library", manga.title));
                     self.remote.error = false;
                     self.load_favorites();
@@ -1690,6 +1747,51 @@ impl AppState {
         self.remote
             .tile_covers
             .insert(url.to_owned(), picker.new_resize_protocol(image));
+    }
+
+    /// Ensure a saved remote manga's cover is loaded, caching the bytes on disk.
+    ///
+    /// The host's cover URL embeds a port that only lives as long as the host process,
+    /// so the image itself is written to the cover cache the first time it is seen.
+    /// Returns the cache path when `tile_covers` has a protocol for it.
+    pub fn ensure_library_cover(
+        &mut self,
+        source_id: &str,
+        manga_url: &str,
+        thumbnail_url: Option<&str>,
+    ) -> Option<PathBuf> {
+        let path = remote_cover_path(source_id, manga_url)?;
+        let key = path.to_string_lossy().into_owned();
+        if !self.tile_covers.contains_key(&path) && path.exists() {
+            self.ensure_tile_cover(&path);
+        }
+        if self.tile_covers.contains_key(&path) {
+            self.failed_covers.remove(&key);
+            return Some(path);
+        }
+        if self.failed_covers.contains(&key) {
+            return None;
+        }
+
+        let url = thumbnail_url?;
+        let bytes = match fetch_bytes(url) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                self.failed_covers.insert(key);
+                return None;
+            }
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, &bytes);
+        self.ensure_tile_cover(&path);
+        if self.tile_covers.contains_key(&path) {
+            Some(path)
+        } else {
+            self.failed_covers.insert(key);
+            None
+        }
     }
 
     /// True while a modal should receive printable keys instead of shortcuts.
@@ -2321,7 +2423,7 @@ impl AppState {
                 }
             }
             LibraryView::Chapters => self.open_chapter(),
-            LibraryView::RemoteChapters => {
+            LibraryView::RemoteDetails => {
                 self.open_library_remote_chapter(self.library_remote.chapter_index)
             }
         }
@@ -2350,7 +2452,7 @@ impl AppState {
                 self.view = LibraryView::Chapters;
             }
             ReaderOrigin::LibraryRemote => {
-                self.view = LibraryView::RemoteChapters;
+                self.view = LibraryView::RemoteDetails;
                 self.library_remote
                     .list_state
                     .select(Some(self.library_remote.chapter_index));
@@ -2372,7 +2474,7 @@ impl AppState {
                 self.status = None;
                 self.chapter_list_state.select(None);
             }
-            LibraryView::RemoteChapters => {
+            LibraryView::RemoteDetails => {
                 self.view = LibraryView::Series;
                 self.library_remote.chapter_index = 0;
                 self.status = None;
@@ -2400,7 +2502,7 @@ impl AppState {
                 self.chapter_index = self.chapter_index.saturating_sub(1);
                 self.status = None;
             }
-            LibraryView::RemoteChapters => {
+            LibraryView::RemoteDetails => {
                 self.library_remote.chapter_index =
                     self.library_remote.chapter_index.saturating_sub(1);
                 self.library_remote
@@ -2433,7 +2535,7 @@ impl AppState {
                     self.status = None;
                 }
             }
-            LibraryView::RemoteChapters => {
+            LibraryView::RemoteDetails => {
                 if let Some(last) = self.library_remote_chapter_count().checked_sub(1) {
                     self.library_remote.chapter_index =
                         (self.library_remote.chapter_index + 1).min(last);
@@ -3175,7 +3277,7 @@ impl AppState {
                 self.chapter_index = index;
                 self.status = None;
             }
-            LibraryView::RemoteChapters if index < self.library_remote_chapter_count() => {
+            LibraryView::RemoteDetails if index < self.library_remote_chapter_count() => {
                 self.library_remote.chapter_index = index;
                 self.library_remote.list_state.select(Some(index));
                 self.status = None;
@@ -3888,6 +3990,9 @@ impl AppState {
         if self.host_client.is_none() && !self.ensure_host() {
             return;
         }
+        if self.remote.sources.is_empty() {
+            self.load_remote_sources();
+        }
         let Some(client) = self.host_client.clone() else {
             return;
         };
@@ -3939,12 +4044,13 @@ impl AppState {
         self.library_remote.chapter_index = 0;
         self.library_remote.list_state = ListState::default();
         self.library_remote.list_state.select(Some(0));
-        self.view = LibraryView::RemoteChapters;
+        self.view = LibraryView::RemoteDetails;
         self.status = None;
     }
 
     /// Fold saved remote manga into the one library grid, under the default category.
     pub fn merge_remote_library(&mut self) {
+        self.failed_covers.clear();
         let selected_path = self.selected_series().map(|series| series.path.clone());
         self.library.series.retain(|series| series.remote.is_none());
 

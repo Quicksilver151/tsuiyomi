@@ -95,7 +95,10 @@ library entries.
 The Library tab opens as a cover tile grid, like Mihon. Each tile shows the series cover
 (or an initial placeholder), title, and chapter count. Covers are centered without a
 border or tile background. `↑↓` moves by grid row, `←→` by one tile, and `Enter` opens
-the chapter list. `[`/`]` switch categories and `r` rescans. Tile width is adjustable in
+the chapter list. Saved manga from sources open the same details screen as Browse: cover,
+source, author/artist, status, tags, description, and chapters. Their covers are cached
+in `$XDG_CACHE_HOME/tsuiyomi/covers`, so they survive a restart without the extension
+host. `[`/`]` switch categories and `r` rescans. Tile width is adjustable in
 **More → Settings → Appearance** (`thumbnail_width`, 8–28 columns).
 
 ## Browse

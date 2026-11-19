@@ -504,10 +504,13 @@ impl HostClient {
                 RemoteFavorite {
                     url: row.url,
                     title: row.title,
+                    // Stored favorites may still hold a proxy URL from an earlier
+                    // host process, whose port no longer exists. Unwrap it before
+                    // proxying through this process.
                     thumbnail_url: row
                         .thumbnail_url
                         .filter(|value| !value.trim().is_empty())
-                        .map(|url| self.proxy_url(&source_id, &url)),
+                        .map(|url| self.proxy_url(&source_id, &unproxy_url(&url))),
                     last_read_url: row.last_read_url,
                     last_read_name: row.last_read_name,
                     source_id,
@@ -929,6 +932,21 @@ mod tests {
         assert_eq!(sources[0].id, "7");
         assert_eq!(sources[0].display_name(), "MangaDex (EN)");
         assert!(requests.recv().unwrap().ends_with("/api/v1/sources"));
+    }
+
+    #[test]
+    fn repairs_stale_favorite_cover_urls() {
+        let (address, _requests) = server(vec![
+            r#"[{"sourceId":"7","url":"/manga/1","title":"Berserk","type":"manga","addedAt":1,"thumbnailUrl":"http://127.0.0.1:1/api/v1/proxy?sourceId=7&url=https%3A%2F%2Fcdn.example%2Fcover.jpg"}]"#,
+        ]);
+        let client = HostClient::new(&address);
+
+        let favorites = client.favorites().unwrap();
+
+        let cover = favorites[0].thumbnail_url.as_deref().unwrap();
+        assert!(cover.starts_with(&address));
+        assert!(!cover.contains("127.0.0.1:1"));
+        assert!(cover.contains("url=https%3A%2F%2Fcdn.example%2Fcover.jpg"));
     }
 
     #[test]
