@@ -145,6 +145,8 @@ database rows. tsuiyomi owns reading progress.
       local generated covers regenerate on demand.
 - [x] Browse's Local source lists only folders from the local library, excluding saved
       remote manga.
+- [x] All remote thumbnails share one persistent cache (Browse and Library), details
+      cannot erase a working thumbnail, and failed fetches retry after 10 seconds.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

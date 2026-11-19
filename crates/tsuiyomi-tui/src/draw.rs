@@ -741,7 +741,7 @@ fn draw_library_remote_detail(
     );
 
     let cover_path =
-        app.ensure_library_cover(&manga.source_id, &manga.url, manga.thumbnail_url.as_deref());
+        app.ensure_remote_cover(&manga.source_id, &manga.url, manga.thumbnail_url.as_deref());
     let lines = remote_story_lines(&manga, &chapters, source.as_deref(), "saved to library");
     let cover = cover_path
         .as_ref()
@@ -808,7 +808,7 @@ fn draw_series_grid(
         // first could evict early tiles from `tile_covers` before they are drawn on
         // large grids.
         let cover_path = if let Some(remote) = &remote {
-            let path = app.ensure_library_cover(
+            let path = app.ensure_remote_cover(
                 &remote.source_id,
                 &remote.url,
                 remote.thumbnail_url.as_deref(),
@@ -1128,14 +1128,18 @@ fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     tile,
                 );
             }
+            let cover_path = app.ensure_remote_cover(
+                &group.source.id,
+                &manga.url,
+                manga.thumbnail_url.as_deref(),
+            );
             let mut rendered = false;
-            if let Some(url) = &manga.thumbnail_url {
-                app.ensure_remote_tile_cover(url);
-                if let Some(protocol) = app.remote.tile_covers.get_mut(url) {
+            if let Some(path) = &cover_path {
+                if let Some(protocol) = app.tile_covers.get_mut(path) {
                     render_centered_image(frame, tile, protocol);
                     rendered = true;
                 }
-            } else {
+            } else if manga.thumbnail_url.is_none() {
                 app.request_series_thumbnail(&group.source.id, &manga.url, manga.memo.as_deref());
             }
             if !rendered {
@@ -1369,14 +1373,15 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
             );
         }
         let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
+        let cover_path =
+            app.ensure_remote_cover(&source_id, &result.url, result.thumbnail_url.as_deref());
         let mut rendered = false;
-        if let Some(url) = &result.thumbnail_url {
-            app.ensure_remote_tile_cover(url);
-            if let Some(protocol) = app.remote.tile_covers.get_mut(url) {
+        if let Some(path) = &cover_path {
+            if let Some(protocol) = app.tile_covers.get_mut(path) {
                 render_centered_image(frame, cover_area, protocol);
                 rendered = true;
             }
-        } else {
+        } else if result.thumbnail_url.is_none() {
             app.request_series_thumbnail(&source_id, &result.url, result.memo.as_deref());
         }
         if !rendered {
@@ -1447,9 +1452,9 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         &mut app.browse_list_state,
     );
 
-    if let Some(url) = &manga.thumbnail_url {
-        app.ensure_remote_tile_cover(url);
-    } else {
+    let cover_path =
+        app.ensure_remote_cover(&manga.source_id, &manga.url, manga.thumbnail_url.as_deref());
+    if cover_path.is_none() && manga.thumbnail_url.is_none() {
         app.request_series_thumbnail(&manga.source_id, &manga.url, manga.memo.as_deref());
     }
     let note = if app.is_favorite(&manga.source_id, &manga.url) {
@@ -1458,10 +1463,9 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         "not saved · F adds"
     };
     let lines = remote_story_lines(&manga, &chapters, source.as_deref(), note);
-    let cover = manga
-        .thumbnail_url
+    let cover = cover_path
         .as_ref()
-        .and_then(|url| app.remote.tile_covers.get_mut(url));
+        .and_then(|path| app.tile_covers.get_mut(path));
     draw_story_info(frame, layout.details, &manga.title, lines, cover);
 }
 

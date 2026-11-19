@@ -100,7 +100,10 @@ source, author/artist, status, tags, description, and chapters. Their covers are
 in `$XDG_DATA_HOME/tsuiyomi/covers`, so they survive restarts and normal cache cleanup
 without the extension host. If a cover file is missing or corrupt, the app starts the
 host in the background once to restore it; a local series cover is regenerated on demand
-from its first page if the generated file disappears. Details, description, and chapters are cached per story in
+from its first page if the generated file disappears. Browse covers use the same
+persistent cache, so once a thumbnail appears in search results or details it is kept
+even if the source later omits its URL. Details responses never overwrite a working
+thumbnail with an empty one. Details, description, and chapters are cached per story in
 `$XDG_DATA_HOME/tsuiyomi/stories`, so reopening a saved story after a restart is
 immediate; the first open fetches it, and `r` refreshes it. `[`/`]` switch categories,
 `r` rescans, `R` refetches missing covers for saved source manga, and `b` bookmarks the

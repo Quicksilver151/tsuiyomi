@@ -200,6 +200,9 @@ Rules:
   Browse result are copied back into the result tile. Results without thumbnails trigger
   a background details lookup (`cover_worker`) as they become visible, and the cover is
   applied to the result tile, global groups, saved library entry, and open details.
+  Browse covers use the same persistent cache as Library covers, a details response that
+  lacks a thumbnail never clears an existing one, and failed cover fetches retry after
+  10 seconds instead of staying failed for the session.
   Local tiles regenerate a deleted or invalid generated `cover.jpg` through
   `ensure_series_cover` without a full rescan. Missing covers are retried when the
   Library tab is shown (15-second cooldown) and on `r`. Tiles load

@@ -46,6 +46,8 @@ const TILE_COVER_CACHE: usize = 256;
 
 /// Unique suffix for atomic cover writes; the loader thread and UI can race.
 static COVER_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+/// Retry a failed cover fetch after this long instead of giving up for the session.
+const COVER_RETRY: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LibraryView {
@@ -189,7 +191,6 @@ pub struct RemoteState {
     pub error: bool,
     pub columns: usize,
     pub grid_offset: usize,
-    pub tile_covers: HashMap<String, StatefulProtocol>,
     pub extensions: Vec<ExtensionInfo>,
     pub repos: Vec<String>,
     /// Base URL of the host that is actually in use.
@@ -225,7 +226,6 @@ impl Default for RemoteState {
             error: false,
             columns: 1,
             grid_offset: 0,
-            tile_covers: HashMap::new(),
             extensions: Vec::new(),
             repos: Vec::new(),
             host: None,
@@ -614,7 +614,7 @@ pub struct AppState {
     pub library_grid_offset: usize,
     pub tile_covers: HashMap<PathBuf, StatefulProtocol>,
     /// Remote covers that recently failed to load, so drawing does not retry every frame.
-    pub failed_covers: HashSet<String>,
+    pub failed_covers: HashMap<String, Instant>,
     pub more_section: MoreSection,
     pub more_focus: MoreFocus,
     pub settings_page: SettingsPage,
@@ -691,7 +691,7 @@ impl AppState {
             library_columns: 1,
             library_grid_offset: 0,
             tile_covers: HashMap::new(),
-            failed_covers: HashSet::new(),
+            failed_covers: HashMap::new(),
             more_section: MoreSection::Settings,
             more_focus: MoreFocus::Content,
             settings_page: SettingsPage::Main,
@@ -745,7 +745,7 @@ impl AppState {
                 .map(|series| series.path.display().to_string())
                 .unwrap_or_default()
         );
-        if self.failed_covers.contains(&key) {
+        if self.cover_failed(&key) {
             return None;
         }
         let generated = self.library.series.get(index).and_then(ensure_series_cover);
@@ -753,11 +753,22 @@ impl AppState {
             if let Some(series) = self.library.series.get_mut(index) {
                 series.cover = Some(path.clone());
             }
+            self.failed_covers.remove(&key);
             Some(path)
         } else {
-            self.failed_covers.insert(key);
+            self.mark_cover_failed(key);
             None
         }
+    }
+
+    fn cover_failed(&self, key: &str) -> bool {
+        self.failed_covers
+            .get(key)
+            .is_some_and(|at| at.elapsed() < COVER_RETRY)
+    }
+
+    fn mark_cover_failed(&mut self, key: String) {
+        self.failed_covers.insert(key, Instant::now());
     }
 
     fn insert_tile_cover(&mut self, path: PathBuf, image: image::DynamicImage) {
@@ -1442,7 +1453,7 @@ impl AppState {
                         .remove(&remote_story_key(&manga.source_id, &manga.url));
                     // Cache the cover now: the proxy URL is only valid while the host
                     // runs, and the library should keep showing it after a restart.
-                    self.ensure_library_cover(
+                    self.ensure_remote_cover(
                         &manga.source_id,
                         &manga.url,
                         manga.thumbnail_url.as_deref(),
@@ -1512,6 +1523,7 @@ impl AppState {
         self.remote.global_group = 0;
         self.remote.global_item = 0;
         self.cover_lookups.clear();
+        self.failed_covers.clear();
         self.remote.status = if !has_groups {
             if let Some(error) = failures.first() {
                 Some(format!("No results · {error}"))
@@ -1715,6 +1727,7 @@ impl AppState {
                 self.remote.status = None;
                 self.remote.error = false;
                 self.cover_lookups.clear();
+                self.failed_covers.clear();
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -1729,7 +1742,13 @@ impl AppState {
         let Some(manga) = self.remote.manga.clone() else {
             return;
         };
-        if let Ok(details) = client.details(&manga.source_id, &manga.url, manga.memo.as_deref()) {
+        if let Ok(mut details) = client.details(&manga.source_id, &manga.url, manga.memo.as_deref())
+        {
+            if details.thumbnail_url.is_none() {
+                // Many sources return a cover in search results but omit it from
+                // details. Never erase a thumbnail that already worked.
+                details.thumbnail_url = manga.thumbnail_url.clone();
+            }
             self.remote.manga = Some(RemoteManga {
                 // Keep the identity we already trust even if the source rewrites the URL.
                 source_id: manga.source_id,
@@ -1748,13 +1767,7 @@ impl AppState {
         };
         for result in &mut self.remote.results {
             if result.source_id == manga.source_id && result.url == manga.url {
-                result.thumbnail_url = manga.thumbnail_url.clone();
-                result.author = manga.author.clone();
-                result.artist = manga.artist.clone();
-                result.description = manga.description.clone();
-                result.genre = manga.genre.clone();
-                result.status = manga.status.clone();
-                result.memo = manga.memo.clone();
+                Self::merge_result_details(result, &manga);
             }
         }
         for group in &mut self.remote.global_groups {
@@ -1763,16 +1776,32 @@ impl AppState {
             }
             for result in &mut group.mangas {
                 if result.url == manga.url {
-                    result.thumbnail_url = manga.thumbnail_url.clone();
-                    result.author = manga.author.clone();
-                    result.artist = manga.artist.clone();
-                    result.description = manga.description.clone();
-                    result.genre = manga.genre.clone();
-                    result.status = manga.status.clone();
-                    result.memo = manga.memo.clone();
+                    Self::merge_result_details(result, &manga);
                 }
             }
         }
+    }
+
+    fn merge_result_details(result: &mut RemoteManga, manga: &RemoteManga) {
+        if manga.thumbnail_url.is_some() {
+            result.thumbnail_url = manga.thumbnail_url.clone();
+        }
+        if manga.author.is_some() {
+            result.author = manga.author.clone();
+        }
+        if manga.artist.is_some() {
+            result.artist = manga.artist.clone();
+        }
+        if manga.description.is_some() {
+            result.description = manga.description.clone();
+        }
+        if !manga.genre.is_empty() {
+            result.genre = manga.genre.clone();
+        }
+        if manga.memo.is_some() {
+            result.memo = manga.memo.clone();
+        }
+        result.status = manga.status.clone();
     }
 
     fn load_remote_chapters(&mut self) {
@@ -1885,35 +1914,12 @@ impl AppState {
         }
     }
 
-    pub fn ensure_remote_tile_cover(&mut self, url: &str) {
-        if self.remote.tile_covers.contains_key(url) {
-            return;
-        }
-        let Some(picker) = self.image_picker.as_ref() else {
-            return;
-        };
-        let Ok(bytes) = fetch_bytes(url) else {
-            return;
-        };
-        let Ok(image) = image::load_from_memory(&bytes) else {
-            return;
-        };
-        if self.remote.tile_covers.len() >= TILE_COVER_CACHE {
-            if let Some(oldest) = self.remote.tile_covers.keys().next().cloned() {
-                self.remote.tile_covers.remove(&oldest);
-            }
-        }
-        self.remote
-            .tile_covers
-            .insert(url.to_owned(), picker.new_resize_protocol(image));
-    }
-
-    /// Ensure a saved remote manga's cover is loaded, caching the bytes on disk.
+    /// Ensure a remote manga's cover is loaded, caching the bytes on disk.
     ///
-    /// The host's cover URL embeds a port that only lives as long as the host process,
-    /// so the image itself is written to the cover cache the first time it is seen.
-    /// Returns the cache path when `tile_covers` has a protocol for it.
-    pub fn ensure_library_cover(
+    /// Used for both Library and Browse. The host's cover URL embeds a port that only
+    /// lives as long as the host process, so the image itself is written to the cover
+    /// cache the first time it is seen and reused forever afterwards.
+    pub fn ensure_remote_cover(
         &mut self,
         source_id: &str,
         manga_url: &str,
@@ -1937,7 +1943,7 @@ impl AppState {
             self.failed_covers.remove(&key);
             return Some(path);
         }
-        if self.failed_covers.contains(&key) {
+        if self.cover_failed(&key) {
             return None;
         }
 
@@ -1945,12 +1951,12 @@ impl AppState {
         let bytes = match fetch_bytes(url) {
             Ok(bytes) => bytes,
             Err(_) => {
-                self.failed_covers.insert(key);
+                self.mark_cover_failed(key);
                 return None;
             }
         };
         let Ok(image) = image::load_from_memory(&bytes) else {
-            self.failed_covers.insert(key);
+            self.mark_cover_failed(key);
             return None;
         };
         write_cover_atomically(&path, &bytes);
@@ -1958,7 +1964,7 @@ impl AppState {
         if self.tile_covers.contains_key(&path) {
             Some(path)
         } else {
-            self.failed_covers.insert(key);
+            self.mark_cover_failed(key);
             None
         }
     }
@@ -1966,6 +1972,7 @@ impl AppState {
     /// Explicitly refetch missing covers for saved source manga.
     pub fn refresh_library_covers(&mut self) {
         self.cover_lookups.clear();
+        self.failed_covers.clear();
         self.cover_recovery_at = None;
         if self.config.remote_library.is_empty() && self.remote.favorites.is_empty() {
             self.status = Some("No saved source manga.".to_owned());
@@ -6665,6 +6672,35 @@ mod tests {
             assert_eq!(app.tab, 3);
             assert_eq!(app.browse_view, view);
         }
+    }
+
+    #[test]
+    fn updating_details_never_clears_a_working_thumbnail() {
+        let mut result = RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/test".to_owned(),
+            title: "Test".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: Some("http://127.0.0.1/search-cover.webp".to_owned()),
+            memo: None,
+        };
+        let details = RemoteManga {
+            thumbnail_url: None,
+            description: Some("Details".to_owned()),
+            ..result.clone()
+        };
+
+        AppState::merge_result_details(&mut result, &details);
+
+        assert_eq!(
+            result.thumbnail_url.as_deref(),
+            Some("http://127.0.0.1/search-cover.webp")
+        );
+        assert_eq!(result.description.as_deref(), Some("Details"));
     }
 
     #[test]
