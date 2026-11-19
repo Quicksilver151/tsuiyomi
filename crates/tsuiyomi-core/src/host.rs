@@ -37,7 +37,7 @@ impl RemoteSource {
 
 /// A search result or details page. The host addresses manga by URL, not by an internal
 /// id, so `url` is the stable identity together with `source_id`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteManga {
     pub source_id: String,
     pub url: String,
@@ -59,7 +59,7 @@ pub struct RemoteMangaPage {
     pub has_next_page: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoteChapter {
     pub url: String,
     pub name: String,

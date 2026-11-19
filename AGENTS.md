@@ -204,9 +204,13 @@ Rules:
   (runtime-only and never persisted), `downloads_path`, a sibling `downloads/` when the
   library lives in `local/`, or the app data directory. There is no series-level queue or
   delete UI yet.
-- Opened saved-source stories keep their chapter lists in memory, so reopening a
-  story is instant and works while the host is stopped; `r` reloads from the source.
-  Chapter download markers are cached per story instead of statting every row each frame.
+- Saved-source details and chapters are cached per story in
+  `$XDG_DATA_HOME/tsuiyomi/stories/<hash>.json` (`story_cache.rs`), including the source
+  display name and description. The first open after saving fetches from the host, but
+  later opens (even after a restart) render immediately without starting the JVM. When
+  the host is already running, the first open in a session refreshes the story in the
+  background through `story_worker`; `r` reloads synchronously. Chapter download markers
+  are cached per story instead of statting every row each frame.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,

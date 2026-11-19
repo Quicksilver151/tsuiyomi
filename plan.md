@@ -127,6 +127,9 @@ database rows. tsuiyomi owns reading progress.
       download markers/chapter lists.
 - [x] Zoom keeps the viewport anchored to the same source pixel across layout rebuilds,
       including on long webtoon pages.
+- [x] Remote story details and chapters are cached on disk, so saved stories open
+      without the host or network after the first fetch; the host refreshes them in the
+      background when it is already running.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

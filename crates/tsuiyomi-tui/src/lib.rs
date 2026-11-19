@@ -10,6 +10,7 @@ mod input;
 mod layout;
 mod palette;
 mod scroll_worker;
+mod story_worker;
 
 pub use app::AppState;
 
@@ -40,6 +41,7 @@ use crate::{
         TILE_TEXT_HEIGHT,
     },
     scroll_worker::ScrollWorker,
+    story_worker::StoryWorker,
 };
 
 /// Run the TUI until the user quits.
@@ -63,6 +65,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());
+    app.set_story_worker(StoryWorker::spawn());
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
@@ -119,6 +122,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_downloads() {
+            needs_draw = true;
+        }
+        if app.poll_story_refresh() {
             needs_draw = true;
         }
         if needs_draw {

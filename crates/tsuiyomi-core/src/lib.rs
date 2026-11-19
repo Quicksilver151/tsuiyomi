@@ -17,6 +17,7 @@ pub mod library;
 pub mod pages;
 pub mod progress;
 pub mod runtime;
+pub mod story_cache;
 
 pub use bookmarks::BookmarkStore;
 pub use chapter::parse_chapter_number;
@@ -39,3 +40,4 @@ pub use progress::{ProgressEntry, ProgressStore};
 pub use runtime::{
     ensure_runtime, host_data_dir, remote_cover_path, HostProcess, HostRuntime, HOST_VERSION,
 };
+pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};

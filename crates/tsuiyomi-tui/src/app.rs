@@ -10,11 +10,12 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedPr
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
-    ensure_runtime, fetch_bytes, host_data_dir, is_downloaded, page_dimensions, read_cover,
-    read_page, remote_cover_path, save_config, scan_library, series_dir_name, source_dir_name,
-    BookmarkStore, Chapter, ChapterKind, Config, ExtensionInfo, HostClient, HostProcess, Library,
-    LibrarySort, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
+    ensure_runtime, fetch_bytes, host_data_dir, is_downloaded, load_cached_story, page_dimensions,
+    read_cover, read_page, remote_cover_path, save_cached_story, save_config, scan_library,
+    series_dir_name, source_dir_name, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
+    ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore,
+    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series,
+    Theme,
 };
 
 use crate::{
@@ -22,6 +23,7 @@ use crate::{
     layout::TAB_COUNT,
     palette,
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
+    story_worker::{StoryRequest, StoryWorker},
 };
 
 /// Lines moved per arrow/wheel step in continuous scroll mode.
@@ -53,6 +55,8 @@ pub struct LibraryRemoteState {
     pub chapters: Vec<RemoteChapter>,
     pub chapter_index: usize,
     pub list_state: ListState,
+    /// Source display name from the cache, for offline details.
+    pub source_name: Option<String>,
     /// Per-chapter download flags, recomputed once per open/download.
     pub downloaded: Vec<bool>,
 }
@@ -547,6 +551,11 @@ pub struct AppState {
     pub(crate) scroll_worker: Option<ScrollWorker>,
     pub(crate) size_worker: Option<SizeWorker>,
     pub(crate) download_worker: Option<DownloadWorker>,
+    pub(crate) story_worker: Option<StoryWorker>,
+    /// Story refresh currently running (source+URL key).
+    story_refresh: Option<String>,
+    /// Stories already refreshed in this session.
+    story_refreshed: HashSet<String>,
     pub size_generation: u64,
     pub scroll_generation: u64,
     /// Tunables for lazy scroll loading; a future settings menu will expose these.
@@ -617,6 +626,9 @@ impl AppState {
             scroll_worker: None,
             size_worker: None,
             download_worker: None,
+            story_worker: None,
+            story_refresh: None,
+            story_refreshed: HashSet::new(),
             size_generation: 0,
             scroll_generation: 0,
             scroll_cache: ScrollCacheConfig::default(),
@@ -1632,11 +1644,8 @@ impl AppState {
                 self.remote.chapters = chapters;
                 self.remote.status = None;
                 self.remote.error = false;
-                if let Some(manga) = &self.remote.manga {
-                    self.remote_chapter_cache.insert(
-                        remote_story_key(&manga.source_id, &manga.url),
-                        (manga.clone(), self.remote.chapters.clone()),
-                    );
+                if let Some(manga) = self.remote.manga.clone() {
+                    self.cache_story(manga, self.remote.chapters.clone());
                 }
                 self.refresh_download_marks();
             }
@@ -2246,6 +2255,122 @@ impl AppState {
         self.download_worker = Some(worker);
     }
 
+    pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
+        self.story_worker = Some(worker);
+    }
+
+    /// Refresh a story's details and chapters in the background, when the host is
+    /// already running. This must never block on starting the JVM.
+    fn refresh_current_library_story(&mut self) {
+        let Some(worker) = self.story_worker.as_ref() else {
+            return;
+        };
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let Some(manga) = self.library_remote.manga.clone() else {
+            return;
+        };
+        let key = remote_story_key(&manga.source_id, &manga.url);
+        if self.story_refresh.as_deref() == Some(key.as_str())
+            || self.story_refreshed.contains(&key)
+        {
+            return;
+        }
+        worker.request(StoryRequest {
+            key: key.clone(),
+            manga,
+            client,
+        });
+        self.story_refresh = Some(key.clone());
+        self.story_refreshed.insert(key);
+    }
+
+    /// Apply background story refreshes. Returns whether the UI changed.
+    pub fn poll_story_refresh(&mut self) -> bool {
+        let mut changed = false;
+        while let Some(result) = self.story_worker.as_ref().and_then(StoryWorker::try_result) {
+            if self.story_refresh.as_deref() == Some(result.key.as_str()) {
+                self.story_refresh = None;
+            }
+            if result.chapters.is_empty() {
+                continue;
+            }
+            self.cache_story(result.manga.clone(), result.chapters.clone());
+
+            let library_key = self
+                .library_remote
+                .manga
+                .as_ref()
+                .map(|manga| remote_story_key(&manga.source_id, &manga.url));
+            if library_key.as_deref() == Some(result.key.as_str()) {
+                let selected = self
+                    .library_remote
+                    .chapters
+                    .get(self.library_remote.chapter_index)
+                    .map(|chapter| chapter.url.clone());
+                if self.library_remote.source_name.is_none() {
+                    self.library_remote.source_name =
+                        self.remote_source_display_name(&result.manga.source_id);
+                }
+                self.library_remote.manga = Some(result.manga.clone());
+                self.library_remote.chapters = result.chapters.clone();
+                self.library_remote.chapter_index = selected
+                    .and_then(|url| {
+                        self.library_remote
+                            .chapters
+                            .iter()
+                            .position(|chapter| chapter.url == url)
+                    })
+                    .unwrap_or(0)
+                    .min(self.library_remote.chapters.len().saturating_sub(1));
+                self.library_remote
+                    .list_state
+                    .select(Some(self.library_remote.chapter_index));
+                self.library_remote.downloaded = self
+                    .library_remote
+                    .manga
+                    .as_ref()
+                    .map(|manga| self.mark_downloaded(manga, &self.library_remote.chapters))
+                    .unwrap_or_default();
+                changed = true;
+            }
+
+            let browse_key = self
+                .remote
+                .manga
+                .as_ref()
+                .map(|manga| remote_story_key(&manga.source_id, &manga.url));
+            if browse_key.as_deref() == Some(result.key.as_str()) {
+                let selected = self
+                    .remote
+                    .chapters
+                    .get(self.browse_selection)
+                    .map(|chapter| chapter.url.clone());
+                self.remote.manga = Some(result.manga);
+                self.remote.chapters = result.chapters;
+                self.browse_selection = selected
+                    .and_then(|url| {
+                        self.remote
+                            .chapters
+                            .iter()
+                            .position(|chapter| chapter.url == url)
+                    })
+                    .unwrap_or(0)
+                    .min(self.remote.chapters.len().saturating_sub(1));
+                self.browse_list_state.select(Some(self.browse_selection));
+                self.remote.downloaded = self
+                    .remote
+                    .manga
+                    .as_ref()
+                    .map(|manga| self.mark_downloaded(manga, &self.remote.chapters))
+                    .unwrap_or_default();
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Apply finished chapter downloads. Returns whether the UI changed.
     pub fn poll_downloads(&mut self) -> bool {
         let mut changed = false;
@@ -2386,12 +2511,16 @@ impl AppState {
     }
 
     fn remote_source_name(&self, source_id: &str) -> String {
+        self.remote_source_display_name(source_id)
+            .unwrap_or_else(|| source_id.to_owned())
+    }
+
+    fn remote_source_display_name(&self, source_id: &str) -> Option<String> {
         self.remote
             .sources
             .iter()
             .find(|source| source.id == source_id)
             .map(RemoteSource::display_name)
-            .unwrap_or_else(|| source_id.to_owned())
     }
 
     fn downloaded_chapter_dir(
@@ -4380,7 +4509,28 @@ impl AppState {
             if remote.thumbnail_url.is_some() {
                 manga.thumbnail_url = remote.thumbnail_url;
             }
-            self.show_library_remote_story(manga, chapters);
+            let source = self
+                .remote_source_display_name(&remote.source_id)
+                .or_else(|| {
+                    if same_open {
+                        self.library_remote.source_name.clone()
+                    } else {
+                        None
+                    }
+                });
+            self.show_library_remote_story(manga, chapters, source);
+            self.refresh_current_library_story();
+            return;
+        }
+        if let Some(story) = load_cached_story(&remote.source_id, &remote.url) {
+            let mut manga = story.manga;
+            // Cached thumbnail URLs contain the old host process's port.
+            manga.thumbnail_url = remote.thumbnail_url;
+            let source = story.source_name.clone();
+            self.remote_chapter_cache
+                .insert(key, (manga.clone(), story.chapters.clone()));
+            self.show_library_remote_story(manga, story.chapters, source);
+            self.refresh_current_library_story();
             return;
         }
         let already_loaded =
@@ -4394,6 +4544,28 @@ impl AppState {
         self.fetch_library_remote_series(remote, title);
     }
 
+    /// Store a story in memory and on disk after a fetch.
+    fn cache_story(&mut self, manga: RemoteManga, chapters: Vec<RemoteChapter>) {
+        if chapters.is_empty() {
+            return;
+        }
+        let key = remote_story_key(&manga.source_id, &manga.url);
+        if self.remote_chapter_cache.len() >= 24 {
+            self.remote_chapter_cache.clear();
+        }
+        self.remote_chapter_cache
+            .insert(key, (manga.clone(), chapters.clone()));
+        let source_name = self
+            .remote
+            .sources
+            .iter()
+            .find(|source| source.id == manga.source_id)
+            .map(RemoteSource::display_name);
+        let mut story = CachedStory::new(manga, chapters);
+        story.source_name = source_name;
+        let _ = save_cached_story(&story);
+    }
+
     fn goto_library_remote_story(&mut self) {
         self.view = LibraryView::RemoteDetails;
         self.status = None;
@@ -4404,13 +4576,19 @@ impl AppState {
         self.library_remote.list_state.select(Some(selected));
     }
 
-    fn show_library_remote_story(&mut self, manga: RemoteManga, chapters: Vec<RemoteChapter>) {
+    fn show_library_remote_story(
+        &mut self,
+        manga: RemoteManga,
+        chapters: Vec<RemoteChapter>,
+        source_name: Option<String>,
+    ) {
         let selected = self
             .library_remote
             .chapter_index
             .min(chapters.len().saturating_sub(1));
         self.library_remote.manga = Some(manga);
         self.library_remote.chapters = chapters;
+        self.library_remote.source_name = source_name;
         self.library_remote.chapter_index = selected;
         self.library_remote.list_state = ListState::default();
         self.library_remote.list_state.select(Some(selected));
@@ -4491,13 +4669,11 @@ impl AppState {
             self.status = Some(format!("{} has no chapters", manga.title));
             return;
         }
-        let key = remote_story_key(&manga.source_id, &manga.url);
-        if self.remote_chapter_cache.len() >= 24 {
-            self.remote_chapter_cache.clear();
-        }
-        self.remote_chapter_cache
-            .insert(key, (manga.clone(), chapters.clone()));
-        self.show_library_remote_story(manga, chapters);
+        self.story_refreshed
+            .insert(remote_story_key(&manga.source_id, &manga.url));
+        self.cache_story(manga.clone(), chapters.clone());
+        let source = self.remote_source_display_name(&manga.source_id);
+        self.show_library_remote_story(manga, chapters, source);
     }
 
     /// Whether each chapter of a remote manga has a completed download directory.
@@ -4506,9 +4682,22 @@ impl AppState {
             return vec![false; chapters.len()];
         };
         let source = self.remote_source_name(&manga.source_id);
-        let series_dir = root
-            .join(source_dir_name(&source))
-            .join(series_dir_name(&manga.title));
+        let series_name = series_dir_name(&manga.title);
+        let mut series_dir = root.join(source_dir_name(&source)).join(&series_name);
+        if !series_dir.is_dir() {
+            // The source list is not loaded yet (for example when a cached story is
+            // opened before the host starts). Find the series under whichever source
+            // directory already has it.
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path().join(&series_name);
+                    if candidate.is_dir() {
+                        series_dir = candidate;
+                        break;
+                    }
+                }
+            }
+        }
         let mut names = HashSet::new();
         if let Ok(entries) = std::fs::read_dir(&series_dir) {
             for entry in entries.flatten() {

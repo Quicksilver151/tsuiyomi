@@ -98,7 +98,10 @@ border or tile background. `↑↓` moves by grid row, `←→` by one tile, and
 the chapter list. Saved manga from sources open the same details screen as Browse: cover,
 source, author/artist, status, tags, description, and chapters. Their covers are cached
 in `$XDG_CACHE_HOME/tsuiyomi/covers`, so they survive a restart without the extension
-host. `[`/`]` switch categories, `r` rescans, and `b` bookmarks the selected chapter.
+host. Details, description, and chapters are cached per story in
+`$XDG_DATA_HOME/tsuiyomi/stories`, so reopening a saved story after a restart is
+immediate; the first open fetches it, and `r` refreshes it. `[`/`]` switch categories,
+`r` rescans, and `b` bookmarks the selected chapter.
 Chapter rows start with fixed bookmark and download columns (`★`/`☆`, `⬇`/`↓`); local
 chapters use `·` in the download column. Tile width is adjustable in
 **More → Settings → Appearance** (`thumbnail_width`, 8–28 columns).

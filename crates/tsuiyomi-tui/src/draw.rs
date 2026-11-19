@@ -591,7 +591,11 @@ fn draw_library_remote_detail(
         return;
     };
     let chapters = app.library_remote.chapters.clone();
-    let source = source_display_name(app, &manga.source_id);
+    let source = app
+        .library_remote
+        .source_name
+        .clone()
+        .or_else(|| source_display_name(app, &manga.source_id));
     let items = remote_chapter_items(
         &manga.source_id,
         &manga.url,
