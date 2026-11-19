@@ -136,6 +136,8 @@ database rows. tsuiyomi owns reading progress.
       confirmation. The commands bar lists both.
 - [x] Saved remote covers live in the data directory, survive cache cleanup, migrate from
       the old cache path, and are restored in the background when missing.
+- [x] Library delete dialog (`x`/Delete) mirrors Mihon: remove from library and,
+      for saved manga, delete downloaded chapters. Local files stay on disk.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

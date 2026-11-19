@@ -179,6 +179,19 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.library_delete.is_some() {
+            match action {
+                Action::Previous => app.library_delete_previous(),
+                Action::Next => app.library_delete_next(),
+                Action::NextScreen => app.library_delete_toggle(),
+                Action::Open | Action::Confirm => app.confirm_library_delete(),
+                Action::Back => app.cancel_library_delete(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -488,6 +501,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::UninstallExtension => {
                 if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.uninstall_selected_extension();
+                } else if app.tab == 0 && app.view == LibraryView::Series {
+                    app.open_library_delete_dialog();
                 }
             }
             Action::Open => {

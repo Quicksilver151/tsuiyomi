@@ -102,7 +102,10 @@ without the extension host. If a cover file is missing or corrupt, the app start
 host in the background once to restore it. Details, description, and chapters are cached per story in
 `$XDG_DATA_HOME/tsuiyomi/stories`, so reopening a saved story after a restart is
 immediate; the first open fetches it, and `r` refreshes it. `[`/`]` switch categories,
-`r` rescans, and `b` bookmarks the selected chapter.
+`r` rescans, and `b` bookmarks the selected chapter. `x` or `Delete` opens the remove
+dialog for the selected series: remove it from the library and, for saved source manga,
+optionally delete its downloaded chapters. Removing a local series keeps its files and
+hides it from future scans.
 Chapter rows start with fixed bookmark and download columns (`★`/`☆`, `⬇`/`↓`); local
 chapters use `·` in the download column. Tile width is adjustable in
 **More → Settings → Appearance** (`thumbnail_width`, 8–28 columns).

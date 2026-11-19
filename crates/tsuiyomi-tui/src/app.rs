@@ -13,10 +13,10 @@ use tsuiyomi_core::{
     chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
     ensure_runtime, fetch_bytes, host_data_dir, is_downloaded, legacy_remote_cover_path,
     load_cached_story, page_dimensions, read_cover, read_page, remote_cover_path,
-    save_cached_story, save_config, scan_library, series_dir_name, source_dir_name, BookmarkStore,
-    CachedStory, Chapter, ChapterKind, Config, ExtensionInfo, HostClient, HostProcess, Library,
-    LibrarySort, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
+    save_cached_story, save_config, scan_library, series_dir_name, source_dir_name,
+    story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config, ExtensionInfo,
+    HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore, ReadingMode,
+    RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -530,6 +530,16 @@ pub struct ReaderState {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct LibraryDeleteDialog {
+    pub path: PathBuf,
+    pub title: String,
+    pub remote: Option<RemoteSeries>,
+    pub remove_from_library: bool,
+    pub delete_downloads: bool,
+    pub focus: usize,
+}
+
 #[derive(Default)]
 pub struct AppState {
     pub tab: usize,
@@ -566,6 +576,8 @@ pub struct AppState {
     story_refresh: Option<String>,
     /// Stories already refreshed in this session.
     story_refreshed: HashSet<String>,
+    /// Stories removed from the library; ignore late background refreshes.
+    removed_stories: HashSet<String>,
     pub size_generation: u64,
     pub scroll_generation: u64,
     /// Tunables for lazy scroll loading; a future settings menu will expose these.
@@ -609,6 +621,7 @@ pub struct AppState {
     pub quit_confirm: bool,
     /// Pending extension uninstall: package and display name.
     pub uninstall_confirm: Option<(String, String)>,
+    pub library_delete: Option<LibraryDeleteDialog>,
     /// Chapter download currently running, if any.
     pub downloading: Option<String>,
     pub status: Option<String>,
@@ -646,6 +659,7 @@ impl AppState {
             cover_recovery_checked: false,
             story_refresh: None,
             story_refreshed: HashSet::new(),
+            removed_stories: HashSet::new(),
             size_generation: 0,
             scroll_generation: 0,
             scroll_cache: ScrollCacheConfig::default(),
@@ -681,6 +695,7 @@ impl AppState {
             picker: None,
             quit_confirm: false,
             uninstall_confirm: None,
+            library_delete: None,
             downloading: None,
             status,
         }
@@ -1354,6 +1369,8 @@ impl AppState {
         } else {
             match client.add_favorite(&manga) {
                 Ok(()) => {
+                    self.removed_stories
+                        .remove(&remote_story_key(&manga.source_id, &manga.url));
                     // Cache the cover now: the proxy URL is only valid while the host
                     // runs, and the library should keep showing it after a restart.
                     self.ensure_library_cover(
@@ -2471,7 +2488,7 @@ impl AppState {
             if self.story_refresh.as_deref() == Some(result.key.as_str()) {
                 self.story_refresh = None;
             }
-            if result.chapters.is_empty() {
+            if result.chapters.is_empty() || self.removed_stories.contains(&result.key) {
                 continue;
             }
             self.cache_story(result.manga.clone(), result.chapters.clone());
@@ -3256,6 +3273,8 @@ impl AppState {
         self.remote.favorites = config.remote_library.clone();
         self.config = config;
         self.merge_remote_library();
+        self.apply_hidden_series();
+        self.clamp_selection();
         if let Some(name) = self.config.default_category.as_deref() {
             if let Some(index) = self
                 .library
@@ -3266,6 +3285,202 @@ impl AppState {
                 self.category_index = index;
             }
         }
+    }
+
+    /// Remove local series listed in config from the scanned library. Files stay.
+    fn apply_hidden_series(&mut self) {
+        let hidden = self.config.hidden_series.clone();
+        let root = self.library.root.clone();
+        self.library.series.retain(|series| {
+            if series.remote.is_some() {
+                return true;
+            }
+            let key = series
+                .path
+                .strip_prefix(&root)
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_else(|_| series.path.clone());
+            !hidden.iter().any(|entry| entry == &key)
+        });
+    }
+
+    /// Open the delete dialog for the selected library series.
+    pub fn open_library_delete_dialog(&mut self) {
+        let Some(series) = self.selected_series() else {
+            return;
+        };
+        self.library_delete = Some(LibraryDeleteDialog {
+            path: series.path.clone(),
+            title: series.title.clone(),
+            remote: series.remote.clone(),
+            remove_from_library: true,
+            delete_downloads: false,
+            focus: 0,
+        });
+    }
+
+    pub fn library_delete_next(&mut self) {
+        if let Some(dialog) = self.library_delete.as_mut() {
+            let options = if dialog.remote.is_some() { 2 } else { 1 };
+            dialog.focus = (dialog.focus + 1) % options;
+        }
+    }
+
+    pub fn library_delete_previous(&mut self) {
+        if let Some(dialog) = self.library_delete.as_mut() {
+            let options = if dialog.remote.is_some() { 2 } else { 1 };
+            dialog.focus = (dialog.focus + options - 1) % options;
+        }
+    }
+
+    pub fn library_delete_toggle(&mut self) {
+        if let Some(dialog) = self.library_delete.as_mut() {
+            if dialog.focus == 0 {
+                dialog.remove_from_library = !dialog.remove_from_library;
+            } else {
+                dialog.delete_downloads = !dialog.delete_downloads;
+            }
+        }
+    }
+
+    pub fn cancel_library_delete(&mut self) {
+        self.library_delete = None;
+    }
+
+    pub fn confirm_library_delete(&mut self) {
+        let Some(dialog) = self.library_delete.clone() else {
+            return;
+        };
+        if !dialog.remove_from_library && !dialog.delete_downloads {
+            self.status = Some("Select at least one option.".to_owned());
+            return;
+        }
+
+        let mut removed = false;
+        if dialog.remove_from_library {
+            if let Some(remote) = &dialog.remote {
+                if !self.remove_remote_library_item(remote) {
+                    return;
+                }
+                removed = true;
+            } else {
+                self.hide_local_series(&dialog.path);
+                removed = true;
+            }
+        }
+
+        if dialog.delete_downloads {
+            if let Some(remote) = &dialog.remote {
+                match self.delete_series_downloads(remote, &dialog.title) {
+                    Ok(true) => {
+                        self.status = Some(format!("Deleted downloads for {}", dialog.title));
+                    }
+                    Ok(false) => {
+                        self.status = Some(format!("No downloads for {}", dialog.title));
+                    }
+                    Err(error) => {
+                        self.status = Some(format!("Could not delete downloads: {error}"));
+                    }
+                }
+                self.refresh_download_marks();
+            }
+        } else if removed {
+            self.status = Some(format!("Removed {} from the library", dialog.title));
+        }
+
+        self.library_delete = None;
+        self.clamp_selection();
+        self.clamp_browse_selection();
+    }
+
+    fn hide_local_series(&mut self, path: &Path) {
+        let key = path
+            .strip_prefix(&self.library.root)
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|_| path.to_path_buf());
+        if !self.config.hidden_series.iter().any(|entry| entry == &key) {
+            self.config.hidden_series.push(key);
+        }
+        self.persist_settings();
+        self.apply_hidden_series();
+        self.library.series.retain(|series| series.path != path);
+        self.status = Some(format!(
+            "Removed {} from the library (files kept)",
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        ));
+    }
+
+    fn remove_remote_library_item(&mut self, remote: &RemoteSeries) -> bool {
+        if self.host_client.is_none() && !self.ensure_host() {
+            return false;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return false;
+        };
+        if let Err(error) = client.remove_favorite(&remote.source_id, &remote.url) {
+            self.set_remote_error(error);
+            return false;
+        }
+
+        self.remote.favorites.retain(|favorite| {
+            !(favorite.source_id == remote.source_id && favorite.url == remote.url)
+        });
+        self.config.remote_library.retain(|favorite| {
+            !(favorite.source_id == remote.source_id && favorite.url == remote.url)
+        });
+        let key = remote_story_key(&remote.source_id, &remote.url);
+        self.remote_chapter_cache.remove(&key);
+        self.story_refreshed.remove(&key);
+        if self.story_refresh.as_deref() == Some(key.as_str()) {
+            self.story_refresh = None;
+        }
+        if let Some(path) = remote_cover_path(&remote.source_id, &remote.url) {
+            let _ = std::fs::remove_file(path);
+        }
+        if let Some(path) = story_cache_path(&remote.source_id, &remote.url) {
+            let _ = std::fs::remove_file(path);
+        }
+        if self
+            .library_remote
+            .manga
+            .as_ref()
+            .is_some_and(|manga| manga.source_id == remote.source_id && manga.url == remote.url)
+        {
+            self.library_remote = LibraryRemoteState::default();
+            if self.view == LibraryView::RemoteDetails {
+                self.view = LibraryView::Series;
+            }
+        }
+        self.removed_stories.insert(key);
+        self.persist_settings();
+        self.merge_remote_library();
+        true
+    }
+
+    fn delete_series_downloads(&self, remote: &RemoteSeries, title: &str) -> Result<bool, String> {
+        let root = downloads_dir(&self.config)
+            .ok_or_else(|| "cannot resolve the downloads directory".to_owned())?;
+        let source = self.remote_source_name(&remote.source_id);
+        let series_name = series_dir_name(title);
+        let mut series_dir = root.join(source_dir_name(&source)).join(&series_name);
+        if !series_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path().join(&series_name);
+                    if candidate.is_dir() {
+                        series_dir = candidate;
+                        break;
+                    }
+                }
+            }
+        }
+        if !series_dir.is_dir() {
+            return Ok(false);
+        }
+        std::fs::remove_dir_all(&series_dir).map_err(|error| error.to_string())?;
+        Ok(true)
     }
 
     /// Persist reading progress unless Incognito mode is on.
@@ -4730,6 +4945,9 @@ impl AppState {
             return;
         }
         let key = remote_story_key(&manga.source_id, &manga.url);
+        if self.removed_stories.contains(&key) {
+            return;
+        }
         if self.remote_chapter_cache.len() >= 24 {
             self.remote_chapter_cache.clear();
         }
@@ -5100,6 +5318,7 @@ impl AppState {
             Ok(library) => {
                 self.library = library;
                 self.tile_covers.clear();
+                self.apply_hidden_series();
 
                 self.category_index = self
                     .library
@@ -6251,6 +6470,62 @@ mod tests {
         );
         app.cancel_uninstall_extension();
         assert!(app.uninstall_confirm.is_none());
+    }
+
+    #[test]
+    fn deleting_a_local_series_hides_it_without_removing_files() {
+        let mut app = AppState::new(library(), None);
+        app.set_config(Config::default());
+        app.select_index(1);
+        assert_eq!(
+            app.selected_series().map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+
+        app.open_library_delete_dialog();
+        app.confirm_library_delete();
+
+        assert!(app
+            .library
+            .series
+            .iter()
+            .all(|series| series.title != "Berserk"));
+        assert!(app
+            .config
+            .hidden_series
+            .iter()
+            .any(|path| path == Path::new("Berserk")));
+    }
+
+    #[test]
+    fn deleting_downloads_removes_the_series_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let downloads = root.path().join("downloads");
+        let chapter = downloads
+            .join("Asura Scans (EN)")
+            .join("Overgeared")
+            .join("Chapter 1");
+        std::fs::create_dir_all(&chapter).unwrap();
+        std::fs::write(chapter.join("001.jpg"), b"x").unwrap();
+
+        let mut app = AppState::new(library(), None);
+        app.set_config(Config::default());
+        app.config.downloads_path = Some(downloads.clone());
+        app.remote.sources = vec![RemoteSource {
+            id: "1".to_owned(),
+            name: "Asura Scans".to_owned(),
+            lang: "en".to_owned(),
+            pkg: None,
+        }];
+        let remote = RemoteSeries {
+            source_id: "1".to_owned(),
+            url: "/series/overgeared".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+
+        assert!(app.delete_series_downloads(&remote, "Overgeared").unwrap());
+        assert!(!downloads.join("Asura Scans (EN)/Overgeared").exists());
     }
 
     #[test]

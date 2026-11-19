@@ -77,6 +77,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_picker(frame, app);
     draw_quit_confirm(frame, app);
     draw_uninstall_confirm(frame, app);
+    draw_library_delete(frame, app);
     draw_text_input(frame, app);
 }
 
@@ -208,6 +209,74 @@ fn draw_uninstall_confirm(frame: &mut Frame, app: &AppState) {
             .wrap(Wrap { trim: true }),
         inner,
     );
+}
+
+fn draw_library_delete(frame: &mut Frame, app: &AppState) {
+    let Some(dialog) = &app.library_delete else {
+        return;
+    };
+    let area = frame.area();
+    let remote = dialog.remote.is_some();
+    let width = 66.min(area.width);
+    let height = if remote { 9 } else { 8 }.min(area.height);
+    if width < 28 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Remove ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+
+    let checkbox = |checked: bool, label: &str, focused: bool| {
+        let marker = if checked { "[x]" } else { "[ ]" };
+        let style = if focused {
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_text())
+        };
+        Line::from(Span::styled(format!("{marker} {label}"), style))
+    };
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!(
+                "Remove {}?",
+                truncate_text(&dialog.title, width.saturating_sub(12))
+            ),
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        checkbox(
+            dialog.remove_from_library,
+            "Manga from library",
+            dialog.focus == 0,
+        ),
+    ];
+    if remote {
+        lines.push(checkbox(
+            dialog.delete_downloads,
+            "Downloaded chapters",
+            dialog.focus == 1,
+        ));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Space toggle · ↑↓ select · Enter apply · Esc cancel",
+        Style::default().fg(c_overlay0()),
+    )));
+    frame.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn draw_header(frame: &mut Frame, area: Rect) {
@@ -509,6 +578,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↵", "open"),
                 ("r", "rescan"),
                 ("c", "config"),
+                ("x/Del", "delete"),
                 ("f", "full"),
                 ("Esc", "back"),
             ],
@@ -3186,6 +3256,30 @@ mod tests {
         assert!(!text.contains("Tsuiyomi"));
         assert!(!text.contains("commands"));
         assert!(text.contains("Library"));
+    }
+
+    #[test]
+    fn library_delete_dialog_renders_the_options() {
+        let mut app = test_app();
+        app.library_delete = Some(crate::app::LibraryDeleteDialog {
+            path: PathBuf::from("/tmp/library/Test Series"),
+            title: "Test Series".to_owned(),
+            remote: Some(tsuiyomi_core::RemoteSeries {
+                source_id: "7".to_owned(),
+                url: "/manga/test".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            }),
+            remove_from_library: true,
+            delete_downloads: false,
+            focus: 0,
+        });
+
+        let text = render(&mut app, 100, 30);
+
+        assert!(text.contains("Remove Test Series?"));
+        assert!(text.contains("[x] Manga from library"));
+        assert!(text.contains("[ ] Downloaded chapters"));
     }
 
     #[test]

@@ -85,6 +85,9 @@ pub struct Config {
     pub pinned_sources: Vec<String>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
+    /// Local series removed from the library but kept on disk, relative to the
+    /// library root. Mihon only drops its database entry; files stay.
+    pub hidden_series: Vec<PathBuf>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -115,6 +118,7 @@ impl Default for Config {
             incognito: false,
             pinned_sources: Vec::new(),
             remote_library: Vec::new(),
+            hidden_series: Vec::new(),
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,

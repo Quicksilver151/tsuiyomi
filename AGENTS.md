@@ -183,7 +183,12 @@ Rules:
   an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
   source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
-  through the same remote chapter/reader path. In Extensions, `i`/Enter installs and
+  through the same remote chapter/reader path. In the Library grid, `x`/Delete opens a
+  remove dialog with "Manga from library" and, for saved source manga, "Downloaded
+  chapters" checkboxes, mirroring Mihon's delete dialog. Removing a local series writes
+  its path to `hidden_series` and keeps the files; removing a saved manga calls the host,
+  drops `remote_library`/caches, and optionally deletes its downloads directory. In
+  Extensions, `i`/Enter installs and
   `x`/Delete asks for `y` confirmation before uninstalling; the commands bar lists both.
   Opening a saved manga shows the same
   details screen as Browse (cover, source, author/artist, status, tags, description,
@@ -223,8 +228,8 @@ Rules:
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
-  `incognito`, `host_url`, `host_jar`, `pinned_sources`, `remote_library`, and
-  `downloads_path`, and preserves unknown keys from existing files.
+  `incognito`, `host_url`, `host_jar`, `pinned_sources`, `remote_library`,
+  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
