@@ -197,8 +197,12 @@ Rules:
   URL, are cached); `remote_library` itself stores no thumbnail URLs. `R` in the Library
   grid starts/uses the host to refetch missing covers, including calling details for
   favorites whose host entry has no thumbnail URL. Details fetched after opening a
-  Browse result are copied back into the result tile. Local tiles regenerate a deleted
-  generated `cover.jpg` through `ensure_series_cover` without a full rescan. Tiles load
+  Browse result are copied back into the result tile. Results without thumbnails trigger
+  a background details lookup (`cover_worker`) as they become visible, and the cover is
+  applied to the result tile, global groups, saved library entry, and open details.
+  Local tiles regenerate a deleted or invalid generated `cover.jpg` through
+  `ensure_series_cover` without a full rescan. Missing covers are retried when the
+  Library tab is shown (15-second cooldown) and on `r`. Tiles load
   their cover immediately before drawing and the in-memory cover cache holds 256
   entries, so large grids do not evict a cover before rendering it. Covers are written
   atomically and validated before being stored, corrupt entries are replaced, and old
@@ -215,7 +219,8 @@ Rules:
   `remote://source/manga/chapter` keys. Remote network calls are currently synchronous.
   WebView-dependent sources are unsupported. Library itself also uses a tile grid, not a
   list. Category keys only affect Library's series grid. There is no filesystem import
-  browser; users place folders in local/ and rescan.
+  browser; users place folders in local/ and rescan. Browse's Local source lists only
+  `series.remote.is_none()` entries; saved source manga and downloads are not mixed in.
 - Chapter downloads land in `<downloads>/<source>/<series>/<chapter>/<page>.<ext>` using
   Mihon's sanitized directory names (`downloads.rs`). `D` on a remote story screen or in
   the reader downloads the selected chapter on a worker thread; downloaded chapters are

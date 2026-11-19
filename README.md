@@ -104,7 +104,8 @@ from its first page if the generated file disappears. Details, description, and 
 `$XDG_DATA_HOME/tsuiyomi/stories`, so reopening a saved story after a restart is
 immediate; the first open fetches it, and `r` refreshes it. `[`/`]` switch categories,
 `r` rescans, `R` refetches missing covers for saved source manga, and `b` bookmarks the
-selected chapter. `x` or `Delete` opens the remove
+selected chapter. Missing library covers are also retried automatically when the Library
+tab is shown; missing source covers are regenerated or fetched in the background. `x` or `Delete` opens the remove
 dialog for the selected series: remove it from the library and, for saved source manga,
 optionally delete its downloaded chapters. Removing a local series keeps its files and
 hides it from future scans.
@@ -118,6 +119,8 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
 
 - **Sources** — the Local source plus every source exposed by the extension host, grouped
   by language. `P` pins the selected source; pinned sources move to a `Pinned` group.
+  Local lists only series folders from the configured library root, never saved remote
+  manga or downloads.
 - **Extensions** — installed and available extensions. `/` searches by name or package,
   `i` or `Enter` installs an available extension, `x` or `Delete` uninstalls an installed
   one after a `y` confirmation, `u` updates, `P` pins all sources of the selected

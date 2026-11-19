@@ -808,11 +808,19 @@ fn draw_series_grid(
         // first could evict early tiles from `tile_covers` before they are drawn on
         // large grids.
         let cover_path = if let Some(remote) = &remote {
-            app.ensure_library_cover(
+            let path = app.ensure_library_cover(
                 &remote.source_id,
                 &remote.url,
                 remote.thumbnail_url.as_deref(),
-            )
+            );
+            if path.is_none() {
+                app.request_series_thumbnail(
+                    &remote.source_id,
+                    &remote.url,
+                    remote.memo.as_deref(),
+                );
+            }
+            path
         } else {
             let path = app.ensure_local_series_cover(*series_index);
             if let Some(path) = &path {
@@ -1127,6 +1135,8 @@ fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     render_centered_image(frame, tile, protocol);
                     rendered = true;
                 }
+            } else {
+                app.request_series_thumbnail(&group.source.id, &manga.url, manga.memo.as_deref());
             }
             if !rendered {
                 let initial = manga
@@ -1176,7 +1186,7 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
         BrowseView::Local => (
             "Local source".to_owned(),
             display_path(&app.library.root),
-            format!("{} series", app.library.series.len()),
+            format!("{} series", app.local_series_count()),
         ),
         BrowseView::Chapters => (
             app.selected_browse_local_series()
@@ -1275,7 +1285,7 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 items.push(ListItem::new(Line::from(vec![
                     Span::styled("Local source", Style::default().fg(c_text())),
                     Span::styled(
-                        format!("  {} series", app.library.series.len()),
+                        format!("  {} series", app.local_series_count()),
                         Style::default().fg(c_overlay0()),
                     ),
                 ])));
@@ -1341,11 +1351,12 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
         .saturating_mul(columns)
         .min(results.len());
 
-    for result in results[start..end].iter() {
-        if let Some(url) = &result.thumbnail_url {
-            app.ensure_remote_tile_cover(url);
-        }
-    }
+    let source_id = app
+        .remote
+        .source
+        .as_ref()
+        .map(|source| source.id.clone())
+        .unwrap_or_default();
 
     for (position, result) in results[start..end].iter().enumerate() {
         let index = start + position;
@@ -1360,10 +1371,13 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
         let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
         let mut rendered = false;
         if let Some(url) = &result.thumbnail_url {
+            app.ensure_remote_tile_cover(url);
             if let Some(protocol) = app.remote.tile_covers.get_mut(url) {
                 render_centered_image(frame, cover_area, protocol);
                 rendered = true;
             }
+        } else {
+            app.request_series_thumbnail(&source_id, &result.url, result.memo.as_deref());
         }
         if !rendered {
             let initial = result
@@ -1435,6 +1449,8 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     if let Some(url) = &manga.thumbnail_url {
         app.ensure_remote_tile_cover(url);
+    } else {
+        app.request_series_thumbnail(&manga.source_id, &manga.url, manga.memo.as_deref());
     }
     let note = if app.is_favorite(&manga.source_id, &manga.url) {
         "saved · F removes"

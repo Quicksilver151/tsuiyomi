@@ -4,6 +4,7 @@
 //! `tsuiyomi-core`.
 
 mod app;
+mod cover_worker;
 mod download_worker;
 mod draw;
 mod host_worker;
@@ -33,6 +34,7 @@ use crate::{
         BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, SettingId,
         SettingsPage, SETTINGS_PAGES,
     },
+    cover_worker::CoverWorker,
     download_worker::DownloadWorker,
     draw::draw,
     host_worker::HostWorker,
@@ -69,6 +71,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_download_worker(DownloadWorker::spawn());
     app.set_story_worker(StoryWorker::spawn());
     app.set_host_worker(HostWorker::spawn());
+    app.set_cover_worker(CoverWorker::spawn());
     app.maybe_recover_covers();
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
@@ -132,6 +135,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_host_start() {
+            needs_draw = true;
+        }
+        if app.poll_cover_lookups() {
             needs_draw = true;
         }
         if needs_draw {

@@ -21,6 +21,7 @@ use tsuiyomi_core::{
 };
 
 use crate::{
+    cover_worker::{CoverRequest, CoverWorker},
     download_worker::{DownloadRequest, DownloadWorker},
     host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
@@ -569,10 +570,12 @@ pub struct AppState {
     pub(crate) download_worker: Option<DownloadWorker>,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
+    pub(crate) cover_worker: Option<CoverWorker>,
+    cover_lookups: HashSet<String>,
     host_starting: bool,
     host_start_epoch: u64,
     pending_browse_sources: bool,
-    cover_recovery_checked: bool,
+    cover_recovery_at: Option<Instant>,
     /// Story refresh currently running (source+URL key).
     story_refresh: Option<String>,
     /// Stories already refreshed in this session.
@@ -654,10 +657,12 @@ impl AppState {
             download_worker: None,
             story_worker: None,
             host_worker: None,
+            cover_worker: None,
+            cover_lookups: HashSet::new(),
             host_starting: false,
             host_start_epoch: 0,
             pending_browse_sources: false,
-            cover_recovery_checked: false,
+            cover_recovery_at: None,
             story_refresh: None,
             story_refreshed: HashSet::new(),
             removed_stories: HashSet::new(),
@@ -929,7 +934,7 @@ impl AppState {
     pub fn browse_item_count(&self) -> usize {
         match self.browse_view {
             BrowseView::Sources => 1 + self.remote.sources.len(),
-            BrowseView::Local => self.library.series.len(),
+            BrowseView::Local => self.local_series_count(),
             BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
             BrowseView::RemoteDetails => self.remote.chapters.len(),
@@ -939,9 +944,24 @@ impl AppState {
         }
     }
 
+    pub fn local_series_count(&self) -> usize {
+        self.library
+            .series
+            .iter()
+            .filter(|series| series.remote.is_none())
+            .count()
+    }
+
     /// Indices into `library.series` for the Local source, sorted by title.
     pub fn browse_local_indices(&self) -> Vec<usize> {
-        let mut indices: Vec<usize> = (0..self.library.series.len()).collect();
+        let mut indices: Vec<usize> = self
+            .library
+            .series
+            .iter()
+            .enumerate()
+            .filter(|(_, series)| series.remote.is_none())
+            .map(|(index, _)| index)
+            .collect();
         indices.sort_by(|left, right| {
             natural_cmp(
                 &self.library.series[*left].title,
@@ -1491,6 +1511,7 @@ impl AppState {
         self.remote.global_groups = groups;
         self.remote.global_group = 0;
         self.remote.global_item = 0;
+        self.cover_lookups.clear();
         self.remote.status = if !has_groups {
             if let Some(error) = failures.first() {
                 Some(format!("No results · {error}"))
@@ -1693,6 +1714,7 @@ impl AppState {
                 self.remote.has_next_page = result.has_next_page;
                 self.remote.status = None;
                 self.remote.error = false;
+                self.cover_lookups.clear();
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -1943,6 +1965,8 @@ impl AppState {
 
     /// Explicitly refetch missing covers for saved source manga.
     pub fn refresh_library_covers(&mut self) {
+        self.cover_lookups.clear();
+        self.cover_recovery_at = None;
         if self.config.remote_library.is_empty() && self.remote.favorites.is_empty() {
             self.status = Some("No saved source manga.".to_owned());
             return;
@@ -1960,13 +1984,13 @@ impl AppState {
     /// background. Covers live in the data directory, but old cache cleanups or a
     /// corrupt file can still leave gaps.
     pub fn maybe_recover_covers(&mut self) {
-        if self.cover_recovery_checked {
+        if self.config.remote_library.is_empty() {
             return;
         }
-        self.cover_recovery_checked = true;
-        if !self.host_autostart
-            || self.remote.favorites_loaded
-            || self.config.remote_library.is_empty()
+        let now = Instant::now();
+        if self
+            .cover_recovery_at
+            .is_some_and(|at| now.duration_since(at) < Duration::from_secs(15))
         {
             return;
         }
@@ -1977,7 +2001,17 @@ impl AppState {
                 .is_some_and(|path| path.exists());
             !current && !legacy
         });
-        if missing {
+        if !missing {
+            return;
+        }
+        self.cover_recovery_at = Some(now);
+        if self.host_client.is_some() {
+            if self.remote.favorites_loaded {
+                self.cache_favorite_covers();
+            } else {
+                self.load_favorites();
+            }
+        } else if self.host_autostart && !self.host_starting {
             self.begin_host_start(true);
         }
     }
@@ -2477,6 +2511,94 @@ impl AppState {
 
     pub(crate) fn set_host_worker(&mut self, worker: HostWorker) {
         self.host_worker = Some(worker);
+    }
+
+    pub(crate) fn set_cover_worker(&mut self, worker: CoverWorker) {
+        self.cover_worker = Some(worker);
+    }
+
+    /// Ask the source's details page for a thumbnail the result/list did not include.
+    pub fn request_series_thumbnail(&mut self, source_id: &str, url: &str, memo: Option<&str>) {
+        let key = remote_story_key(source_id, url);
+        if self.cover_lookups.contains(&key) {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let Some(worker) = self.cover_worker.as_ref() else {
+            return;
+        };
+        worker.request(CoverRequest {
+            source_id: source_id.to_owned(),
+            url: url.to_owned(),
+            memo: memo.map(str::to_owned),
+            client,
+        });
+        self.cover_lookups.insert(key);
+    }
+
+    /// Apply thumbnail lookups that finished in the background.
+    pub fn poll_cover_lookups(&mut self) -> bool {
+        let mut changed = false;
+        while let Some(result) = self.cover_worker.as_ref().and_then(CoverWorker::try_result) {
+            let Some(thumbnail) = result.thumbnail_url else {
+                continue;
+            };
+            self.apply_thumbnail(&result.source_id, &result.url, &thumbnail);
+            changed = true;
+        }
+        changed
+    }
+
+    fn apply_thumbnail(&mut self, source_id: &str, url: &str, thumbnail: &str) {
+        for result in &mut self.remote.results {
+            if result.source_id == source_id && result.url == url {
+                result.thumbnail_url = Some(thumbnail.to_owned());
+            }
+        }
+        for group in &mut self.remote.global_groups {
+            if group.source.id != source_id {
+                continue;
+            }
+            for result in &mut group.mangas {
+                if result.url == url {
+                    result.thumbnail_url = Some(thumbnail.to_owned());
+                }
+            }
+        }
+        if self
+            .remote
+            .manga
+            .as_ref()
+            .is_some_and(|manga| manga.source_id == source_id && manga.url == url)
+        {
+            if let Some(manga) = self.remote.manga.as_mut() {
+                manga.thumbnail_url = Some(thumbnail.to_owned());
+            }
+        }
+        if self
+            .library_remote
+            .manga
+            .as_ref()
+            .is_some_and(|manga| manga.source_id == source_id && manga.url == url)
+        {
+            if let Some(manga) = self.library_remote.manga.as_mut() {
+                manga.thumbnail_url = Some(thumbnail.to_owned());
+            }
+        }
+        for favorite in &mut self.remote.favorites {
+            if favorite.source_id == source_id && favorite.url == url {
+                favorite.thumbnail_url = Some(thumbnail.to_owned());
+            }
+        }
+        for series in &mut self.library.series {
+            if let Some(remote) = &mut series.remote {
+                if remote.source_id == source_id && remote.url == url {
+                    remote.thumbnail_url = Some(thumbnail.to_owned());
+                }
+            }
+        }
     }
 
     /// Apply a finished background host start. Returns whether the UI changed.
@@ -4960,6 +5082,9 @@ impl AppState {
             // immediately and shows a status row until the host answers.
             self.begin_host_start(true);
         }
+        if index == 0 {
+            self.maybe_recover_covers();
+        }
         self.tab = index;
     }
 
@@ -5484,6 +5609,9 @@ impl AppState {
                         self.library.errors.len()
                     ))
                 };
+                if self.tab == 0 && self.view == LibraryView::Series {
+                    self.maybe_recover_covers();
+                }
             }
             Err(error) => self.status = Some(error.to_string()),
         }
@@ -6667,6 +6795,32 @@ mod tests {
 
         assert!(app.delete_series_downloads(&remote, "Overgeared").unwrap());
         assert!(!downloads.join("Asura Scans (EN)/Overgeared").exists());
+    }
+
+    #[test]
+    fn local_browse_only_lists_local_series() {
+        let mut app = AppState::new(library(), None);
+        app.remote.favorites_loaded = true;
+        app.remote.favorites = vec![RemoteFavorite {
+            source_id: "1".to_owned(),
+            url: "/manga/remote".to_owned(),
+            title: "Remote Only".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+        }];
+        app.merge_remote_library();
+        app.browse_view = BrowseView::Local;
+
+        let titles: Vec<&str> = app
+            .browse_local_indices()
+            .into_iter()
+            .map(|index| app.library.series[index].title.as_str())
+            .collect();
+
+        assert_eq!(titles, ["Azumanga", "Berserk"]);
+        assert_eq!(app.local_series_count(), 2);
+        assert_eq!(app.browse_item_count(), 2);
     }
 
     #[test]
