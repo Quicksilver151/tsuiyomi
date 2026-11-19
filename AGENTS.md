@@ -145,7 +145,9 @@ Rules:
   scanned for `<img>`/`<image>` targets only; prose is not rendered. `m` toggles page-turn
   vs continuous scroll (`SlicedProtocol`); left/right align page tops, space/page keys
   scroll a screen, and
-  `+`/`-` adjust zoom (no upscaling at 100%). Scroll mode reads page dimensions once,
+  `+`/`-` adjust zoom (no upscaling at 100%). Zoom rebuilds the row layout but anchors
+  the viewport to the same source pixel, so long strips do not jump to the page start.
+  Scroll mode reads page dimensions once,
   lazily decodes only visible/nearby blocks, caches their protocols, and uses Kitty shared
   memory when available. Long webtoon strips are split into small blocks (1024 px / at
   most 128 rows) to bound what one Kitty transmission has to copy and write; the worker

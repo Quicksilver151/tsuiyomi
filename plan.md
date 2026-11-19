@@ -125,6 +125,8 @@ database rows. tsuiyomi owns reading progress.
 - [x] Scroll responsiveness: 1024 px blocks, Kitty compression, one fresh block per
       frame, viewport-aware request cancellation, debounced progress writes, and cached
       download markers/chapter lists.
+- [x] Zoom keeps the viewport anchored to the same source pixel across layout rebuilds,
+      including on long webtoon pages.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

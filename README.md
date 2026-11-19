@@ -272,8 +272,9 @@ Reading mode, zoom, and scroll cache settings can also be changed in
 Page-turn modes open single pages; `webtoon` and `continuous_vertical` open in scroll
 mode. `m` switches between page and scroll for the current session. Scroll mode fits
 pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom from 50%
-to 300%. Only pages near the viewport are decoded and cached, and page preparation runs
-off the UI thread. `D` downloads the current chapter and `b` toggles its bookmark.
+to 300%. Zooming rebuilds the scroll layout but keeps the top of the viewport on the same
+point in the page, including inside very long webtoon strips. Only pages near the viewport
+are decoded and cached, and page preparation runs off the UI thread. `D` downloads the current chapter and `b` toggles its bookmark.
 
 - `↑↓` selects sections/settings; `Enter` enters the selected More section, opens a
   settings page, or activates a setting; `Esc` backs out one level; `←→` adjusts the

@@ -479,6 +479,15 @@ pub struct ScrollPageLayout {
     pub source_height: u32,
 }
 
+/// A stable position inside the source image, used to keep the viewport in place
+/// when zoom or width rebuilds the row layout.
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollAnchor {
+    page: usize,
+    /// Vertical position inside the source page, in source pixels.
+    source_y: f64,
+}
+
 pub struct ScrollState {
     pub generation: u64,
     pub layout: Vec<ScrollPageLayout>,
@@ -3520,6 +3529,11 @@ impl AppState {
         match self.reader_mode {
             ReaderMode::Page => self.load_page(),
             ReaderMode::Scroll => {
+                // The old scroll layout belongs to wherever page mode was before.
+                if let Some(reader) = self.reader.as_mut() {
+                    reader.scroll = None;
+                    reader.pending_scroll = None;
+                }
                 // Show the first page while page sizes are measured in the background.
                 self.load_page();
                 self.build_scroll(terminal_width());
@@ -3551,6 +3565,7 @@ impl AppState {
                 (reader.chapter_path.clone(), reader.pages.len())
             };
             self.record_progress(&chapter_path, page, pages);
+            self.sync_pending_offset();
         } else {
             let (chapter_path, pages) = {
                 let Some(reader) = self.reader.as_mut() else {
@@ -3855,10 +3870,16 @@ impl AppState {
             }
         }
 
+        let anchor = self.reader.as_ref().and_then(|reader| {
+            reader
+                .scroll
+                .as_ref()
+                .and_then(|scroll| scroll_anchor(scroll, scroll.offset))
+        });
         let viewport_height = self
             .reader
             .as_ref()
-            .and_then(|reader| reader.scroll.as_ref())
+            .and_then(|reader| reader.scroll.as_ref().or(reader.pending_scroll.as_ref()))
             .map_or(10, |scroll| scroll.viewport_height)
             .max(1);
         let page_index = self.reader.as_ref().map_or(0, |reader| reader.page_index);
@@ -3868,16 +3889,20 @@ impl AppState {
             .map_or(0, |segment| segment.start);
         let total_rows = total_rows.max(1);
         let max_scroll = total_rows.saturating_sub(u32::from(viewport_height));
-        let offset = start_row.min(max_scroll);
+        let offset = anchor
+            .and_then(|anchor| offset_for_anchor(&layout, anchor))
+            .unwrap_or(start_row)
+            .min(max_scroll);
         let page_count = layout.len();
         let generation = self.bump_scroll_generation();
 
         scroll_debug(&format!(
-            "layout {} pages rows={} viewport={} offset={}",
+            "layout {} pages rows={} viewport={} offset={} anchor={:?}",
             layout.len(),
             total_rows,
             viewport_height,
-            offset
+            offset,
+            anchor
         ));
         if let Some(reader) = self.reader.as_mut() {
             reader.error = None;
@@ -4231,6 +4256,7 @@ impl AppState {
         if changed {
             self.record_progress(&chapter_path, page, pages);
         }
+        self.sync_pending_offset();
     }
 
     fn scroll_page_step(&self) -> i32 {
@@ -4240,6 +4266,31 @@ impl AppState {
             .map_or(10, |scroll| {
                 i32::from(scroll.viewport_height.saturating_sub(2).max(1))
             })
+    }
+
+    /// Keep the not-yet-visible layout at the same source position as the old one.
+    fn sync_pending_offset(&mut self) {
+        let anchor = self.reader.as_ref().and_then(|reader| {
+            reader
+                .scroll
+                .as_ref()
+                .and_then(|scroll| scroll_anchor(scroll, scroll.offset))
+        });
+        let Some(anchor) = anchor else {
+            return;
+        };
+        let Some(reader) = self.reader.as_mut() else {
+            return;
+        };
+        let Some(pending) = reader.pending_scroll.as_mut() else {
+            return;
+        };
+        let max_scroll = pending
+            .total_rows
+            .saturating_sub(u32::from(pending.viewport_height));
+        if let Some(offset) = offset_for_anchor(&pending.layout, anchor) {
+            pending.offset = offset.min(max_scroll);
+        }
     }
 
     fn set_reader_error(&mut self, message: impl Into<String>) {
@@ -4827,6 +4878,37 @@ fn scroll_visible_ready(scroll: &ScrollState) -> bool {
         scroll.protocols.get(index).is_some_and(Option::is_some)
             || scroll.errors.get(index).is_some_and(Option::is_some)
     })
+}
+
+fn scroll_anchor(scroll: &ScrollState, offset: u32) -> Option<ScrollAnchor> {
+    let index = scroll
+        .layout
+        .iter()
+        .rposition(|segment| segment.start <= offset)?;
+    let segment = scroll.layout.get(index)?;
+    let within = f64::from(offset.saturating_sub(segment.start));
+    let fraction = (within / f64::from(segment.rows.max(1))).clamp(0.0, 1.0);
+    Some(ScrollAnchor {
+        page: segment.page,
+        source_y: f64::from(segment.source_y) + fraction * f64::from(segment.source_height),
+    })
+}
+
+fn offset_for_anchor(layout: &[ScrollPageLayout], anchor: ScrollAnchor) -> Option<u32> {
+    let mut last = None;
+    for segment in layout.iter().filter(|segment| segment.page == anchor.page) {
+        last = Some(segment);
+        let top = f64::from(segment.source_y);
+        let bottom = top + f64::from(segment.source_height);
+        if anchor.source_y < bottom {
+            let fraction =
+                ((anchor.source_y - top) / f64::from(segment.source_height.max(1))).clamp(0.0, 1.0);
+            return Some(
+                (f64::from(segment.start) + fraction * f64::from(segment.rows)).round() as u32,
+            );
+        }
+    }
+    last.map(|segment| segment.start + u32::from(segment.rows).saturating_sub(1))
 }
 
 fn page_start_row(layout: &[ScrollPageLayout], page: usize) -> u32 {
@@ -5430,6 +5512,74 @@ mod tests {
         let last = scroll.layout.last().unwrap();
         assert_eq!(last.source_y + last.source_height, 12_000);
         assert_eq!(page_at_offset(scroll), 0);
+    }
+
+    #[test]
+    fn zooming_keeps_the_same_spot_in_a_long_page() {
+        let root = tempfile::tempdir().unwrap();
+        let image = image::RgbImage::from_pixel(100, 12_000, image::Rgb([40, 50, 60]));
+        image.save(root.path().join("1.png")).unwrap();
+
+        let series = Series {
+            path: root.path().to_path_buf(),
+            remote: None,
+            title: "Strip".to_owned(),
+            author: None,
+            artist: None,
+            description: String::new(),
+            tags: Vec::new(),
+            status: None,
+            cover: None,
+            categories: vec!["Default".to_owned()],
+            chapters: vec![Chapter {
+                path: root.path().to_path_buf(),
+                title: "Chapter 1".to_owned(),
+                number: Some(1.0),
+                kind: ChapterKind::Directory,
+                scanlator: None,
+                date: None,
+            }],
+            warnings: Vec::new(),
+        };
+        let library = Library {
+            root: root.path().to_path_buf(),
+            series: vec![series],
+            categories: vec!["Default".to_owned()],
+            errors: Vec::new(),
+        };
+
+        let mut app = AppState::new(library, None);
+        app.set_image_picker(Picker::halfblocks());
+        app.open();
+        app.open();
+        app.toggle_reader_mode();
+
+        let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
+        assert!(scroll.layout.len() > 2);
+        let offset = scroll.layout[2].start + 7;
+        app.reader.as_mut().unwrap().scroll.as_mut().unwrap().offset = offset;
+        let before = scroll_anchor(
+            app.reader.as_ref().unwrap().scroll.as_ref().unwrap(),
+            offset,
+        )
+        .unwrap();
+
+        app.zoom_in();
+
+        let pending = app
+            .reader
+            .as_ref()
+            .unwrap()
+            .pending_scroll
+            .as_ref()
+            .unwrap();
+        let after = scroll_anchor(pending, pending.offset).unwrap();
+        assert_eq!(before.page, 0);
+        assert_eq!(after.page, 0);
+        assert!(
+            (before.source_y - after.source_y).abs() < 64.0,
+            "{before:?} -> {after:?}"
+        );
     }
 
     #[test]
