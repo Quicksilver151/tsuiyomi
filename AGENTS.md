@@ -183,7 +183,9 @@ Rules:
   an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
   source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
-  through the same remote chapter/reader path. Opening a saved manga shows the same
+  through the same remote chapter/reader path. Pressing Enter on an installed extension
+  asks for `y` confirmation before uninstalling it (the commands bar says "uninstall"
+  instead of "install"). Opening a saved manga shows the same
   details screen as Browse (cover, source, author/artist, status, tags, description,
   chapters). Remote covers are fetched through the host while it runs and written to
   `$XDG_CACHE_HOME/tsuiyomi/covers` (proxy URLs are process-local, so the bytes, not the
@@ -192,7 +194,10 @@ Rules:
   tsuiyomi never loads APK bytecode itself; the host supplies the JVM, AndroidCompat, and
   dex2jar runtime. The bundled host is extracted from an optional archive in the binary
   into `$XDG_CACHE_HOME/tsuiyomi/host/<version>/` and supervised on loopback; `host_url`
-  overrides it with an external server. Remote progress uses synthetic
+  overrides it with an external server. Opening Browse for the first time starts the
+  bundled host on `host_worker` instead of blocking the UI: the Sources screen renders
+  immediately with a status row and fills in when the host answers. A start epoch drops
+  results from a host that was stopped meanwhile. Remote progress uses synthetic
   `remote://source/manga/chapter` keys. Remote network calls are currently synchronous.
   WebView-dependent sources are unsupported. Library itself also uses a tile grid, not a
   list. Category keys only affect Library's series grid. There is no filesystem import

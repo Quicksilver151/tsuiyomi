@@ -130,6 +130,9 @@ database rows. tsuiyomi owns reading progress.
 - [x] Remote story details and chapters are cached on disk, so saved stories open
       without the host or network after the first fetch; the host refreshes them in the
       background when it is already running.
+- [x] The bundled extension host starts on a worker when Browse is first opened, so the
+      tab renders immediately instead of freezing during JVM startup.
+- [x] Installed extensions expose uninstall in the commands bar and confirm it with `y`.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

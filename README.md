@@ -113,8 +113,9 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
 - **Sources** — the Local source plus every source exposed by the extension host, grouped
   by language. `P` pins the selected source; pinned sources move to a `Pinned` group.
 - **Extensions** — installed and available extensions. `/` searches by name or package,
-  `Enter` installs or uninstalls, `u` updates, `P` pins all sources of the selected
-  extension, `a` adds a store URL, and `t` opens the store list.
+  `Enter` installs an available extension or uninstalls an installed one after a `y`
+  confirmation, `u` updates, `P` pins all sources of the selected extension, `a` adds a
+  store URL, and `t` opens the store list.
 - **Migrate** — placeholder; source migration is not implemented.
 
 Controls:

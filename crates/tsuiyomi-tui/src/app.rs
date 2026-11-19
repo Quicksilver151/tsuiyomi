@@ -20,6 +20,7 @@ use tsuiyomi_core::{
 
 use crate::{
     download_worker::{DownloadRequest, DownloadWorker},
+    host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
     palette,
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
@@ -552,6 +553,10 @@ pub struct AppState {
     pub(crate) size_worker: Option<SizeWorker>,
     pub(crate) download_worker: Option<DownloadWorker>,
     pub(crate) story_worker: Option<StoryWorker>,
+    pub(crate) host_worker: Option<HostWorker>,
+    host_starting: bool,
+    host_start_epoch: u64,
+    pending_browse_sources: bool,
     /// Story refresh currently running (source+URL key).
     story_refresh: Option<String>,
     /// Stories already refreshed in this session.
@@ -597,6 +602,8 @@ pub struct AppState {
     pub accent: Option<String>,
     pub picker: Option<PickerState>,
     pub quit_confirm: bool,
+    /// Pending extension uninstall: package and display name.
+    pub uninstall_confirm: Option<(String, String)>,
     /// Chapter download currently running, if any.
     pub downloading: Option<String>,
     pub status: Option<String>,
@@ -627,6 +634,10 @@ impl AppState {
             size_worker: None,
             download_worker: None,
             story_worker: None,
+            host_worker: None,
+            host_starting: false,
+            host_start_epoch: 0,
+            pending_browse_sources: false,
             story_refresh: None,
             story_refreshed: HashSet::new(),
             size_generation: 0,
@@ -663,6 +674,7 @@ impl AppState {
             accent: None,
             picker: None,
             quit_confirm: false,
+            uninstall_confirm: None,
             downloading: None,
             status,
         }
@@ -1471,6 +1483,10 @@ impl AppState {
         if self.host_client.is_some() {
             return true;
         }
+        if self.host_starting {
+            self.remote.status = Some("The extension host is still starting…".to_owned());
+            return false;
+        }
         if let Some(url) = self
             .config
             .host_url
@@ -1963,16 +1979,12 @@ impl AppState {
         };
 
         if extension.installed {
-            match client.uninstall_extension(&extension.pkg) {
-                Ok(()) => {
-                    let name = extension.name;
-                    self.load_extensions();
-                    self.load_remote_sources();
-                    self.remote.status = Some(format!("Uninstalled {name}"));
-                    self.remote.error = false;
-                }
-                Err(error) => self.set_remote_error(error),
-            }
+            self.uninstall_confirm = Some((extension.pkg.clone(), extension.name.clone()));
+            self.remote.status = Some(format!(
+                "Press y to uninstall {}, Esc cancels",
+                extension.name
+            ));
+            self.remote.error = false;
             return;
         }
 
@@ -2001,6 +2013,31 @@ impl AppState {
                 self.remote.error = sources == 0;
             }
             Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn confirm_uninstall_extension(&mut self) {
+        let Some((pkg, name)) = self.uninstall_confirm.take() else {
+            return;
+        };
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        match client.uninstall_extension(&pkg) {
+            Ok(()) => {
+                self.load_extensions();
+                self.load_remote_sources();
+                self.remote.status = Some(format!("Uninstalled {name}"));
+                self.remote.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn cancel_uninstall_extension(&mut self) {
+        if self.uninstall_confirm.take().is_some() {
+            self.remote.status = Some("Uninstall cancelled".to_owned());
+            self.remote.error = false;
         }
     }
 
@@ -2257,6 +2294,85 @@ impl AppState {
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
         self.story_worker = Some(worker);
+    }
+
+    pub(crate) fn set_host_worker(&mut self, worker: HostWorker) {
+        self.host_worker = Some(worker);
+    }
+
+    /// Apply a finished background host start. Returns whether the UI changed.
+    pub fn poll_host_start(&mut self) -> bool {
+        let Some(result) = self.host_worker.as_ref().and_then(HostWorker::try_result) else {
+            return false;
+        };
+        if result.epoch != self.host_start_epoch {
+            return false;
+        }
+        self.host_starting = false;
+        match result.result {
+            Ok(process) => {
+                self.remote.host = Some(process.base_url().to_owned());
+                self.host_client = Some(HostClient::new(process.base_url()));
+                self.host_process = Some(process);
+                self.remote.status = None;
+                self.remote.error = false;
+                if self.pending_browse_sources {
+                    self.pending_browse_sources = false;
+                    self.load_remote_sources();
+                }
+            }
+            Err(error) => {
+                self.pending_browse_sources = false;
+                self.set_remote_error(error);
+            }
+        }
+        true
+    }
+
+    /// Connect to an external host immediately, or start the bundled one in the
+    /// background so the UI can draw before the JVM is ready.
+    fn begin_host_start(&mut self, then_load_sources: bool) {
+        if self.host_client.is_some() {
+            if then_load_sources {
+                self.load_remote_sources();
+            }
+            return;
+        }
+        if let Some(url) = self
+            .config
+            .host_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+        {
+            if validate_host_url(url).is_ok() {
+                self.host_client = Some(HostClient::new(url));
+                if then_load_sources {
+                    self.load_remote_sources();
+                }
+                return;
+            }
+        }
+        if self.host_starting {
+            self.pending_browse_sources |= then_load_sources;
+            return;
+        }
+        let Some(worker) = self.host_worker.as_ref() else {
+            if then_load_sources {
+                self.load_remote_sources();
+            } else {
+                let _ = self.ensure_host();
+            }
+            return;
+        };
+        self.host_starting = true;
+        self.pending_browse_sources = then_load_sources;
+        self.remote.status = Some("Starting the extension host…".to_owned());
+        self.remote.error = false;
+        worker.request(HostRequest {
+            host_jar: self.config.host_jar.clone(),
+            epoch: self.host_start_epoch,
+        });
     }
 
     /// Refresh a story's details and chapters in the background, when the host is
@@ -4463,7 +4579,9 @@ impl AppState {
         // Each tab keeps its own navigation state. Only refresh the remote source list
         // the first time Browse is opened with a host configured.
         if index == 3 && self.tab != 3 && self.host_autostart && self.remote.sources.is_empty() {
-            self.load_remote_sources();
+            // Do not freeze the UI while the JVM starts. The Sources screen renders
+            // immediately and shows a status row until the host answers.
+            self.begin_host_start(true);
         }
         self.tab = index;
     }
@@ -4883,6 +5001,9 @@ impl AppState {
     /// Stop the sidecar, or reconnect/start it. Exposed on the About page.
     pub fn toggle_host(&mut self) {
         if self.host_process.is_some() || self.host_client.is_some() {
+            self.host_start_epoch = self.host_start_epoch.wrapping_add(1);
+            self.host_starting = false;
+            self.pending_browse_sources = false;
             self.host_process = None;
             self.host_client = None;
             self.remote.sources.clear();
@@ -5996,6 +6117,40 @@ mod tests {
             assert_eq!(app.tab, 3);
             assert_eq!(app.browse_view, view);
         }
+    }
+
+    #[test]
+    fn installed_extensions_ask_before_uninstalling() {
+        let mut app = remote_app();
+        app.host_autostart = false;
+        app.host_client = Some(HostClient::new("http://127.0.0.1:9"));
+        app.tab = 3;
+        app.browse_view = BrowseView::Extensions;
+        app.browse_selection = 0;
+        app.remote.extensions = vec![ExtensionInfo {
+            name: "Asura Scans".to_owned(),
+            pkg: "pkg.asura".to_owned(),
+            lang: "en".to_owned(),
+            version: "1.0".to_owned(),
+            apk: "asura.apk".to_owned(),
+            installed: true,
+            nsfw: false,
+            source_count: 1,
+            sources: vec![ExtensionSource {
+                name: "Asura Scans".to_owned(),
+                lang: "en".to_owned(),
+            }],
+            repo_url: "https://example.org/index.min.json".to_owned(),
+        }];
+
+        app.toggle_selected_extension();
+
+        assert_eq!(
+            app.uninstall_confirm,
+            Some(("pkg.asura".to_owned(), "Asura Scans".to_owned()))
+        );
+        app.cancel_uninstall_extension();
+        assert!(app.uninstall_confirm.is_none());
     }
 
     #[test]

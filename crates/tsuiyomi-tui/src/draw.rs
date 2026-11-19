@@ -76,6 +76,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
 
     draw_picker(frame, app);
     draw_quit_confirm(frame, app);
+    draw_uninstall_confirm(frame, app);
     draw_text_input(frame, app);
 }
 
@@ -159,6 +160,52 @@ fn draw_quit_confirm(frame: &mut Frame, app: &AppState) {
     ];
     frame.render_widget(
         Paragraph::new(Text::from(lines)).alignment(Alignment::Center),
+        inner,
+    );
+}
+
+fn draw_uninstall_confirm(frame: &mut Frame, app: &AppState) {
+    let Some((_, name)) = &app.uninstall_confirm else {
+        return;
+    };
+    let area = frame.area();
+    let width = 54.min(area.width);
+    let height = 6.min(area.height);
+    if width < 20 || height < 4 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Uninstall ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            format!("Uninstall {name}?"),
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "y  uninstall    Esc  cancel",
+            Style::default().fg(c_overlay0()),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true }),
         inner,
     );
 }
@@ -488,6 +535,17 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     if app.has_downloadable_chapter() && !items.iter().any(|(key, _)| *key == "D") {
         let at = items.len().saturating_sub(1);
         items.insert(at, ("D", "download"));
+    }
+    if app.tab == 3 && app.browse_view == BrowseView::Extensions {
+        if let Some(extension) = app.selected_extension() {
+            if let Some(item) = items.iter_mut().find(|(key, _)| *key == "↵") {
+                item.1 = if extension.installed {
+                    "uninstall"
+                } else {
+                    "install"
+                };
+            }
+        }
     }
     if app.has_bookmarkable_chapter() && !items.iter().any(|(key, _)| *key == "b") {
         let at = items.len().saturating_sub(1);
@@ -3129,6 +3187,17 @@ mod tests {
         assert!(!text.contains("Tsuiyomi"));
         assert!(!text.contains("commands"));
         assert!(text.contains("Library"));
+    }
+
+    #[test]
+    fn uninstall_confirmation_renders_the_extension_name() {
+        let mut app = test_app();
+        app.uninstall_confirm = Some(("pkg.asura".to_owned(), "Asura Scans".to_owned()));
+
+        let text = render(&mut app, 100, 30);
+
+        assert!(text.contains("Uninstall Asura Scans?"));
+        assert!(text.contains("y  uninstall"));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 mod app;
 mod download_worker;
 mod draw;
+mod host_worker;
 mod input;
 mod layout;
 mod palette;
@@ -34,6 +35,7 @@ use crate::{
     },
     download_worker::DownloadWorker,
     draw::draw,
+    host_worker::HostWorker,
     input::Action,
     layout::{
         app_layout, contains, grid_index_at, inner, library_grid_area, library_layout, more_layout,
@@ -66,6 +68,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());
     app.set_story_worker(StoryWorker::spawn());
+    app.set_host_worker(HostWorker::spawn());
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
@@ -127,6 +130,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         if app.poll_story_refresh() {
             needs_draw = true;
         }
+        if app.poll_host_start() {
+            needs_draw = true;
+        }
         if needs_draw {
             let started = Instant::now();
             terminal.draw(|frame| draw(frame, app))?;
@@ -158,6 +164,15 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::Quit | Action::Open | Action::Confirm => return Ok(()),
                 Action::Back | Action::NextChapter => app.quit_confirm = false,
                 _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.uninstall_confirm.is_some() {
+            match action {
+                Action::Confirm => app.confirm_uninstall_extension(),
+                _ => app.cancel_uninstall_extension(),
             }
             needs_draw = true;
             continue;
