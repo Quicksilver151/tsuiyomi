@@ -6,7 +6,7 @@ both apps.
 
 > **Status:** MVP for local Mihon libraries plus extension-backed remote sources —
 > scanning, browsing, metadata, covers, reading, progress, and settings.
-> Updates/history and backups are not implemented yet.
+> Updates and backups are not implemented yet.
 
 ## Goals
 
@@ -163,6 +163,15 @@ offline.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.
+
+## History
+
+The History tab lists recently read chapters newest first: series, chapter, source, page
+progress, and when it was read. `Enter` resumes the chapter from its saved page, `x` or
+`Delete` removes the selected/current entries, and `Space` multi-selects entries for
+removal. Local and remote chapters both work; a remote entry reopens through the host.
+History is stored in `$XDG_DATA_HOME/tsuiyomi/history.json`. Incognito mode stops new
+entries from being recorded.
 
 ## Remote sources and extensions
 

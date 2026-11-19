@@ -15,9 +15,9 @@ use tsuiyomi_core::{
     legacy_remote_cover_path, load_cached_story, page_dimensions, read_cover, read_page,
     remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
-    ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore,
-    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series,
-    Theme,
+    ExtensionInfo, HistoryEntry, HistoryStore, HostClient, HostProcess, Library, LibrarySort, Page,
+    PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga,
+    RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -78,6 +78,7 @@ pub enum ReaderOrigin {
     BrowseLocal,
     Remote,
     LibraryRemote,
+    History,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -543,6 +544,7 @@ pub enum SelectionScope {
     Stores,
     LocalChapters,
     RemoteChapters,
+    History,
 }
 
 #[derive(Debug, Clone)]
@@ -592,6 +594,10 @@ pub struct AppState {
     pub image_picker: Option<Picker>,
     pub progress: ProgressStore,
     pub bookmarks: BookmarkStore,
+    pub history: HistoryStore,
+    pub history_selection: usize,
+    pub history_list_state: ListState,
+    history_dirty: bool,
     progress_dirty: bool,
     progress_changed_at: Option<Instant>,
     /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
@@ -681,6 +687,10 @@ impl AppState {
             image_picker: None,
             progress: ProgressStore::default(),
             bookmarks: BookmarkStore::default(),
+            history: HistoryStore::default(),
+            history_selection: 0,
+            history_list_state: ListState::default(),
+            history_dirty: false,
             progress_dirty: false,
             progress_changed_at: None,
             scroll_worker: None,
@@ -2029,6 +2039,7 @@ impl AppState {
             ReaderOrigin::BrowseLocal => self.browse_local_chapter,
             ReaderOrigin::Library => self.chapter_index,
             ReaderOrigin::LibraryRemote => self.library_remote.chapter_index,
+            ReaderOrigin::History => 0,
         }
     }
 
@@ -2038,6 +2049,7 @@ impl AppState {
             ReaderOrigin::BrowseLocal => self.browse_local_chapter_count(),
             ReaderOrigin::Library => self.chapter_count(),
             ReaderOrigin::LibraryRemote => self.library_remote_chapter_count(),
+            ReaderOrigin::History => 1,
         }
     }
 
@@ -3139,7 +3151,7 @@ impl AppState {
                     self.library_remote.chapters.clone(),
                     self.library_remote.chapter_index,
                 )),
-                ReaderOrigin::Library | ReaderOrigin::BrowseLocal => None,
+                ReaderOrigin::Library | ReaderOrigin::BrowseLocal | ReaderOrigin::History => None,
             };
         }
         if self.tab == 3 && self.browse_view == BrowseView::RemoteDetails {
@@ -3359,6 +3371,10 @@ impl AppState {
 
     pub fn set_bookmarks(&mut self, bookmarks: BookmarkStore) {
         self.bookmarks = bookmarks;
+    }
+
+    pub fn set_history(&mut self, history: HistoryStore) {
+        self.history = history;
     }
 
     /// Whether the current screen has a chapter that can be bookmarked.
@@ -3625,6 +3641,13 @@ impl AppState {
                     .list_state
                     .select(Some(self.library_remote.chapter_index));
             }
+            ReaderOrigin::History => {
+                self.tab = 2;
+                self.history_selection = self
+                    .history_selection
+                    .min(self.history.recent().len().saturating_sub(1));
+                self.history_list_state.select(Some(self.history_selection));
+            }
         }
         self.reader_origin = ReaderOrigin::Library;
     }
@@ -3653,6 +3676,10 @@ impl AppState {
     }
 
     pub fn previous(&mut self) {
+        if self.reader.is_none() && self.tab == 2 {
+            self.history_previous();
+            return;
+        }
         if self.reader.is_some() {
             if self.reader_mode == ReaderMode::Scroll {
                 self.scroll_lines(-SCROLL_LINES);
@@ -3682,6 +3709,10 @@ impl AppState {
     }
 
     pub fn next(&mut self) {
+        if self.reader.is_none() && self.tab == 2 {
+            self.history_next();
+            return;
+        }
         if self.reader.is_some() {
             if self.reader_mode == ReaderMode::Scroll {
                 self.scroll_lines(SCROLL_LINES);
@@ -4141,6 +4172,11 @@ impl AppState {
                 }
             };
         }
+        if self.tab == 2 {
+            let recent = self.history.recent();
+            let (key, _) = recent.get(self.history_selection)?;
+            return Some((SelectionScope::History, format!("history:{key}")));
+        }
         if self.tab != 3 {
             return None;
         }
@@ -4247,19 +4283,277 @@ impl AppState {
             .map(|selection| &selection.keys)
     }
 
+    pub fn history_count(&self) -> usize {
+        self.history.recent().len()
+    }
+
+    fn clamp_history_selection(&mut self) {
+        let count = self.history_count();
+        self.history_selection = self.history_selection.min(count.saturating_sub(1));
+        self.history_list_state
+            .select((count > 0).then_some(self.history_selection));
+    }
+
+    pub fn history_next(&mut self) {
+        if let Some(last) = self.history_count().checked_sub(1) {
+            self.history_selection = (self.history_selection + 1).min(last);
+            self.history_list_state.select(Some(self.history_selection));
+        }
+    }
+
+    pub fn history_previous(&mut self) {
+        self.history_selection = self.history_selection.saturating_sub(1);
+        self.history_list_state.select(Some(self.history_selection));
+    }
+
+    pub fn delete_history_selection(&mut self) {
+        let mut keys: Vec<String> = Vec::new();
+        if let Some(selected) = self.selected_keys(SelectionScope::History) {
+            keys = selected
+                .iter()
+                .filter_map(|key| key.strip_prefix("history:").map(str::to_owned))
+                .collect();
+        }
+        if keys.is_empty() {
+            if let Some((key, _)) = self.history.recent().get(self.history_selection) {
+                keys.push((*key).clone());
+            }
+        }
+        if keys.is_empty() {
+            return;
+        }
+        let mut removed = 0usize;
+        for key in keys {
+            if self.history.remove(&key) {
+                removed += 1;
+            }
+        }
+        let _ = self.history.save();
+        self.history_dirty = false;
+        self.multi_select = None;
+        self.clamp_history_selection();
+        self.status = Some(format!(
+            "Removed {removed} history {}",
+            if removed == 1 { "entry" } else { "entries" }
+        ));
+    }
+
+    pub fn open_history_entry(&mut self) {
+        let Some((key, entry)) = self
+            .history
+            .recent()
+            .get(self.history_selection)
+            .map(|(key, entry)| ((*key).clone(), (*entry).clone()))
+        else {
+            return;
+        };
+        let start_page = entry.page.min(entry.pages.saturating_sub(1));
+
+        if let Some(local) = &entry.local {
+            let chapter = self
+                .library
+                .series
+                .iter()
+                .find(|series| series.path == local.series_path)
+                .and_then(|series| {
+                    series
+                        .chapters
+                        .iter()
+                        .find(|chapter| chapter.path == local.chapter_path)
+                        .cloned()
+                });
+            let Some(chapter) = chapter else {
+                self.status = Some("That local chapter is no longer in the library.".to_owned());
+                return;
+            };
+            let pages = match chapter_pages(&chapter) {
+                Ok(pages) => pages,
+                Err(error) => {
+                    self.status = Some(error.to_string());
+                    return;
+                }
+            };
+            self.start_history_reader(
+                entry.series_title.clone(),
+                entry.chapter_title.clone(),
+                chapter.path.clone(),
+                pages,
+                start_page,
+            );
+            return;
+        }
+
+        if let Some(remote) = &entry.remote {
+            if self.host_client.is_none() && !self.ensure_host() {
+                return;
+            }
+            let pages = match self.remote_chapter_pages(&remote.manga, &remote.chapter) {
+                Ok(pages) => pages,
+                Err(error) => {
+                    self.set_remote_error(error);
+                    return;
+                }
+            };
+            self.start_history_reader(
+                entry.series_title.clone(),
+                entry.chapter_title.clone(),
+                PathBuf::from(key),
+                pages,
+                start_page,
+            );
+        }
+    }
+
+    fn start_history_reader(
+        &mut self,
+        series_title: String,
+        chapter_title: String,
+        chapter_path: PathBuf,
+        pages: Vec<Page>,
+        start_page: usize,
+    ) {
+        if pages.is_empty() {
+            self.status = Some("Chapter has no pages.".to_owned());
+            return;
+        }
+        let start_page = start_page.min(pages.len() - 1);
+        self.reader = Some(ReaderState {
+            series_title,
+            chapter_title,
+            chapter_path: chapter_path.clone(),
+            pages,
+            page_sizes: Vec::new(),
+            page_index: start_page,
+            protocol: None,
+            scroll: None,
+            pending_scroll: None,
+            error: None,
+        });
+        self.reader_origin = ReaderOrigin::History;
+        self.tab = 2;
+        self.status = None;
+        self.record_progress(
+            &chapter_path,
+            start_page,
+            self.reader.as_ref().map_or(0, |reader| reader.pages.len()),
+        );
+        match self.reader_mode {
+            ReaderMode::Page => self.load_page(),
+            ReaderMode::Scroll => {
+                self.load_page();
+                self.build_scroll(terminal_width());
+            }
+        }
+    }
+
     /// Persist reading progress unless Incognito mode is on.
     fn record_progress(&mut self, chapter: &std::path::Path, page: usize, pages: usize) {
         if self.config.incognito {
             return;
         }
         self.progress.update(chapter, page, pages);
+        self.record_history(chapter, page, pages);
         self.progress_dirty = true;
         self.progress_changed_at = Some(Instant::now());
     }
 
+    fn record_history(&mut self, chapter: &std::path::Path, page: usize, pages: usize) {
+        let Some(reader) = self.reader.as_ref() else {
+            return;
+        };
+        let series_title = reader.series_title.clone();
+        let chapter_title = reader.chapter_title.clone();
+        let key = chapter.to_string_lossy().into_owned();
+
+        let entry = match self.reader_origin {
+            ReaderOrigin::Library | ReaderOrigin::BrowseLocal => {
+                let chapter_path = chapter.to_path_buf();
+                let series = self.library.series.iter().find(|series| {
+                    series
+                        .chapters
+                        .iter()
+                        .any(|known| known.path == chapter_path)
+                });
+                if let Some(series) = series {
+                    HistoryEntry::local(
+                        series_title,
+                        chapter_title,
+                        series.path.clone(),
+                        chapter_path,
+                        series.cover.clone(),
+                        page,
+                        pages,
+                    )
+                } else if let Some(mut existing) = self.history.get(&key).cloned() {
+                    existing.page = page;
+                    existing.pages = pages;
+                    existing.last_read = 0;
+                    existing
+                } else {
+                    return;
+                }
+            }
+            ReaderOrigin::Remote => {
+                let Some(manga) = self.remote.manga.clone() else {
+                    return;
+                };
+                let Some(remote_chapter) =
+                    self.remote.chapters.get(self.remote.chapter_index).cloned()
+                else {
+                    return;
+                };
+                let source = self.remote_source_name(&manga.source_id);
+                HistoryEntry::remote(
+                    series_title,
+                    chapter_title,
+                    source,
+                    manga,
+                    remote_chapter,
+                    page,
+                    pages,
+                )
+            }
+            ReaderOrigin::LibraryRemote => {
+                let Some(manga) = self.library_remote.manga.clone() else {
+                    return;
+                };
+                let Some(remote_chapter) = self
+                    .library_remote
+                    .chapters
+                    .get(self.library_remote.chapter_index)
+                    .cloned()
+                else {
+                    return;
+                };
+                let source = self.remote_source_name(&manga.source_id);
+                HistoryEntry::remote(
+                    series_title,
+                    chapter_title,
+                    source,
+                    manga,
+                    remote_chapter,
+                    page,
+                    pages,
+                )
+            }
+            ReaderOrigin::History => {
+                let Some(mut existing) = self.history.get(&key).cloned() else {
+                    return;
+                };
+                existing.page = page;
+                existing.pages = pages;
+                existing.last_read = 0;
+                existing
+            }
+        };
+
+        self.history.record(key, entry);
+        self.history_dirty = true;
+    }
+
     /// Whether the in-memory progress has been idle long enough to write.
     pub fn progress_save_due(&self) -> bool {
-        self.progress_dirty
+        (self.progress_dirty || self.history_dirty)
             && self
                 .progress_changed_at
                 .is_some_and(|changed| changed.elapsed() >= Duration::from_millis(500))
@@ -4271,6 +4565,10 @@ impl AppState {
             let _ = self.progress.save();
             self.progress_dirty = false;
             self.progress_changed_at = None;
+        }
+        if self.history_dirty {
+            let _ = self.history.save();
+            self.history_dirty = false;
         }
     }
 
@@ -4983,6 +5281,9 @@ impl AppState {
         if self.reader.is_none() {
             return;
         }
+        if self.reader_origin == ReaderOrigin::History {
+            return;
+        }
         if self.remote.reader {
             if self.remote.chapter_index > 0 {
                 self.remote.chapter_index -= 1;
@@ -4999,6 +5300,9 @@ impl AppState {
 
     pub fn previous_chapter(&mut self) {
         if self.reader.is_none() {
+            return;
+        }
+        if self.reader_origin == ReaderOrigin::History {
             return;
         }
         if self.remote.reader {
@@ -5629,6 +5933,9 @@ impl AppState {
         }
         if index == 0 {
             self.maybe_recover_covers();
+        }
+        if index == 2 {
+            self.clamp_history_selection();
         }
         self.tab = index;
     }
@@ -7313,6 +7620,80 @@ mod tests {
         );
         app.cancel_uninstall_extension();
         assert!(app.uninstall_confirm.is_none());
+    }
+
+    fn local_reader_app() -> (AppState, tempfile::TempDir) {
+        let root = tempfile::tempdir().unwrap();
+        image::RgbImage::from_pixel(10, 20, image::Rgb([30, 40, 50]))
+            .save(root.path().join("001.png"))
+            .unwrap();
+        let series = Series {
+            path: root.path().to_path_buf(),
+            remote: None,
+            title: "History Series".to_owned(),
+            author: None,
+            artist: None,
+            description: String::new(),
+            tags: Vec::new(),
+            status: None,
+            cover: None,
+            categories: vec!["Default".to_owned()],
+            chapters: vec![Chapter {
+                path: root.path().to_path_buf(),
+                title: "Chapter 1".to_owned(),
+                number: Some(1.0),
+                kind: ChapterKind::Directory,
+                scanlator: None,
+                date: None,
+            }],
+            warnings: Vec::new(),
+        };
+        let library = Library {
+            root: root.path().to_path_buf(),
+            series: vec![series],
+            categories: vec!["Default".to_owned()],
+            errors: Vec::new(),
+        };
+        let mut app = AppState::new(library, None);
+        app.set_config(Config::default());
+        app.open();
+        app.open();
+        (app, root)
+    }
+
+    #[test]
+    fn reading_records_history_and_can_resume_it() {
+        let (mut app, _root) = local_reader_app();
+
+        assert_eq!(app.history_count(), 1);
+        let (title, entry) = {
+            let recent = app.history.recent();
+            let (_, entry) = recent[0];
+            (entry.series_title.clone(), entry.clone())
+        };
+        assert_eq!(title, "History Series");
+        assert!(entry.local.is_some());
+
+        app.back();
+        app.tab = 2;
+        app.clamp_history_selection();
+        app.open_history_entry();
+
+        assert!(app.reader.is_some());
+        assert_eq!(app.reader_origin, ReaderOrigin::History);
+        assert_eq!(app.tab, 2);
+    }
+
+    #[test]
+    fn history_entries_can_be_deleted() {
+        let (mut app, _root) = local_reader_app();
+        assert_eq!(app.history_count(), 1);
+
+        app.tab = 2;
+        app.history_selection = 0;
+        app.delete_history_selection();
+
+        assert_eq!(app.history_count(), 0);
     }
 
     #[test]

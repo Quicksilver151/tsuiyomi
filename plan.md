@@ -149,6 +149,8 @@ database rows. tsuiyomi owns reading progress.
       cannot erase a working thumbnail, and failed fetches retry after 10 seconds.
 - [x] Multi-select (`Space`, `✓` markers) across Library/Browse grids, sources,
       extensions, stores, and chapter lists; actions apply to the whole selection.
+- [x] Reading history: one entry per chapter persisted in `history.json`, History tab
+      with resume/delete/multi-select, local and remote sources, Incognito suppression.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

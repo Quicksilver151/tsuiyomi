@@ -59,12 +59,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
                 "Updates",
                 "Update tracking is not implemented yet.",
             ),
-            2 => placeholder(
-                frame,
-                layout.content,
-                "History",
-                "Reading history is not implemented yet.",
-            ),
+            2 => draw_history(frame, layout.content, app),
             3 => draw_browse(frame, layout.content, app),
             _ => draw_more(frame, layout.content, app),
         }
@@ -580,6 +575,15 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("Esc", "back"),
             ]
         }
+    } else if app.tab == 2 {
+        vec![
+            ("q", "quit"),
+            ("↑↓", "history"),
+            ("↵", "resume"),
+            ("x/Del", "remove"),
+            ("[ ]", "tabs"),
+            ("Esc", "back"),
+        ]
     } else if app.tab == 0 {
         match app.view {
             LibraryView::Series => vec![
@@ -999,6 +1003,105 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     ));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_history(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let entries: Vec<(String, tsuiyomi_core::HistoryEntry)> = app
+        .history
+        .recent()
+        .into_iter()
+        .map(|(key, entry)| (key.clone(), entry.clone()))
+        .collect();
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " History ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{} ", entries.len()),
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if entries.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No reading history yet.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            inner,
+        );
+        app.history_list_state.select(None);
+        return;
+    }
+
+    if app.history_selection >= entries.len() {
+        app.history_selection = entries.len() - 1;
+    }
+    app.history_list_state.select(Some(app.history_selection));
+
+    let items: Vec<ListItem> = entries
+        .iter()
+        .map(|(key, entry)| {
+            let marker =
+                if app.is_multi_selected(SelectionScope::History, &format!("history:{key}")) {
+                    "✓ "
+                } else {
+                    ""
+                };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, Style::default().fg(c_accent())),
+                Span::styled(
+                    entry.series_title.clone(),
+                    Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" · ", Style::default().fg(c_overlay0())),
+                Span::raw(entry.chapter_title.clone()),
+                Span::styled(
+                    format!("  {}", entry.source),
+                    Style::default().fg(c_overlay1()),
+                ),
+                Span::styled(
+                    format!("  {}/{}", entry.page + 1, entry.pages),
+                    Style::default().fg(c_teal()),
+                ),
+                Span::styled(
+                    format!("  {}", history_age(entry.last_read)),
+                    Style::default().fg(c_overlay0()),
+                ),
+            ]))
+        })
+        .collect();
+    let list = List::new(items)
+        .style(Style::default().fg(c_text()))
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, inner, &mut app.history_list_state);
+}
+
+fn history_age(last_read: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(last_read);
+    let seconds = now.saturating_sub(last_read);
+    if seconds < 60 {
+        "just now".to_owned()
+    } else if seconds < 3_600 {
+        format!("{}m ago", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h ago", seconds / 3_600)
+    } else {
+        format!("{}d ago", seconds / 86_400)
+    }
 }
 
 fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -3382,6 +3485,34 @@ mod tests {
         assert!(!text.contains("Tsuiyomi"));
         assert!(!text.contains("commands"));
         assert!(text.contains("Library"));
+    }
+
+    #[test]
+    fn history_tab_renders_entries_and_empty_state() {
+        let mut app = test_app();
+        app.tab = 2;
+
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("No reading history yet."));
+
+        app.history.record(
+            "chapter:1".to_owned(),
+            tsuiyomi_core::HistoryEntry {
+                series_title: "Test Series".to_owned(),
+                chapter_title: "Chapter 1".to_owned(),
+                source: "Local".to_owned(),
+                cover: None,
+                local: None,
+                remote: None,
+                page: 2,
+                pages: 10,
+                last_read: 1,
+            },
+        );
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Test Series"));
+        assert!(text.contains("Chapter 1"));
+        assert!(text.contains("3/10"));
     }
 
     #[test]

@@ -27,7 +27,7 @@ use crossterm::{
 };
 use ratatui::{layout::Rect, DefaultTerminal};
 use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
-use tsuiyomi_core::{BookmarkStore, ProgressStore};
+use tsuiyomi_core::{BookmarkStore, HistoryStore, ProgressStore};
 
 use crate::{
     app::{
@@ -66,6 +66,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_image_picker(picker);
     app.set_progress(ProgressStore::load_default());
     app.set_bookmarks(BookmarkStore::load_default());
+    app.set_history(HistoryStore::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());
@@ -533,6 +534,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.uninstall_selected_extension();
                 } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.open_library_delete_dialog();
+                } else if app.tab == 2 {
+                    app.delete_history_selection();
                 }
             }
             Action::Open => {
@@ -550,6 +553,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     }
                 } else if app.tab == 0 {
                     app.open();
+                } else if app.tab == 2 {
+                    app.open_history_entry();
                 }
             }
             Action::Back => {
@@ -559,6 +564,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.leave_more();
                 } else if app.tab == 0 {
                     app.back();
+                } else if app.tab == 2 {
+                    app.select_tab(0);
                 }
             }
             Action::ToggleFullscreen => app.toggle_fullscreen(),

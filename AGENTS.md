@@ -15,8 +15,8 @@ compiling, but do not extend it. It will be replaced by the manga library.
 ## Status
 
 Local-library and extension-host MVP: scanning, browsing, metadata, covers, reading,
-progress, settings, remote sources, and extension management work. Updates/history and
-backups are not implemented. The API and config format are still unstable, and large refactors are
+progress, settings, remote sources, extension management, and reading history work.
+Updates and backups are not implemented. The API and config format are still unstable, and large refactors are
 welcome when they move the project toward the architecture below.
 
 ## Environment
@@ -242,6 +242,12 @@ Rules:
   the host is already running, the first open in a session refreshes the story in the
   background through `story_worker`; `r` reloads synchronously. Chapter download markers
   are cached per story instead of statting every row each frame.
+- Reading history lives in `$XDG_DATA_HOME/tsuiyomi/history.json` (`history.rs`), one
+  entry per chapter, newest first. `record_progress` upserts series/chapter/source/page
+  metadata and flushes with progress; Incognito suppresses it. The History tab resumes
+  local or remote entries (`ReaderOrigin::History`), supports multi-select deletion, and
+  keeps enough remote metadata to reopen without the manga being in the library. There
+  are no cover thumbnails in the history list yet.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
