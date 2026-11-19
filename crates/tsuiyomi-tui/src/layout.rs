@@ -141,6 +141,15 @@ pub fn grid_tile_width(area: Rect, columns: usize) -> u16 {
     area.width.saturating_sub(gaps) / columns
 }
 
+/// Left margin that centers the whole grid when the tile width does not divide the area.
+pub fn grid_margin(area: Rect, columns: usize) -> u16 {
+    let count = columns.max(1) as u16;
+    let used = grid_tile_width(area, columns)
+        .saturating_mul(count)
+        .saturating_add(TILE_GAP.saturating_mul(count.saturating_sub(1)));
+    area.width.saturating_sub(used) / 2
+}
+
 pub fn grid_visible_rows(area: Rect, tile_height: u16) -> usize {
     (area.height / tile_height.max(1)).max(1) as usize
 }
@@ -181,7 +190,7 @@ pub fn grid_tile_rect(
     let row = index / columns;
     let column = index % columns;
     Rect::new(
-        area.x + column as u16 * stride,
+        area.x + grid_margin(area, columns) + column as u16 * stride,
         area.y + (row.saturating_sub(offset_row)) as u16 * tile_height,
         tile_width,
         tile_height,
@@ -203,7 +212,11 @@ pub fn grid_index_at(
     let columns = columns.max(1);
     let tile_width = grid_tile_width(area, columns);
     let stride = tile_width.saturating_add(TILE_GAP);
-    let relative_x = column - area.x;
+    let left = area.x + grid_margin(area, columns);
+    if column < left {
+        return None;
+    }
+    let relative_x = column - left;
     let relative_y = row - area.y;
     let grid_column = relative_x / stride;
     if grid_column as usize >= columns || relative_x % stride >= tile_width {
@@ -336,14 +349,43 @@ mod tests {
     }
 
     #[test]
+    fn grid_centers_when_the_tile_width_does_not_divide_the_area() {
+        // 160 / 9 rounds to 16, which used to leave eight columns of dead space.
+        let area = Rect::new(0, 0, 160, 40);
+        let columns = grid_columns(area, 16);
+        assert_eq!(columns, 9);
+        let width = grid_tile_width(area, columns);
+        assert_eq!(width, 16);
+        let margin = grid_margin(area, columns);
+        assert_eq!(margin, 4);
+        let last = grid_tile_rect(area, columns, 0, columns - 1, 12);
+        assert_eq!(last.x + last.width + margin, area.width);
+    }
+
+    #[test]
     fn grid_hit_testing_ignores_gaps_and_partial_rows() {
         let area = Rect::new(4, 3, 78, 16);
         let tile_height = tile_cover_height(14, area.height) + TILE_TEXT_HEIGHT;
-        assert_eq!(grid_index_at(area, 5, 0, 4, 3, 20, tile_height), Some(0));
-        assert_eq!(grid_index_at(area, 5, 0, 19, 3, 20, tile_height), Some(1));
-        assert_eq!(grid_index_at(area, 5, 0, 18, 3, 20, tile_height), None);
-        assert_eq!(grid_index_at(area, 5, 0, 4, 13, 20, tile_height), Some(5));
-        assert_eq!(grid_index_at(area, 5, 0, 4, 14, 20, tile_height), Some(5));
-        assert_eq!(grid_index_at(area, 5, 0, 4, 19, 20, tile_height), None);
+        let left = area.x + grid_margin(area, 5);
+        assert_eq!(left, 6);
+        assert_eq!(grid_index_at(area, 5, 0, left, 3, 20, tile_height), Some(0));
+        assert_eq!(
+            grid_index_at(area, 5, 0, left + 15, 3, 20, tile_height),
+            Some(1)
+        );
+        assert_eq!(
+            grid_index_at(area, 5, 0, left + 14, 3, 20, tile_height),
+            None
+        );
+        assert_eq!(grid_index_at(area, 5, 0, area.x, 3, 20, tile_height), None);
+        assert_eq!(
+            grid_index_at(area, 5, 0, left, 13, 20, tile_height),
+            Some(5)
+        );
+        assert_eq!(
+            grid_index_at(area, 5, 0, left, 14, 20, tile_height),
+            Some(5)
+        );
+        assert_eq!(grid_index_at(area, 5, 0, left, 19, 20, tile_height), None);
     }
 }

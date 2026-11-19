@@ -125,6 +125,8 @@ pub struct RemoteState {
     pub repos: Vec<String>,
     /// Base URL of the host that is actually in use.
     pub host: Option<String>,
+    /// Persistent hint, e.g. an ignored `host_url` that was actually a repository URL.
+    pub host_hint: Option<String>,
     pub extension_list_state: ListState,
 }
 
@@ -149,6 +151,7 @@ impl Default for RemoteState {
             extensions: Vec::new(),
             repos: Vec::new(),
             host: None,
+            host_hint: None,
             extension_list_state: ListState::default(),
         }
     }
@@ -264,7 +267,7 @@ const BROWSE_ROWS: [MoreRow; 6] = [
     MoreRow::Setting(SettingId::LibraryPath),
     MoreRow::Setting(SettingId::HostUrl),
     MoreRow::Note("Local source lists series directories in the library folder."),
-    MoreRow::Note("Extension host supplies remote sources and Mihon extensions."),
+    MoreRow::Note("Extension host runs APKs. Add repositories in Browse → Extensions."),
     MoreRow::Note("Browse reads the same local/ layout as Mihon."),
 ];
 
@@ -457,6 +460,8 @@ pub struct AppState {
     pub browse_local_chapter: usize,
     pub browse_local_list_state: ListState,
     pub host_client: Option<HostClient>,
+    /// Start the bundled host the first time Browse is opened.
+    pub host_autostart: bool,
     /// Bundled host process; `None` when using an external `host_url`.
     pub host_process: Option<HostProcess>,
     pub remote: RemoteState,
@@ -508,6 +513,7 @@ impl AppState {
             browse_local_chapter: 0,
             browse_local_list_state: ListState::default(),
             host_client: None,
+            host_autostart: true,
             host_process: None,
             remote: RemoteState::default(),
             text_input: None,
@@ -823,9 +829,17 @@ impl AppState {
         if self.host_client.is_some() {
             return true;
         }
-        if self.config.host_url.is_some() {
-            self.host_client = self.config.host_url.as_deref().map(HostClient::new);
-            return self.host_client.is_some();
+        if let Some(url) = self
+            .config
+            .host_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+        {
+            if validate_host_url(url).is_ok() {
+                self.host_client = Some(HostClient::new(url));
+                return true;
+            }
         }
         self.start_bundled_host();
         self.host_client.is_some()
@@ -1132,6 +1146,15 @@ impl AppState {
 
     fn set_host_url(&mut self, url: &str) {
         let url = url.trim();
+        if !url.is_empty() {
+            if let Err(message) = validate_host_url(url) {
+                self.set_remote_error(message);
+                self.remote.host_hint = Some(message.to_owned());
+                self.open_text_input(TextAction::SetHostUrl, "Extension host URL", url);
+                return;
+            }
+        }
+        self.remote.host_hint = None;
         self.config.host_url = (!url.is_empty()).then(|| url.to_owned());
         self.host_process = None;
         self.host_client = self.config.host_url.as_deref().map(HostClient::new);
@@ -1839,13 +1862,25 @@ impl AppState {
         self.accent = config.accent.clone();
         palette::apply(self.theme, self.accent.as_deref());
         self.fullscreen = config.fullscreen;
-        self.host_client = config
+        self.host_client = None;
+        self.remote.host = None;
+        self.remote.host_hint = None;
+        if let Some(url) = config
             .host_url
             .as_deref()
             .map(str::trim)
             .filter(|url| !url.is_empty())
-            .map(HostClient::new);
-        self.remote.host = config.host_url.clone();
+        {
+            match validate_host_url(url) {
+                Ok(()) => {
+                    self.host_client = Some(HostClient::new(url));
+                    self.remote.host = Some(url.to_owned());
+                }
+                Err(message) => {
+                    self.remote.host_hint = Some(format!("{message} Using the bundled host."));
+                }
+            }
+        }
         config.thumbnail_width = config.thumbnail_width.clamp(8, 28);
         self.zoom = config.reader_zoom.clamp(50, 300);
         self.scroll_cache = ScrollCacheConfig {
@@ -3051,11 +3086,7 @@ impl AppState {
         let index = index.min(TAB_COUNT - 1);
         // Each tab keeps its own navigation state. Only refresh the remote source list
         // the first time Browse is opened with a host configured.
-        if index == 3
-            && self.tab != 3
-            && self.remote.sources.is_empty()
-            && self.host_client.is_some()
-        {
+        if index == 3 && self.tab != 3 && self.host_autostart && self.remote.sources.is_empty() {
             self.load_remote_sources();
         }
         self.tab = index;
@@ -3280,6 +3311,23 @@ fn terminal_width() -> u16 {
         .unwrap_or(80)
 }
 
+/// A host URL points at the JVM service root, not at an extension repository index.
+fn validate_host_url(url: &str) -> Result<(), &'static str> {
+    let lower = url.trim().to_ascii_lowercase();
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        return Err("The host URL must start with http:// or https://.");
+    }
+    if lower.ends_with(".json")
+        || lower.ends_with(".pb")
+        || lower.ends_with(".apk")
+        || lower.contains("/raw/repo/")
+        || lower.contains("/index.min")
+    {
+        return Err("That is an extension repository URL. Add it in Browse → Extensions (e → a).");
+    }
+    Ok(())
+}
+
 /// Map an absolute APK URL to the desktop jar published in the same release directory.
 fn desktop_jar_url(apk_url: &str) -> Option<String> {
     let url = apk_url.trim();
@@ -3335,6 +3383,36 @@ mod tests {
             categories: vec!["Default".to_owned(), "Reading".to_owned()],
             errors: Vec::new(),
         }
+    }
+
+    #[test]
+    fn repository_urls_are_rejected_as_host_urls() {
+        let repo = "https://github.com/keiyoushi/extensions/raw/repo/index.pb";
+        assert!(validate_host_url(repo).is_err());
+        assert!(validate_host_url("https://example.org/index.min.json").is_err());
+        assert!(validate_host_url("https://example.org/x.apk").is_err());
+        assert!(validate_host_url("127.0.0.1:4567").is_err());
+        assert!(validate_host_url("http://127.0.0.1:4567").is_ok());
+        assert!(validate_host_url("https://host.example/").is_ok());
+
+        let mut app = AppState::default();
+        app.set_host_url(repo);
+        assert!(app.config.host_url.is_none());
+        assert!(app.remote.host_hint.is_some());
+        // The dialog stays open so the value can be corrected.
+        assert_eq!(
+            app.text_input.as_ref().map(|input| input.value.as_str()),
+            Some(repo)
+        );
+
+        let config = Config {
+            host_url: Some(repo.to_owned()),
+            ..Config::default()
+        };
+        let mut app = AppState::default();
+        app.set_config(config);
+        assert!(app.host_client.is_none());
+        assert!(app.remote.host_hint.is_some());
     }
 
     #[test]
@@ -3707,6 +3785,8 @@ mod tests {
     #[test]
     fn browse_and_library_keep_independent_navigation() {
         let mut app = AppState::new(library(), None);
+        // Do not let the test spawn a JVM.
+        app.host_autostart = false;
 
         // Open the first library series and its chapter list.
         app.open();
