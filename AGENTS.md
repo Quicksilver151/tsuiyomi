@@ -193,9 +193,10 @@ Rules:
 - Chapter downloads land in `<downloads>/<source>/<series>/<chapter>/<page>.<ext>` using
   Mihon's sanitized directory names (`downloads.rs`). `D` on a remote story screen or in
   the reader downloads the selected chapter on a worker thread; downloaded chapters are
-  read from disk through the same reader path. The root comes from `downloads_path`,
-  `TSUIYOMI_DOWNLOADS`, a sibling `downloads/` when the library lives in `local/`, or the
-  app data directory. There is no series-level queue or delete UI yet.
+  read from disk through the same reader path. The root comes from `TSUIYOMI_DOWNLOADS`
+  (runtime-only and never persisted), `downloads_path`, a sibling `downloads/` when the
+  library lives in `local/`, or the app data directory. There is no series-level queue or
+  delete UI yet.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,

@@ -139,9 +139,6 @@ pub fn load_config() -> Config {
     if let Some(path) = env::var_os("TSUIYOMI_LIBRARY") {
         config.library_path = Some(PathBuf::from(path));
     }
-    if let Some(path) = env::var_os("TSUIYOMI_DOWNLOADS") {
-        config.downloads_path = Some(PathBuf::from(path));
-    }
     if let Ok(url) = env::var("TSUIYOMI_HOST_URL") {
         let url = url.trim();
         config.host_url = (!url.is_empty()).then(|| url.to_owned());

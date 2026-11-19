@@ -30,6 +30,14 @@ const MAX_CHAPTER_NAME_BYTES: usize = MAX_NAME_BYTES - 11;
 /// in a `local` folder gets its sibling `downloads` folder. Explicit
 /// `downloads_path`/`TSUIYOMI_DOWNLOADS` wins; otherwise the app data directory.
 pub fn downloads_dir(config: &Config) -> Option<PathBuf> {
+    // Read the environment here instead of copying it into Config: configs are
+    // persisted from memory, and a session-local override must not end up on disk.
+    if let Some(path) = std::env::var_os("TSUIYOMI_DOWNLOADS") {
+        let path = PathBuf::from(path);
+        if !path.as_os_str().is_empty() {
+            return Some(path);
+        }
+    }
     if let Some(path) = &config.downloads_path {
         return Some(path.clone());
     }
