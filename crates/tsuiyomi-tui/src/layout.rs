@@ -141,13 +141,16 @@ pub fn grid_tile_width(area: Rect, columns: usize) -> u16 {
     area.width.saturating_sub(gaps) / columns
 }
 
-/// Left margin that centers the whole grid when the tile width does not divide the area.
+/// Left margin for the tile grid.
+///
+/// The spare columns are halved twice: a full half overshoots to the right because the
+/// last tile already renders one cell inside the grid edge.
 pub fn grid_margin(area: Rect, columns: usize) -> u16 {
     let count = columns.max(1) as u16;
     let used = grid_tile_width(area, columns)
         .saturating_mul(count)
         .saturating_add(TILE_GAP.saturating_mul(count.saturating_sub(1)));
-    area.width.saturating_sub(used) / 2
+    area.width.saturating_sub(used) / 4
 }
 
 pub fn grid_visible_rows(area: Rect, tile_height: u16) -> usize {
@@ -357,9 +360,11 @@ mod tests {
         let width = grid_tile_width(area, columns);
         assert_eq!(width, 16);
         let margin = grid_margin(area, columns);
-        assert_eq!(margin, 4);
+        assert_eq!(margin, 2);
+        let first = grid_tile_rect(area, columns, 0, 0, 12);
         let last = grid_tile_rect(area, columns, 0, columns - 1, 12);
-        assert_eq!(last.x + last.width + margin, area.width);
+        assert_eq!(first.x, margin);
+        assert_eq!(last.x + last.width, area.width - 6);
     }
 
     #[test]
@@ -367,7 +372,7 @@ mod tests {
         let area = Rect::new(4, 3, 78, 16);
         let tile_height = tile_cover_height(14, area.height) + TILE_TEXT_HEIGHT;
         let left = area.x + grid_margin(area, 5);
-        assert_eq!(left, 6);
+        assert_eq!(left, 5);
         assert_eq!(grid_index_at(area, 5, 0, left, 3, 20, tile_height), Some(0));
         assert_eq!(
             grid_index_at(area, 5, 0, left + 15, 3, 20, tile_height),

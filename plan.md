@@ -99,7 +99,16 @@ database rows. tsuiyomi owns reading progress.
       archive, 157 MB extracted, extraction + host start + health check in 2.2 s. With a
       Keiyoushi MangaDex jar in the data directory it exposed 62 sources.
 
-## Phase 4 — Later
+## Phase 4 — Browse polish
+
+- [x] Mihon-style Sources / Extensions / Migrate tabs, switched with `[`/`]`.
+- [x] Sources grouped by language, with a persistent `Pinned` group.
+- [x] Inline extension search (name or package).
+- [x] Pin all sources of an extension from the Extensions tab.
+- [ ] Per-source preferences exposed by the host.
+- [ ] Migrate.
+
+## Phase 5 — Later
 
 - [ ] Background networking; the UI currently blocks on host calls.
 - [ ] Pagination controls in the results grid.

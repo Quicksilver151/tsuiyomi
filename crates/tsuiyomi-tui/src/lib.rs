@@ -27,8 +27,8 @@ use tsuiyomi_core::ProgressStore;
 
 use crate::{
     app::{
-        BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, SettingId, SettingsPage,
-        SETTINGS_PAGES,
+        BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, SettingId,
+        SettingsPage, SETTINGS_PAGES,
     },
     draw::draw,
     input::Action,
@@ -159,6 +159,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.extension_search {
+            match action {
+                Action::Back => app.extension_search_stop(true),
+                Action::Open => app.extension_search_stop(false),
+                Action::Char(character) => app.extension_search_push(character),
+                Action::Backspace => app.extension_search_pop(),
+                Action::Previous => app.browse_previous(),
+                Action::Next => app.browse_next(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         // The reader owns the screen while it is open: tabs are hidden, and returning
         // goes back to the list it was opened from.
         if app.reader.is_some() {
@@ -223,9 +237,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         BrowseView::Local | BrowseView::RemoteResults => {
                             app.browse_previous_column();
                         }
-                        BrowseView::Details | BrowseView::Chapters | BrowseView::RemoteDetails => {
-                            app.browse_parent()
-                        }
+                        BrowseView::Details
+                        | BrowseView::Chapters
+                        | BrowseView::RemoteDetails
+                        | BrowseView::Migrate => app.browse_parent(),
                         BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
@@ -247,7 +262,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         BrowseView::Sources
                         | BrowseView::Details
                         | BrowseView::Chapters
-                        | BrowseView::RemoteDetails => app.browse_open(),
+                        | BrowseView::RemoteDetails
+                        | BrowseView::Migrate => app.browse_open(),
                         BrowseView::Extensions | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
@@ -293,14 +309,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::PreviousTab => app.previous_tab(),
             Action::NextTab => app.next_tab(),
             Action::PreviousCategory => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.previous_browse_tab();
+                } else if app.tab == 4 {
                     app.previous_more_section();
                 } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.previous_category();
                 }
             }
             Action::NextCategory => {
-                if app.tab == 4 {
+                if app.tab == 3 {
+                    app.next_browse_tab();
+                } else if app.tab == 4 {
                     app.next_more_section();
                 } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.next_category();
@@ -315,9 +335,28 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Search => {
-                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
-                    let query = app.remote.query.clone();
-                    app.open_text_input(app::TextAction::SearchRemote, "Search source", &query);
+                if app.tab == 3 {
+                    match app.browse_view {
+                        BrowseView::RemoteResults => {
+                            let query = app.remote.query.clone();
+                            app.open_text_input(
+                                app::TextAction::SearchRemote,
+                                "Search source",
+                                &query,
+                            );
+                        }
+                        BrowseView::Extensions => app.extension_search_start(),
+                        _ => {}
+                    }
+                }
+            }
+            Action::Pin => {
+                if app.tab == 3 {
+                    match app.browse_view {
+                        BrowseView::Sources => app.toggle_pin_for_selection(),
+                        BrowseView::Extensions => app.toggle_selected_extension_pin(),
+                        _ => {}
+                    }
                 }
             }
             Action::Latest => {
@@ -327,7 +366,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::Extensions => {
                 if app.tab == 3 {
-                    app.open_extensions();
+                    app.set_browse_tab(BrowseTab::Extensions);
                 }
             }
             Action::Stores => {
@@ -479,6 +518,10 @@ fn handle_chapter_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
 }
 
 fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
+    if area.height < 3 {
+        return;
+    }
+    let area = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
     match app.browse_view {
         BrowseView::Local | BrowseView::RemoteResults => {
             let grid_area = library_grid_area(area);
@@ -494,21 +537,26 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_browse_index(index);
             }
         }
-        BrowseView::Sources
-        | BrowseView::Extensions
-        | BrowseView::Stores
-        | BrowseView::Chapters => {
+        BrowseView::Sources => {
+            let list = library_grid_area(area);
+            if contains(list, column, row) {
+                let row_in_list = row.saturating_sub(list.y + 1) as usize;
+                app.select_source_row(row_in_list);
+            }
+        }
+        BrowseView::Extensions | BrowseView::Stores | BrowseView::Chapters => {
             let list = library_grid_area(area);
             let offset = if app.browse_view == BrowseView::Chapters {
                 app.browse_local_list_state.offset()
             } else {
-                0
+                app.browse_list_state.offset()
             };
             if contains(list, column, row) {
-                app.select_browse_index(offset + (row - list.y) as usize);
+                let row_in_list = row.saturating_sub(list.y + 1) as usize;
+                app.select_browse_index(offset + row_in_list);
             }
         }
-        BrowseView::Details | BrowseView::RemoteDetails => {}
+        BrowseView::Details | BrowseView::RemoteDetails | BrowseView::Migrate => {}
     }
 }
 

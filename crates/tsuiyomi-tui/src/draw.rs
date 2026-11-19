@@ -18,8 +18,8 @@ use tsuiyomi_core::{
 
 use crate::{
     app::{
-        AppState, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind,
-        PickerState, ReaderMode, SettingId, SettingsPage, MORE_SECTIONS, SETTINGS_PAGES,
+        AppState, BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind,
+        PickerState, ReaderMode, SettingId, SettingsPage, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout, grid_columns, grid_row_offset, grid_tile_rect, grid_visible_rows,
@@ -333,21 +333,90 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("Esc", "back"),
             ]
         }
-    } else if app.tab == 3 && app.browse_view == BrowseView::Chapters {
-        &[
-            ("q", "quit"),
-            ("↑↓", "chapter"),
-            ("↵", "read"),
-            ("Esc", "back"),
-        ]
     } else if app.tab == 3 {
-        &[
-            ("q", "quit"),
-            ("↑↓", "move"),
-            ("↵", "open"),
-            ("r", "rescan"),
-            ("Esc", "back"),
-        ]
+        match app.browse_view {
+            BrowseView::Sources => &[
+                ("q", "quit"),
+                ("↑↓", "source"),
+                ("↵", "open"),
+                ("P", "pin"),
+                ("[ ]", "tabs"),
+                ("e", "extensions"),
+                ("r", "refresh"),
+                ("Esc", "back"),
+            ],
+            BrowseView::Local => &[
+                ("q", "quit"),
+                ("↑↓←→", "move"),
+                ("↵", "open"),
+                ("[ ]", "tabs"),
+                ("e", "extensions"),
+                ("r", "rescan"),
+                ("Esc", "back"),
+            ],
+            BrowseView::Details => &[
+                ("q", "quit"),
+                ("↵", "chapters"),
+                ("[ ]", "tabs"),
+                ("e", "extensions"),
+                ("Esc", "back"),
+            ],
+            BrowseView::Chapters => &[
+                ("q", "quit"),
+                ("↑↓", "chapter"),
+                ("↵", "read"),
+                ("[ ]", "tabs"),
+                ("e", "extensions"),
+                ("Esc", "back"),
+            ],
+            BrowseView::RemoteResults => &[
+                ("q", "quit"),
+                ("↑↓←→", "move"),
+                ("s", "search"),
+                ("l", "latest"),
+                ("↵", "open"),
+                ("r", "refresh"),
+                ("[ ]", "tabs"),
+                ("e", "extensions"),
+                ("Esc", "back"),
+            ],
+            BrowseView::RemoteDetails => &[
+                ("q", "quit"),
+                ("↑↓", "chapter"),
+                ("↵", "read"),
+                ("r", "refresh"),
+                ("[ ]", "tabs"),
+                ("e", "extensions"),
+                ("Esc", "back"),
+            ],
+            BrowseView::Extensions => &[
+                ("q", "quit"),
+                ("↑↓", "extension"),
+                ("↵", "install"),
+                ("/", "search"),
+                ("P", "pin"),
+                ("u", "update"),
+                ("a", "store"),
+                ("t", "stores"),
+                ("[ ]", "tabs"),
+                ("Esc", "back"),
+            ],
+            BrowseView::Stores => &[
+                ("q", "quit"),
+                ("↑↓", "store"),
+                ("a", "add"),
+                ("d", "remove"),
+                ("t", "extensions"),
+                ("[ ]", "tabs"),
+                ("Esc", "back"),
+            ],
+            BrowseView::Migrate => &[
+                ("q", "quit"),
+                ("[ ]", "tabs"),
+                ("e", "extensions"),
+                ("Esc", "back"),
+            ],
+        }
     } else if app.tab == 4 {
         if app.more_focus == MoreFocus::Sections {
             &[
@@ -572,11 +641,9 @@ fn render_centered_image(frame: &mut Frame, area: Rect, protocol: &mut StatefulP
     }
     let resize = Resize::Fit(None);
     let size = protocol.size_for(resize.clone(), Size::new(area.width, area.height));
-    // `size_for` rounds the fitted image up to whole cells. Bias the spare cell to the
-    // right/bottom so the blank partial cell balances instead of hugging the left/top.
     let image_area = Rect::new(
-        area.x + area.width.saturating_sub(size.width).div_ceil(2),
-        area.y + area.height.saturating_sub(size.height).div_ceil(2),
+        area.x + area.width.saturating_sub(size.width) / 2,
+        area.y + area.height.saturating_sub(size.height) / 2,
         size.width.min(area.width),
         size.height.min(area.height),
     );
@@ -625,8 +692,12 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    draw_browse_path(frame, Rect::new(area.x, area.y, area.width, 1), app);
-    let content = library_grid_area(area);
+    if area.height < 3 {
+        return;
+    }
+    draw_browse_tabs(frame, Rect::new(area.x, area.y, area.width, 1), app);
+    draw_browse_path(frame, Rect::new(area.x, area.y + 1, area.width, 1), app);
+    let content = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
     match app.browse_view {
         BrowseView::Sources => draw_browse_sources(frame, content, app),
         BrowseView::Local => {
@@ -648,6 +719,12 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
         BrowseView::RemoteDetails => draw_remote_detail(frame, content, app),
         BrowseView::Extensions => draw_extensions(frame, content, app),
         BrowseView::Stores => draw_stores(frame, content, app),
+        BrowseView::Migrate => placeholder(
+            frame,
+            content,
+            "Migrate",
+            "Migrating between sources is not implemented yet.",
+        ),
     }
     if let Some(status) = app.remote.status.as_ref().or(app.remote.host_hint.as_ref()) {
         if area.height > 0 {
@@ -664,6 +741,27 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
             );
         }
     }
+}
+
+fn draw_browse_tabs(frame: &mut Frame, area: Rect, app: &AppState) {
+    let tabs = [
+        ("Sources", BrowseTab::Sources),
+        ("Extensions", BrowseTab::Extensions),
+        ("Migrate", BrowseTab::Migrate),
+    ];
+    let mut spans = vec![Span::raw(" ")];
+    for (index, (label, tab)) in tabs.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" │ ", Style::default().fg(c_overlay0())));
+        }
+        let style = if app.browse_tab == *tab {
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_overlay1())
+        };
+        spans.push(Span::styled(*label, style));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
@@ -709,7 +807,20 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
                 .as_ref()
                 .map(|client| client.base_url().to_owned())
                 .unwrap_or_default(),
-            format!("{} extensions", app.remote.extensions.len()),
+            if app.extension_query.trim().is_empty() {
+                format!("{} extensions", app.remote.extensions.len())
+            } else {
+                format!(
+                    "{} of {} extensions",
+                    app.filtered_extension_count(),
+                    app.remote.extensions.len()
+                )
+            },
+        ),
+        BrowseView::Migrate => (
+            "Migrate".to_owned(),
+            "not implemented".to_owned(),
+            String::new(),
         ),
         BrowseView::Stores => (
             "Extension stores".to_owned(),
@@ -732,29 +843,53 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let mut items = vec![ListItem::new(Line::from(vec![
-        Span::styled("Local source", Style::default().fg(c_text())),
-        Span::styled(
-            format!("  {} series", app.library.series.len()),
-            Style::default().fg(c_overlay0()),
-        ),
-    ]))];
-    for source in &app.remote.sources {
-        items.push(ListItem::new(Line::from(vec![
-            Span::styled(source.display_name(), Style::default().fg(c_text())),
-            Span::styled(
-                format!("  {} · {}", source.lang, source.name),
-                Style::default().fg(c_overlay0()),
-            ),
-        ])));
+    let rows = app.source_rows();
+    let mut items = Vec::with_capacity(rows.len());
+    let mut selected_row = None;
+
+    for row in &rows {
+        match row {
+            SourceRow::Header(label) => items.push(ListItem::new(Line::from(Span::styled(
+                format!(" {label}"),
+                Style::default()
+                    .fg(c_overlay0())
+                    .add_modifier(Modifier::BOLD),
+            )))),
+            SourceRow::Local => {
+                if app.browse_selection == 0 {
+                    selected_row = Some(items.len());
+                }
+                items.push(ListItem::new(Line::from(vec![
+                    Span::styled("Local source", Style::default().fg(c_text())),
+                    Span::styled(
+                        format!("  {} series", app.library.series.len()),
+                        Style::default().fg(c_overlay0()),
+                    ),
+                ])));
+            }
+            SourceRow::Remote(index) => {
+                let source = &app.remote.sources[*index];
+                if app.browse_selection == index + 1 {
+                    selected_row = Some(items.len());
+                }
+                let mut spans = Vec::new();
+                if app.is_source_pinned(source) {
+                    spans.push(Span::styled("★ ", Style::default().fg(c_accent())));
+                }
+                spans.push(Span::styled(
+                    source.display_name(),
+                    Style::default().fg(c_text()),
+                ));
+                spans.push(Span::styled(
+                    format!("  {} · {}", source.lang, source.name),
+                    Style::default().fg(c_overlay0()),
+                ));
+                items.push(ListItem::new(Line::from(spans)));
+            }
+        }
     }
-    let count = app.browse_item_count();
-    if count == 0 {
-        app.browse_list_state.select(None);
-    } else {
-        app.browse_list_state
-            .select(Some(app.browse_selection.min(count - 1)));
-    }
+
+    app.browse_list_state.select(selected_row);
     let list = List::new(items)
         .block(panel(
             Line::from(Span::styled(
@@ -997,48 +1132,70 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
 }
 
 fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let extensions = app.remote.extensions.clone();
-    if extensions.is_empty() {
+    if area.height == 0 {
+        return;
+    }
+    draw_extension_search(frame, Rect::new(area.x, area.y, area.width, 1), app);
+    let list_area = Rect::new(
+        area.x,
+        area.y + 1,
+        area.width,
+        area.height.saturating_sub(1),
+    );
+
+    let filtered = app.filtered_extension_indices();
+    if filtered.is_empty() {
+        let message = if app.remote.extensions.is_empty() {
+            "No extensions. Press a to add a store URL."
+        } else {
+            "No extensions match the search."
+        };
         frame.render_widget(
-            Paragraph::new("No extensions. Press a to add a store URL.")
+            Paragraph::new(message)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(c_overlay1())),
-            Rect::new(area.x, area.y, area.width, 1),
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
         );
         app.browse_list_state.select(None);
         return;
     }
-    let items: Vec<ListItem> = extensions
+
+    let items: Vec<ListItem> = filtered
         .iter()
-        .map(|extension| {
+        .map(|index| {
+            let extension = &app.remote.extensions[*index];
             let status = if extension.installed {
                 "installed"
             } else {
                 "available"
             };
             let nsfw = if extension.nsfw { " · 18+" } else { "" };
-            ListItem::new(Line::from(vec![
-                Span::raw(extension.name.clone()),
-                Span::styled(
-                    format!(
-                        "  {} · {}{nsfw} · {} src",
-                        extension.lang, extension.version, extension.source_count
-                    ),
-                    Style::default().fg(c_overlay0()),
+            let mut spans = Vec::new();
+            if app.is_extension_pinned(extension) {
+                spans.push(Span::styled("★ ", Style::default().fg(c_accent())));
+            }
+            spans.push(Span::raw(extension.name.clone()));
+            spans.push(Span::styled(
+                format!(
+                    "  {} · {}{nsfw} · {} src",
+                    extension.lang, extension.version, extension.source_count
                 ),
-                Span::styled(
-                    format!("  {status}"),
-                    Style::default().fg(if extension.installed {
-                        c_green()
-                    } else {
-                        c_overlay1()
-                    }),
-                ),
-            ]))
+                Style::default().fg(c_overlay0()),
+            ));
+            spans.push(Span::styled(
+                format!("  {status}"),
+                Style::default().fg(if extension.installed {
+                    c_green()
+                } else {
+                    c_overlay1()
+                }),
+            ));
+            ListItem::new(Line::from(spans))
         })
         .collect();
+
     app.browse_list_state
-        .select(Some(app.browse_selection.min(extensions.len() - 1)));
+        .select(Some(app.browse_selection.min(filtered.len() - 1)));
     let list = List::new(items)
         .block(panel(
             Line::from(Span::styled(
@@ -1054,7 +1211,27 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("› ");
-    frame.render_stateful_widget(list, area, &mut app.browse_list_state);
+    frame.render_stateful_widget(list, list_area, &mut app.browse_list_state);
+}
+
+fn draw_extension_search(frame: &mut Frame, area: Rect, app: &AppState) {
+    let (text, style) = if app.extension_search {
+        (
+            format!(" Search: {}▏", app.extension_query),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )
+    } else if app.extension_query.trim().is_empty() {
+        (
+            " / search extensions".to_owned(),
+            Style::default().fg(c_overlay0()),
+        )
+    } else {
+        (
+            format!(" Search: {}  (/ to edit, Esc clears)", app.extension_query),
+            Style::default().fg(c_text()),
+        )
+    };
+    frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
 fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -2473,6 +2650,7 @@ mod tests {
             installed: false,
             nsfw: false,
             source_count: 1,
+            sources: Vec::new(),
             repo_url: "https://example.org/index.min.json".to_owned(),
         }];
         let text = render(&mut app, 80, 30);

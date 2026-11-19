@@ -76,6 +76,8 @@ pub struct Config {
     pub default_category: Option<String>,
     /// Do not write reading progress while enabled.
     pub incognito: bool,
+    /// Sources pinned to the top of Browse, keyed by `pkg|name|lang`.
+    pub pinned_sources: Vec<String>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -103,6 +105,7 @@ impl Default for Config {
             library_sort: LibrarySort::default(),
             default_category: None,
             incognito: false,
+            pinned_sources: Vec::new(),
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,

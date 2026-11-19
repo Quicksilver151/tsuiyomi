@@ -100,24 +100,25 @@ the chapter list. `[`/`]` switch categories and `r` rescans. Tile width is adjus
 
 ## Browse
 
-Browse follows Mihon's source model:
+Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
 
-- **Local source** — series directories in the library root.
-- **Extension sources** — every source exposed by the extension host, including installed
-  Mihon/Tachiyomi extensions.
+- **Sources** — the Local source plus every source exposed by the extension host, grouped
+  by language. `P` pins the selected source; pinned sources move to a `Pinned` group.
+- **Extensions** — installed and available extensions. `/` searches by name or package,
+  `Enter` installs or uninstalls, `u` updates, `P` pins all sources of the selected
+  extension, `a` adds a store URL, and `t` opens the store list.
+- **Migrate** — placeholder; source migration is not implemented.
 
 Controls:
 
-- `↑↓` moves by grid row and `←→` by tile.
+- `↑↓` moves through lists; `←→` moves by tile in grids.
 - `Enter` opens the selected source, series detail, chapter, or extension action.
-- From a detail screen, `Enter` opens the chapter list inside Browse.
 - Remote sources open with popular results. `s` searches and `l` loads latest updates.
 - Opening a chapter keeps you in the Browse tab; `Esc` walks back through
   reader → detail → results → sources.
 - `Esc` or `Backspace` goes back one level.
 - `r` refreshes the current list.
-- `e` opens Extensions, `a` adds an extension store URL, `t` switches between extensions
-  and stores, `u` updates the selected extension, and `d` removes a selected store.
+- `e` jumps to the Extensions tab; `d` removes a store from the store list.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.

@@ -65,6 +65,13 @@ pub struct RemoteChapter {
     pub upload_date: i64,
 }
 
+/// A source declared by an extension, used for pinning and detail views.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExtensionSource {
+    pub name: String,
+    pub lang: String,
+}
+
 /// One row in a repository index or in the installed-extension list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExtensionInfo {
@@ -78,6 +85,7 @@ pub struct ExtensionInfo {
     pub installed: bool,
     pub nsfw: bool,
     pub source_count: usize,
+    pub sources: Vec<ExtensionSource>,
     /// Repository this row came from; empty for installed-only rows.
     pub repo_url: String,
 }
@@ -631,11 +639,27 @@ struct ExtensionRow {
     #[serde(default)]
     nsfw: bool,
     #[serde(default)]
-    sources: Vec<Value>,
+    sources: Vec<ExtensionSourceRow>,
+}
+
+#[derive(Deserialize)]
+struct ExtensionSourceRow {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    lang: String,
 }
 
 impl ExtensionRow {
     fn into_info(self, repo_url: &str) -> ExtensionInfo {
+        let sources: Vec<ExtensionSource> = self
+            .sources
+            .into_iter()
+            .map(|source| ExtensionSource {
+                name: source.name,
+                lang: source.lang,
+            })
+            .collect();
         ExtensionInfo {
             name: self.name,
             pkg: self.pkg,
@@ -644,7 +668,8 @@ impl ExtensionRow {
             apk: self.apk,
             installed: self.installed,
             nsfw: self.nsfw,
-            source_count: self.sources.len(),
+            source_count: sources.len(),
+            sources,
             repo_url: repo_url.to_owned(),
         }
     }

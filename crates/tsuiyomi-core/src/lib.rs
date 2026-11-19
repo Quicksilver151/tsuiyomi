@@ -21,8 +21,8 @@ pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
 pub use config::{load_config, save_config, Config, LibrarySort, ReadingMode, Theme};
 pub use error::CoreError;
 pub use host::{
-    fetch_bytes, progress_key, ExtensionInfo, HostClient, InstallOutcome, RemoteChapter,
-    RemoteManga, RemoteMangaPage, RemoteSource,
+    fetch_bytes, progress_key, ExtensionInfo, ExtensionSource, HostClient, InstallOutcome,
+    RemoteChapter, RemoteManga, RemoteMangaPage, RemoteSource,
 };
 pub use library::{read_cover, scan_library, Chapter, ChapterKind, Library, ScanError, Series};
 pub use pages::{chapter_pages, read_page, Page, PageSource};

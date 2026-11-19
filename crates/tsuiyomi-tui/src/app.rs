@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
 };
 
@@ -78,6 +78,15 @@ pub struct PickerState {
     pub editing_custom: bool,
 }
 
+/// Top-level Browse tabs, mirroring Mihon's Sources / Extensions / Migrate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BrowseTab {
+    #[default]
+    Sources,
+    Extensions,
+    Migrate,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BrowseView {
     #[default]
@@ -89,6 +98,14 @@ pub enum BrowseView {
     RemoteDetails,
     Extensions,
     Stores,
+    Migrate,
+}
+
+/// One rendered row in the Sources list. Headers are not selectable.
+pub enum SourceRow {
+    Header(String),
+    Local,
+    Remote(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -455,6 +472,11 @@ pub struct AppState {
     pub zoom: u16,
     pub config: Config,
     pub browse_view: BrowseView,
+    pub browse_tab: BrowseTab,
+    /// Inner Sources view, restored when returning to the Sources tab.
+    pub sources_view: Option<BrowseView>,
+    pub extension_query: String,
+    pub extension_search: bool,
     /// Local series and chapter selected in Browse; independent of the Library tab.
     pub browse_local_series: Option<PathBuf>,
     pub browse_local_chapter: usize,
@@ -509,6 +531,10 @@ impl AppState {
             zoom: 100,
             config: Config::default(),
             browse_view: BrowseView::Sources,
+            browse_tab: BrowseTab::Sources,
+            sources_view: None,
+            extension_query: String::new(),
+            extension_search: false,
             browse_local_series: None,
             browse_local_chapter: 0,
             browse_local_list_state: ListState::default(),
@@ -692,7 +718,7 @@ impl AppState {
             }
             BrowseView::RemoteDetails => self.open_remote_chapter(self.browse_selection),
             BrowseView::Extensions => self.toggle_selected_extension(),
-            BrowseView::Stores => {}
+            BrowseView::Stores | BrowseView::Migrate => {}
         }
     }
 
@@ -720,7 +746,7 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
-            BrowseView::Sources => {}
+            BrowseView::Sources | BrowseView::Migrate => {}
         }
     }
 
@@ -736,7 +762,7 @@ impl AppState {
             BrowseView::RemoteDetails => self.load_remote_chapters(),
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
             BrowseView::Chapters => self.refresh(),
-            BrowseView::Details => {}
+            BrowseView::Details | BrowseView::Migrate => {}
         }
         self.clamp_browse_selection();
     }
@@ -749,8 +775,9 @@ impl AppState {
             BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
             BrowseView::RemoteDetails => self.remote.chapters.len(),
-            BrowseView::Extensions => self.remote.extensions.len(),
+            BrowseView::Extensions => self.filtered_extension_count(),
             BrowseView::Stores => self.remote.repos.len(),
+            BrowseView::Migrate => 0,
         }
     }
 
@@ -814,11 +841,264 @@ impl AppState {
     }
 
     pub fn selected_extension(&self) -> Option<&ExtensionInfo> {
-        self.remote.extensions.get(self.browse_selection)
+        let index = *self
+            .filtered_extension_indices()
+            .get(self.browse_selection)?;
+        self.remote.extensions.get(index)
     }
 
     pub fn selected_store(&self) -> Option<&String> {
         self.remote.repos.get(self.browse_selection)
+    }
+
+    pub fn set_browse_tab(&mut self, tab: BrowseTab) {
+        if tab == self.browse_tab {
+            return;
+        }
+        if self.browse_tab == BrowseTab::Sources {
+            self.sources_view = Some(self.browse_view);
+        }
+        self.browse_tab = tab;
+        self.extension_search = false;
+        match tab {
+            BrowseTab::Sources => {
+                self.browse_view = self.sources_view.unwrap_or(BrowseView::Sources);
+            }
+            BrowseTab::Extensions => {
+                self.browse_view = BrowseView::Extensions;
+                if self.remote.extensions.is_empty() {
+                    self.load_extensions();
+                }
+            }
+            BrowseTab::Migrate => self.browse_view = BrowseView::Migrate,
+        }
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+    }
+
+    pub fn next_browse_tab(&mut self) {
+        let next = match self.browse_tab {
+            BrowseTab::Sources => BrowseTab::Extensions,
+            BrowseTab::Extensions => BrowseTab::Migrate,
+            BrowseTab::Migrate => BrowseTab::Sources,
+        };
+        self.set_browse_tab(next);
+    }
+
+    pub fn previous_browse_tab(&mut self) {
+        let previous = match self.browse_tab {
+            BrowseTab::Sources => BrowseTab::Migrate,
+            BrowseTab::Extensions => BrowseTab::Sources,
+            BrowseTab::Migrate => BrowseTab::Extensions,
+        };
+        self.set_browse_tab(previous);
+    }
+
+    /// Pinned sources first (Mihon's "Pinned" group), then the Local source, then one
+    /// section per language.
+    pub fn source_rows(&self) -> Vec<SourceRow> {
+        let mut pinned: Vec<usize> = (0..self.remote.sources.len())
+            .filter(|index| self.is_source_pinned(&self.remote.sources[*index]))
+            .collect();
+        let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (index, source) in self.remote.sources.iter().enumerate() {
+            if self.is_source_pinned(source) {
+                continue;
+            }
+            grouped.entry(source.lang.clone()).or_default().push(index);
+        }
+
+        let sort_by_name = |indices: &mut Vec<usize>| {
+            indices.sort_by(|left, right| {
+                natural_cmp(
+                    &self.remote.sources[*left].display_name(),
+                    &self.remote.sources[*right].display_name(),
+                )
+            });
+        };
+        sort_by_name(&mut pinned);
+
+        let mut rows = Vec::new();
+        if !pinned.is_empty() {
+            rows.push(SourceRow::Header("Pinned".to_owned()));
+            rows.extend(pinned.into_iter().map(SourceRow::Remote));
+        }
+        rows.push(SourceRow::Header("Local".to_owned()));
+        rows.push(SourceRow::Local);
+        for (lang, mut indices) in grouped {
+            sort_by_name(&mut indices);
+            rows.push(SourceRow::Header(language_label(&lang)));
+            rows.extend(indices.into_iter().map(SourceRow::Remote));
+        }
+        rows
+    }
+
+    /// Select the source shown at `row` in the rendered Sources list.
+    pub fn select_source_row(&mut self, row: usize) {
+        let offset = self.browse_list_state.offset();
+        if let Some(index) = self.source_index_for_row(offset + row) {
+            self.select_browse_index(index);
+        }
+    }
+
+    /// Map a rendered Sources row to a selection index (0 = Local, n = remote n-1).
+    pub fn source_index_for_row(&self, row: usize) -> Option<usize> {
+        match self.source_rows().get(row)? {
+            SourceRow::Header(_) => None,
+            SourceRow::Local => Some(0),
+            SourceRow::Remote(index) => Some(index + 1),
+        }
+    }
+
+    pub fn is_source_pinned(&self, source: &RemoteSource) -> bool {
+        self.config
+            .pinned_sources
+            .iter()
+            .any(|pinned| pin_key_matches(pinned, source))
+    }
+
+    fn toggle_source_pin(&mut self, source: &RemoteSource) {
+        if let Some(position) = self
+            .config
+            .pinned_sources
+            .iter()
+            .position(|pinned| pin_key_matches(pinned, source))
+        {
+            self.config.pinned_sources.remove(position);
+            self.status = Some(format!("Unpinned {}", source.display_name()));
+        } else {
+            self.config.pinned_sources.push(source_pin_key(source));
+            self.status = Some(format!("Pinned {}", source.display_name()));
+        }
+    }
+
+    /// Pin or unpin the source selected in the Sources list.
+    pub fn toggle_pin_for_selection(&mut self) {
+        if self.browse_view != BrowseView::Sources {
+            return;
+        }
+        let Some(source) = self
+            .browse_selection
+            .checked_sub(1)
+            .and_then(|index| self.remote.sources.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        self.toggle_source_pin(&source);
+        self.persist_settings();
+        self.clamp_browse_selection();
+    }
+
+    /// Sources of an extension, resolved against the loaded source list.
+    ///
+    /// The host reports installed extensions with an empty source language, so match by
+    /// package and name instead of trusting the extension row's language.
+    fn resolved_extension_sources(&self, extension: &ExtensionInfo) -> Vec<RemoteSource> {
+        let mut sources = Vec::new();
+        for source in &extension.sources {
+            if let Some(remote) = self.remote.sources.iter().find(|remote| {
+                remote.pkg.as_deref() == Some(extension.pkg.as_str())
+                    && remote.name.eq_ignore_ascii_case(&source.name)
+                    && (source.lang.is_empty() || remote.lang == source.lang)
+            }) {
+                sources.push(remote.clone());
+            }
+        }
+        sources
+    }
+
+    pub fn is_extension_pinned(&self, extension: &ExtensionInfo) -> bool {
+        let sources = self.resolved_extension_sources(extension);
+        !sources.is_empty() && sources.iter().all(|source| self.is_source_pinned(source))
+    }
+
+    /// Pin or unpin every source of the selected extension.
+    pub fn toggle_selected_extension_pin(&mut self) {
+        let Some(extension) = self.selected_extension().cloned() else {
+            return;
+        };
+        if extension.sources.is_empty() {
+            return;
+        }
+        let sources = self.resolved_extension_sources(&extension);
+        if sources.is_empty() {
+            return;
+        }
+        let all_pinned = sources.iter().all(|source| self.is_source_pinned(source));
+        for source in &sources {
+            if all_pinned {
+                if let Some(position) = self
+                    .config
+                    .pinned_sources
+                    .iter()
+                    .position(|pinned| pin_key_matches(pinned, source))
+                {
+                    self.config.pinned_sources.remove(position);
+                }
+            } else if !self.is_source_pinned(source) {
+                self.config.pinned_sources.push(source_pin_key(source));
+            }
+        }
+        self.status = Some(if all_pinned {
+            format!("Unpinned {} sources", extension.name)
+        } else {
+            format!("Pinned {} sources", extension.name)
+        });
+        self.persist_settings();
+    }
+
+    pub fn extension_search_start(&mut self) {
+        if self.browse_view == BrowseView::Extensions {
+            self.extension_search = true;
+        }
+    }
+
+    pub fn extension_search_stop(&mut self, clear: bool) {
+        self.extension_search = false;
+        if clear {
+            self.extension_query.clear();
+        }
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+    }
+
+    pub fn extension_search_push(&mut self, character: char) {
+        self.extension_query.push(character);
+        self.reset_extension_selection();
+    }
+
+    pub fn extension_search_pop(&mut self) {
+        self.extension_query.pop();
+        self.reset_extension_selection();
+    }
+
+    fn reset_extension_selection(&mut self) {
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+    }
+
+    pub fn filtered_extension_indices(&self) -> Vec<usize> {
+        let query = self.extension_query.trim().to_lowercase();
+        self.remote
+            .extensions
+            .iter()
+            .enumerate()
+            .filter(|(_, extension)| {
+                query.is_empty()
+                    || extension.name.to_lowercase().contains(&query)
+                    || extension.pkg.to_lowercase().contains(&query)
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    pub fn filtered_extension_count(&self) -> usize {
+        if self.extension_query.trim().is_empty() {
+            self.remote.extensions.len()
+        } else {
+            self.filtered_extension_indices().len()
+        }
     }
 
     /// Connect to the configured host, or start the bundled one.
@@ -1106,7 +1386,7 @@ impl AppState {
 
     /// True while a modal should receive printable keys instead of shortcuts.
     pub fn text_mode(&self) -> bool {
-        self.picker.is_some() || self.text_input.is_some()
+        self.picker.is_some() || self.text_input.is_some() || self.extension_search
     }
 
     pub fn open_text_input(&mut self, action: TextAction, title: &str, value: &str) {
@@ -3311,6 +3591,35 @@ fn terminal_width() -> u16 {
         .unwrap_or(80)
 }
 
+/// Tolerate keys written before the host exposed source languages (`pkg|name|`).
+fn pin_key_matches(pinned: &str, source: &RemoteSource) -> bool {
+    let mut parts = pinned.split('|');
+    let (Some(pkg), Some(name), Some(lang)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    pkg == source.pkg.as_deref().unwrap_or_default()
+        && name.eq_ignore_ascii_case(&source.name)
+        && (lang.is_empty() || lang == source.lang)
+}
+
+fn source_pin_key(source: &RemoteSource) -> String {
+    format!(
+        "{}|{}|{}",
+        source.pkg.as_deref().unwrap_or_default(),
+        source.name,
+        source.lang
+    )
+}
+
+/// Header label for a source language, matching Mihon's readable group names.
+fn language_label(lang: &str) -> String {
+    match lang {
+        "" => "Other".to_owned(),
+        "all" => "All".to_owned(),
+        other => other.to_uppercase(),
+    }
+}
+
 /// A host URL points at the JVM service root, not at an extension repository index.
 fn validate_host_url(url: &str) -> Result<(), &'static str> {
     let lower = url.trim().to_ascii_lowercase();
@@ -3346,6 +3655,7 @@ mod tests {
     use crate::scroll_worker::ScrollWorker;
 
     use super::*;
+    use tsuiyomi_core::ExtensionSource;
 
     fn series(title: &str, categories: &[&str]) -> Series {
         Series {
@@ -3780,6 +4090,163 @@ mod tests {
                 .map(|series| series.title.as_str()),
             Some("Berserk")
         );
+    }
+
+    fn remote_app() -> AppState {
+        let mut app = AppState::new(library(), None);
+        app.host_autostart = false;
+        app.remote.sources = vec![
+            RemoteSource {
+                id: "1".to_owned(),
+                name: "Alpha".to_owned(),
+                lang: "en".to_owned(),
+                pkg: Some("pkg.a".to_owned()),
+            },
+            RemoteSource {
+                id: "2".to_owned(),
+                name: "Beta".to_owned(),
+                lang: "en".to_owned(),
+                pkg: Some("pkg.b".to_owned()),
+            },
+            RemoteSource {
+                id: "3".to_owned(),
+                name: "Gamma".to_owned(),
+                lang: "ja".to_owned(),
+                pkg: Some("pkg.c".to_owned()),
+            },
+        ];
+        app
+    }
+
+    #[test]
+    fn sources_are_grouped_by_language_with_pins_first() {
+        let mut app = remote_app();
+        app.config.pinned_sources = vec!["pkg.c|Gamma|ja".to_owned()];
+
+        let rows = app.source_rows();
+        let labels: Vec<String> = rows
+            .iter()
+            .map(|row| match row {
+                SourceRow::Header(label) => format!("[{label}]"),
+                SourceRow::Local => "local".to_owned(),
+                SourceRow::Remote(index) => app.remote.sources[*index].name.clone(),
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            vec!["[Pinned]", "Gamma", "[Local]", "local", "[EN]", "Alpha", "Beta"]
+        );
+        // Row 1 is Gamma, which is remote index 2 and therefore selection index 3.
+        assert_eq!(app.source_index_for_row(1), Some(3));
+        assert_eq!(app.source_index_for_row(0), None);
+        assert_eq!(
+            app.source_index_for_row(3),
+            Some(0),
+            "row 3 is the Local source"
+        );
+    }
+
+    #[test]
+    fn pinning_a_source_persists_and_unpins() {
+        let mut app = remote_app();
+        app.browse_view = BrowseView::Sources;
+        app.browse_selection = 1; // Alpha
+
+        app.toggle_pin_for_selection();
+        assert_eq!(app.config.pinned_sources, vec!["pkg.a|Alpha|en"]);
+
+        app.toggle_pin_for_selection();
+        assert!(app.config.pinned_sources.is_empty());
+    }
+
+    #[test]
+    fn extension_search_filters_and_extension_pins_all_sources() {
+        let mut app = remote_app();
+        app.remote.sources.push(RemoteSource {
+            id: "4".to_owned(),
+            name: "MangaDex".to_owned(),
+            lang: "en".to_owned(),
+            pkg: Some("pkg.mangadex".to_owned()),
+        });
+        app.remote.sources.push(RemoteSource {
+            id: "5".to_owned(),
+            name: "MangaDex".to_owned(),
+            lang: "ja".to_owned(),
+            pkg: Some("pkg.mangadex".to_owned()),
+        });
+        app.remote.extensions = vec![
+            ExtensionInfo {
+                name: "MangaDex".to_owned(),
+                pkg: "pkg.mangadex".to_owned(),
+                lang: "all".to_owned(),
+                version: "1.0".to_owned(),
+                apk: "x.apk".to_owned(),
+                installed: true,
+                nsfw: false,
+                source_count: 2,
+                sources: vec![
+                    ExtensionSource {
+                        name: "MangaDex".to_owned(),
+                        lang: "en".to_owned(),
+                    },
+                    ExtensionSource {
+                        name: "MangaDex".to_owned(),
+                        lang: "ja".to_owned(),
+                    },
+                ],
+                repo_url: "repo".to_owned(),
+            },
+            ExtensionInfo {
+                name: "Comick".to_owned(),
+                pkg: "pkg.comick".to_owned(),
+                lang: "en".to_owned(),
+                version: "1.0".to_owned(),
+                apk: "y.apk".to_owned(),
+                installed: false,
+                nsfw: false,
+                source_count: 1,
+                sources: Vec::new(),
+                repo_url: "repo".to_owned(),
+            },
+        ];
+        app.browse_view = BrowseView::Extensions;
+        app.browse_tab = BrowseTab::Extensions;
+
+        app.extension_search_start();
+        for character in "dex".chars() {
+            app.extension_search_push(character);
+        }
+        assert!(app.extension_search);
+        assert_eq!(app.filtered_extension_count(), 1);
+        assert_eq!(
+            app.selected_extension().map(|ext| ext.name.as_str()),
+            Some("MangaDex")
+        );
+
+        app.toggle_selected_extension_pin();
+        assert_eq!(
+            app.config.pinned_sources,
+            vec!["pkg.mangadex|MangaDex|en", "pkg.mangadex|MangaDex|ja"]
+        );
+
+        app.extension_search_stop(true);
+        assert!(!app.extension_search);
+        assert_eq!(app.filtered_extension_count(), 2);
+    }
+
+    #[test]
+    fn browse_tabs_restore_the_sources_stack() {
+        let mut app = remote_app();
+        app.browse_view = BrowseView::RemoteResults;
+
+        app.set_browse_tab(BrowseTab::Extensions);
+        assert_eq!(app.browse_view, BrowseView::Extensions);
+
+        app.set_browse_tab(BrowseTab::Sources);
+        assert_eq!(app.browse_view, BrowseView::RemoteResults);
+
+        app.set_browse_tab(BrowseTab::Migrate);
+        assert_eq!(app.browse_view, BrowseView::Migrate);
     }
 
     #[test]
