@@ -108,6 +108,13 @@ pub enum SourceRow {
     Remote(usize),
 }
 
+/// A selectable source in display order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceRef {
+    Local,
+    Remote(usize),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAction {
     SearchRemote,
@@ -671,14 +678,16 @@ impl AppState {
 
     pub fn browse_open(&mut self) {
         match self.browse_view {
-            BrowseView::Sources => {
-                if self.browse_selection == 0 {
+            BrowseView::Sources => match self.selected_source_ref() {
+                Some(SourceRef::Local) => {
                     self.browse_view = BrowseView::Local;
                     self.browse_selection = 0;
                     self.select_browse_entry(0);
-                } else if let Some(source) =
-                    self.remote.sources.get(self.browse_selection - 1).cloned()
-                {
+                }
+                Some(SourceRef::Remote(index)) => {
+                    let Some(source) = self.remote.sources.get(index).cloned() else {
+                        return;
+                    };
                     self.remote.source = Some(source);
                     self.remote.query.clear();
                     self.remote.page = 1;
@@ -688,7 +697,8 @@ impl AppState {
                     self.browse_grid_offset = 0;
                     self.select_browse_entry(0);
                 }
-            }
+                None => {}
+            },
             BrowseView::Local => {
                 let Some(path) = self
                     .selected_browse_series()
@@ -748,7 +758,10 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
-            BrowseView::Extensions | BrowseView::Sources | BrowseView::Migrate => {}
+            // At a tab's base view, Esc returns to the Library tab.
+            BrowseView::Extensions | BrowseView::Sources | BrowseView::Migrate => {
+                self.select_tab(0);
+            }
         }
     }
 
@@ -896,12 +909,21 @@ impl AppState {
         self.set_browse_tab(previous);
     }
 
-    /// Pinned sources first (Mihon's "Pinned" group), then the Local source, then one
-    /// section per language.
-    pub fn source_rows(&self) -> Vec<SourceRow> {
+    /// Sources in the order they are displayed: pinned, Local, then language groups.
+    ///
+    /// Selection indexes this vector, so arrow keys follow the visible list instead of
+    /// the host's storage order.
+    pub fn source_order(&self) -> Vec<SourceRef> {
+        let mut order = Vec::new();
+
         let mut pinned: Vec<usize> = (0..self.remote.sources.len())
             .filter(|index| self.is_source_pinned(&self.remote.sources[*index]))
             .collect();
+        sort_sources_by_name(&self.remote.sources, &mut pinned);
+        order.extend(pinned.into_iter().map(SourceRef::Remote));
+
+        order.push(SourceRef::Local);
+
         let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (index, source) in self.remote.sources.iter().enumerate() {
             if self.is_source_pinned(source) {
@@ -909,30 +931,58 @@ impl AppState {
             }
             grouped.entry(source.lang.clone()).or_default().push(index);
         }
-
-        let sort_by_name = |indices: &mut Vec<usize>| {
-            indices.sort_by(|left, right| {
-                natural_cmp(
-                    &self.remote.sources[*left].display_name(),
-                    &self.remote.sources[*right].display_name(),
-                )
-            });
-        };
-        sort_by_name(&mut pinned);
-
-        let mut rows = Vec::new();
-        if !pinned.is_empty() {
-            rows.push(SourceRow::Header("Pinned".to_owned()));
-            rows.extend(pinned.into_iter().map(SourceRow::Remote));
+        for (_, mut indices) in grouped {
+            sort_sources_by_name(&self.remote.sources, &mut indices);
+            order.extend(indices.into_iter().map(SourceRef::Remote));
         }
-        rows.push(SourceRow::Header("Local".to_owned()));
-        rows.push(SourceRow::Local);
-        for (lang, mut indices) in grouped {
-            sort_by_name(&mut indices);
-            rows.push(SourceRow::Header(language_label(&lang)));
-            rows.extend(indices.into_iter().map(SourceRow::Remote));
+        order
+    }
+
+    pub fn selected_source_ref(&self) -> Option<SourceRef> {
+        self.source_order().get(self.browse_selection).copied()
+    }
+
+    /// Rendered rows, with a non-selectable header before each group.
+    pub fn source_rows(&self) -> Vec<SourceRow> {
+        let mut rows = Vec::new();
+        let mut group: Option<String> = None;
+        for item in self.source_order() {
+            let label = match item {
+                SourceRef::Local => "Local".to_owned(),
+                SourceRef::Remote(index) => {
+                    let source = &self.remote.sources[index];
+                    if self.is_source_pinned(source) {
+                        "Pinned".to_owned()
+                    } else {
+                        language_label(&source.lang)
+                    }
+                }
+            };
+            if group.as_deref() != Some(label.as_str()) {
+                rows.push(SourceRow::Header(label.clone()));
+                group = Some(label);
+            }
+            rows.push(match item {
+                SourceRef::Local => SourceRow::Local,
+                SourceRef::Remote(index) => SourceRow::Remote(index),
+            });
         }
         rows
+    }
+
+    /// Row index of the currently selected source, for the list highlight.
+    pub fn selected_source_row(&self) -> Option<usize> {
+        let mut selection = 0;
+        for (row, item) in self.source_rows().iter().enumerate() {
+            if matches!(item, SourceRow::Header(_)) {
+                continue;
+            }
+            if selection == self.browse_selection {
+                return Some(row);
+            }
+            selection += 1;
+        }
+        None
     }
 
     /// Select the source shown at `row` in the rendered Sources list.
@@ -943,13 +993,19 @@ impl AppState {
         }
     }
 
-    /// Map a rendered Sources row to a selection index (0 = Local, n = remote n-1).
+    /// Map a rendered Sources row to a selection index.
     pub fn source_index_for_row(&self, row: usize) -> Option<usize> {
-        match self.source_rows().get(row)? {
-            SourceRow::Header(_) => None,
-            SourceRow::Local => Some(0),
-            SourceRow::Remote(index) => Some(index + 1),
+        let mut selection = 0;
+        for (index, item) in self.source_rows().iter().enumerate() {
+            if matches!(item, SourceRow::Header(_)) {
+                continue;
+            }
+            if index == row {
+                return Some(selection);
+            }
+            selection += 1;
         }
+        None
     }
 
     pub fn is_source_pinned(&self, source: &RemoteSource) -> bool {
@@ -979,17 +1035,21 @@ impl AppState {
         if self.browse_view != BrowseView::Sources {
             return;
         }
-        let Some(source) = self
-            .browse_selection
-            .checked_sub(1)
-            .and_then(|index| self.remote.sources.get(index))
-            .cloned()
-        else {
+        let Some(SourceRef::Remote(index)) = self.selected_source_ref() else {
+            return;
+        };
+        let Some(source) = self.remote.sources.get(index).cloned() else {
             return;
         };
         self.toggle_source_pin(&source);
+        // Pinning moves the source into the Pinned group; keep it selected there.
+        self.browse_selection = self
+            .source_order()
+            .iter()
+            .position(|item| *item == SourceRef::Remote(index))
+            .unwrap_or(0);
+        self.select_browse_entry(self.browse_selection);
         self.persist_settings();
-        self.clamp_browse_selection();
     }
 
     /// Sources of an extension, resolved against the loaded source list.
@@ -1250,7 +1310,7 @@ impl AppState {
         let Some(manga) = self.remote.manga.clone() else {
             return;
         };
-        if let Ok(details) = client.details(&manga.source_id, &manga.url) {
+        if let Ok(details) = client.details(&manga.source_id, &manga.url, manga.memo.as_deref()) {
             self.remote.manga = Some(RemoteManga {
                 // Keep the identity we already trust even if the source rewrites the URL.
                 source_id: manga.source_id,
@@ -1267,7 +1327,7 @@ impl AppState {
         let Some(manga) = self.remote.manga.clone() else {
             return;
         };
-        match client.chapters(&manga.source_id, &manga.url) {
+        match client.chapters(&manga.source_id, &manga.url, manga.memo.as_deref()) {
             Ok(mut chapters) => {
                 chapters.sort_by(|left, right| {
                     right
@@ -1294,7 +1354,12 @@ impl AppState {
         let Some(chapter) = self.remote.chapters.get(index).cloned() else {
             return;
         };
-        let urls = match client.pages(&manga.source_id, &chapter.url) {
+        let urls = match client.pages(
+            &manga.source_id,
+            &chapter.url,
+            chapter.memo.as_deref(),
+            Some(&chapter.name),
+        ) {
             Ok(urls) => urls,
             Err(error) => {
                 self.set_remote_error(error);
@@ -3390,6 +3455,43 @@ impl AppState {
         self.fullscreen = !self.fullscreen;
     }
 
+    /// Human-readable extension host state for the About page.
+    pub fn host_summary(&self) -> String {
+        if let Some(process) = &self.host_process {
+            format!("running · {}", process.base_url())
+        } else if let Some(client) = &self.host_client {
+            format!("external · {}", client.base_url())
+        } else {
+            "stopped".to_owned()
+        }
+    }
+
+    pub fn host_data_path(&self) -> Option<PathBuf> {
+        host_data_dir()
+    }
+
+    pub fn host_log_path(&self) -> Option<PathBuf> {
+        self.host_process.as_ref().map(HostProcess::log_path)
+    }
+
+    /// Stop the sidecar, or reconnect/start it. Exposed on the About page.
+    pub fn toggle_host(&mut self) {
+        if self.host_process.is_some() || self.host_client.is_some() {
+            self.host_process = None;
+            self.host_client = None;
+            self.remote.sources.clear();
+            self.remote.results.clear();
+            self.remote.manga = None;
+            self.remote.chapters.clear();
+            self.remote.status = None;
+            self.status = Some("Extension host stopped.".to_owned());
+        } else {
+            self.status = None;
+            self.remote.status = None;
+            self.load_remote_sources();
+        }
+    }
+
     /// Rescan the library root, keeping the Library tab's place and the Browse
     /// selection when the underlying series still exists.
     pub fn refresh(&mut self) {
@@ -3613,6 +3715,15 @@ fn source_pin_key(source: &RemoteSource) -> String {
     )
 }
 
+fn sort_sources_by_name(sources: &[RemoteSource], indices: &mut [usize]) {
+    indices.sort_by(|left, right| {
+        natural_cmp(
+            &sources[*left].display_name(),
+            &sources[*right].display_name(),
+        )
+    });
+}
+
 /// Header label for a source language, matching Mihon's readable group names.
 fn language_label(lang: &str) -> String {
     match lang {
@@ -3781,6 +3892,7 @@ mod tests {
                 chapter_number: 2.0,
                 scanlator: None,
                 upload_date: 0,
+                memo: None,
             },
             RemoteChapter {
                 url: "/ch/1".to_owned(),
@@ -3788,6 +3900,7 @@ mod tests {
                 chapter_number: 1.0,
                 scanlator: None,
                 upload_date: 0,
+                memo: None,
             },
         ];
 
@@ -4139,13 +4252,50 @@ mod tests {
             vec!["[Pinned]", "Gamma", "[Local]", "local", "[EN]", "Alpha", "Beta"]
         );
         // Row 1 is Gamma, which is remote index 2 and therefore selection index 3.
-        assert_eq!(app.source_index_for_row(1), Some(3));
+        assert_eq!(app.source_index_for_row(1), Some(0));
         assert_eq!(app.source_index_for_row(0), None);
         assert_eq!(
             app.source_index_for_row(3),
-            Some(0),
+            Some(1),
             "row 3 is the Local source"
         );
+    }
+
+    #[test]
+    fn source_arrows_follow_the_displayed_order() {
+        let mut app = remote_app();
+        app.config.pinned_sources = vec!["pkg.c|Gamma|ja".to_owned()];
+        app.browse_view = BrowseView::Sources;
+        app.browse_selection = 0;
+
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Remote(2)));
+        app.browse_next();
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Local));
+        app.browse_next();
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Remote(0)));
+        app.browse_next();
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Remote(1)));
+        app.browse_previous();
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Remote(0)));
+        app.browse_previous();
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Local));
+        app.browse_previous();
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Remote(2)));
+    }
+
+    #[test]
+    fn escape_at_a_browse_tab_root_returns_to_library() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Sources;
+        app.browse_parent();
+        assert_eq!(app.tab, 0);
+
+        app.tab = 3;
+        app.browse_view = BrowseView::Local;
+        app.browse_parent();
+        assert_eq!(app.tab, 3);
+        assert_eq!(app.browse_view, BrowseView::Sources);
     }
 
     #[test]
@@ -4156,6 +4306,11 @@ mod tests {
 
         app.toggle_pin_for_selection();
         assert_eq!(app.config.pinned_sources, vec!["pkg.a|Alpha|en"]);
+        assert_eq!(
+            app.selected_source_ref(),
+            Some(SourceRef::Remote(0)),
+            "the pinned source stays selected after moving to the group"
+        );
 
         app.toggle_pin_for_selection();
         assert!(app.config.pinned_sources.is_empty());

@@ -425,6 +425,13 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↵", "enter"),
                 ("Esc", "back"),
             ]
+        } else if app.more_section == MoreSection::About {
+            &[
+                ("q", "quit"),
+                ("H", "host"),
+                ("[ ]", "sections"),
+                ("Esc", "back"),
+            ]
         } else if app.more_section == MoreSection::Settings
             && app.settings_page == SettingsPage::Main
         {
@@ -692,58 +699,59 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    if area.height < 3 {
-        return;
-    }
-    draw_browse_tabs(frame, Rect::new(area.x, area.y, area.width, 1), app);
-    draw_browse_path(frame, Rect::new(area.x, area.y + 1, area.width, 1), app);
-    let content = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
     match app.browse_view {
-        BrowseView::Sources => draw_browse_sources(frame, content, app),
-        BrowseView::Local => {
-            let indices = app.browse_local_indices();
-            let (columns, offset) = draw_series_grid(
-                frame,
-                content,
-                app,
-                &indices,
-                app.browse_selection,
-                app.browse_grid_offset,
-            );
-            app.browse_columns = columns;
-            app.browse_grid_offset = offset;
-        }
-        BrowseView::Details => draw_browse_detail(frame, content, app),
-        BrowseView::Chapters => draw_browse_chapters(frame, content, app),
-        BrowseView::RemoteResults => draw_remote_grid(frame, content, app),
-        BrowseView::RemoteDetails => draw_remote_detail(frame, content, app),
-        BrowseView::Extensions => draw_extensions(frame, content, app),
-        BrowseView::Stores => draw_stores(frame, content, app),
-        BrowseView::Migrate => placeholder(
-            frame,
-            content,
-            "Migrate",
-            "Migrating between sources is not implemented yet.",
-        ),
-    }
-    if let Some(status) = app.remote.status.as_ref().or(app.remote.host_hint.as_ref()) {
-        if area.height > 0 {
-            let status_area = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
-            frame.render_widget(
-                Paragraph::new(format!(" {status}")).style(Style::default().fg(
-                    if app.remote.error {
-                        c_peach()
-                    } else {
-                        c_green()
-                    },
-                )),
-                status_area,
-            );
+        BrowseView::Sources => draw_browse_sources(frame, area, app),
+        BrowseView::Extensions => draw_extensions(frame, area, app),
+        BrowseView::Stores => draw_stores(frame, area, app),
+        BrowseView::Migrate => draw_migrate(frame, area, app),
+        BrowseView::Local
+        | BrowseView::Details
+        | BrowseView::Chapters
+        | BrowseView::RemoteResults
+        | BrowseView::RemoteDetails => {
+            draw_browse_path(frame, Rect::new(area.x, area.y, area.width, 1), app);
+            let content = library_grid_area(area);
+            match app.browse_view {
+                BrowseView::Local => {
+                    let indices = app.browse_local_indices();
+                    let (columns, offset) = draw_series_grid(
+                        frame,
+                        content,
+                        app,
+                        &indices,
+                        app.browse_selection,
+                        app.browse_grid_offset,
+                    );
+                    app.browse_columns = columns;
+                    app.browse_grid_offset = offset;
+                }
+                BrowseView::Details => draw_browse_detail(frame, content, app),
+                BrowseView::Chapters => draw_browse_chapters(frame, content, app),
+                BrowseView::RemoteResults => draw_remote_grid(frame, content, app),
+                BrowseView::RemoteDetails => draw_remote_detail(frame, content, app),
+                _ => {}
+            }
+            if let Some(status) = &app.remote.status {
+                if area.height > 0 {
+                    let status_area = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
+                    frame.render_widget(
+                        Paragraph::new(format!(" {status}")).style(Style::default().fg(
+                            if app.remote.error {
+                                c_peach()
+                            } else {
+                                c_green()
+                            },
+                        )),
+                        status_area,
+                    );
+                }
+            }
         }
     }
 }
 
-fn draw_browse_tabs(frame: &mut Frame, area: Rect, app: &AppState) {
+/// The Browse top-level tabs rendered as a panel title.
+fn browse_tab_title(app: &AppState) -> Line<'static> {
     let tabs = [
         ("Sources", BrowseTab::Sources),
         ("Extensions", BrowseTab::Extensions),
@@ -761,17 +769,52 @@ fn draw_browse_tabs(frame: &mut Frame, area: Rect, app: &AppState) {
         };
         spans.push(Span::styled(*label, style));
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    spans.push(Span::raw(" "));
+    Line::from(spans)
+}
+
+/// Panel body plus a reserved bottom status row when there is something to say.
+fn browse_body_with_status(frame: &mut Frame, inner: Rect, app: &AppState) -> Rect {
+    let Some(status) = browse_status(app) else {
+        return inner;
+    };
+    if inner.height < 2 {
+        return inner;
+    }
+    let status_area = Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1);
+    frame.render_widget(
+        Paragraph::new(format!(" {status}")).style(Style::default().fg(if app.remote.error {
+            c_peach()
+        } else {
+            c_green()
+        })),
+        status_area,
+    );
+    Rect::new(inner.x, inner.y, inner.width, inner.height - 1)
+}
+
+fn browse_status(app: &AppState) -> Option<String> {
+    app.remote
+        .status
+        .clone()
+        .or_else(|| app.remote.host_hint.clone())
+}
+
+fn browse_host_label(app: &AppState) -> String {
+    if app.host_process.is_some() {
+        "extension host".to_owned()
+    } else if app.host_client.is_some() {
+        "external host".to_owned()
+    } else {
+        "local only".to_owned()
+    }
 }
 
 fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
     let (view, detail, count) = match app.browse_view {
         BrowseView::Sources => (
             "Sources".to_owned(),
-            app.host_client
-                .as_ref()
-                .map(|client| client.base_url().to_owned())
-                .unwrap_or_else(|| "local only".to_owned()),
+            browse_host_label(app),
             format!("{} sources", 1 + app.remote.sources.len()),
         ),
         BrowseView::Local | BrowseView::Details => (
@@ -792,10 +835,7 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
                 .as_ref()
                 .map(|source| source.display_name())
                 .unwrap_or_else(|| "Remote source".to_owned()),
-            app.host_client
-                .as_ref()
-                .map(|client| client.base_url().to_owned())
-                .unwrap_or_default(),
+            browse_host_label(app),
             match app.browse_view {
                 BrowseView::RemoteDetails => format!("{} chapters", app.remote.chapters.len()),
                 _ => format!("{} results", app.remote.results.len()),
@@ -803,10 +843,7 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
         ),
         BrowseView::Extensions => (
             "Extensions".to_owned(),
-            app.host_client
-                .as_ref()
-                .map(|client| client.base_url().to_owned())
-                .unwrap_or_default(),
+            browse_host_label(app),
             if app.extension_query.trim().is_empty() {
                 format!("{} extensions", app.remote.extensions.len())
             } else {
@@ -824,10 +861,7 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
         ),
         BrowseView::Stores => (
             "Extension stores".to_owned(),
-            app.host_client
-                .as_ref()
-                .map(|client| client.base_url().to_owned())
-                .unwrap_or_default(),
+            browse_host_label(app),
             format!("{} stores", app.remote.repos.len()),
         ),
     };
@@ -843,10 +877,23 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height == 0 {
+        return;
+    }
+    draw_browse_path(frame, Rect::new(body.x, body.y, body.width, 1), app);
+    let list_area = Rect::new(
+        body.x,
+        body.y + 1,
+        body.width,
+        body.height.saturating_sub(1),
+    );
+
     let rows = app.source_rows();
     let mut items = Vec::with_capacity(rows.len());
-    let mut selected_row = None;
-
     for row in &rows {
         match row {
             SourceRow::Header(label) => items.push(ListItem::new(Line::from(Span::styled(
@@ -856,9 +903,6 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     .add_modifier(Modifier::BOLD),
             )))),
             SourceRow::Local => {
-                if app.browse_selection == 0 {
-                    selected_row = Some(items.len());
-                }
                 items.push(ListItem::new(Line::from(vec![
                     Span::styled("Local source", Style::default().fg(c_text())),
                     Span::styled(
@@ -869,9 +913,6 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
             }
             SourceRow::Remote(index) => {
                 let source = &app.remote.sources[*index];
-                if app.browse_selection == index + 1 {
-                    selected_row = Some(items.len());
-                }
                 let mut spans = Vec::new();
                 if app.is_source_pinned(source) {
                     spans.push(Span::styled("★ ", Style::default().fg(c_accent())));
@@ -889,15 +930,8 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
         }
     }
 
-    app.browse_list_state.select(selected_row);
+    app.browse_list_state.select(app.selected_source_row());
     let list = List::new(items)
-        .block(panel(
-            Line::from(Span::styled(
-                " Sources ",
-                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-            )),
-            c_accent(),
-        ))
         .highlight_style(
             Style::default()
                 .fg(c_accent())
@@ -905,7 +939,7 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("› ");
-    frame.render_stateful_widget(list, area, &mut app.browse_list_state);
+    frame.render_stateful_widget(list, list_area, &mut app.browse_list_state);
 }
 
 fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -1132,15 +1166,20 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
 }
 
 fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    if area.height == 0 {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height < 2 {
         return;
     }
-    draw_extension_search(frame, Rect::new(area.x, area.y, area.width, 1), app);
+    draw_extension_search(frame, Rect::new(body.x, body.y, body.width, 1), app);
+    draw_browse_path(frame, Rect::new(body.x, body.y + 1, body.width, 1), app);
     let list_area = Rect::new(
-        area.x,
-        area.y + 1,
-        area.width,
-        area.height.saturating_sub(1),
+        body.x,
+        body.y + 2,
+        body.width,
+        body.height.saturating_sub(2),
     );
 
     let filtered = app.filtered_extension_indices();
@@ -1197,13 +1236,6 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
     app.browse_list_state
         .select(Some(app.browse_selection.min(filtered.len() - 1)));
     let list = List::new(items)
-        .block(panel(
-            Line::from(Span::styled(
-                " Extensions ",
-                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-            )),
-            c_accent(),
-        ))
         .highlight_style(
             Style::default()
                 .fg(c_accent())
@@ -1235,13 +1267,28 @@ fn draw_extension_search(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height == 0 {
+        return;
+    }
+    draw_browse_path(frame, Rect::new(body.x, body.y, body.width, 1), app);
+    let list_area = Rect::new(
+        body.x,
+        body.y + 1,
+        body.width,
+        body.height.saturating_sub(1),
+    );
+
     let stores = app.remote.repos.clone();
     if stores.is_empty() {
         frame.render_widget(
             Paragraph::new("No extension stores. Press a to add one.")
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(c_overlay1())),
-            Rect::new(area.x, area.y, area.width, 1),
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
         );
         app.browse_list_state.select(None);
         return;
@@ -1258,13 +1305,6 @@ fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
     app.browse_list_state
         .select(Some(app.browse_selection.min(stores.len() - 1)));
     let list = List::new(items)
-        .block(panel(
-            Line::from(Span::styled(
-                " Stores ",
-                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-            )),
-            c_accent(),
-        ))
         .highlight_style(
             Style::default()
                 .fg(c_accent())
@@ -1272,7 +1312,23 @@ fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("› ");
-    frame.render_stateful_widget(list, area, &mut app.browse_list_state);
+    frame.render_stateful_widget(list, list_area, &mut app.browse_list_state);
+}
+
+fn draw_migrate(frame: &mut Frame, area: Rect, app: &AppState) {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new("Migrating between sources is not implemented yet.")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(c_overlay1())),
+        Rect::new(body.x, body.y + body.height / 2, body.width, 1),
+    );
 }
 
 fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -2170,17 +2226,28 @@ fn draw_more_about(frame: &mut Frame, area: Rect, app: &AppState) {
         ReaderMode::Page => "page",
         ReaderMode::Scroll => "scroll",
     };
-    let lines = vec![
+    let mut lines = vec![
         field("Version", env!("CARGO_PKG_VERSION"), c_text()),
         field("Graphics", app.protocol_name(), c_blue()),
         field("Reader", mode, c_blue()),
         field("Zoom", &format!("{}%", app.zoom), c_green()),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Tsuiyomi is an independent Mihon-compatible TUI.",
-            Style::default().fg(c_overlay1()),
-        )),
+        field("Host", &app.host_summary(), c_teal()),
     ];
+    if let Some(path) = app.host_data_path() {
+        lines.push(field("Data dir", &display_path(&path), c_overlay1()));
+    }
+    if let Some(path) = app.host_log_path() {
+        lines.push(field("Host log", &display_path(&path), c_overlay1()));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "H starts or stops the extension host.",
+        Style::default().fg(c_overlay1()),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Tsuiyomi is an independent Mihon-compatible TUI.",
+        Style::default().fg(c_overlay1()),
+    )));
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(
@@ -2622,6 +2689,7 @@ mod tests {
             genre: vec!["Action".to_owned()],
             status: "ongoing".to_owned(),
             thumbnail_url: None,
+            memo: None,
         }];
         let text = render(&mut app, 80, 30);
         assert!(text.contains("Berserk"));
@@ -2635,6 +2703,7 @@ mod tests {
             chapter_number: 1.0,
             scanlator: None,
             upload_date: 0,
+            memo: None,
         }];
         let text = render(&mut app, 80, 30);
         assert!(text.contains("Chapters"));

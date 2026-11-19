@@ -167,7 +167,8 @@ Rules:
 - Browse follows Mihon's source model. Sources include the built-in Local source and all
   sources exposed by the extension host (a bundled miwayomi JVM). Remote results, manga
   details, chapters, and the reader stay under the Browse tab; Browse never switches to
-  Library. Browse has Sources, Extensions, and Migrate tabs (`[`/`]`); sources are grouped
+  Library. Browse has Sources, Extensions, and Migrate tabs (`[`/`]`) inside the panel
+  title; Esc at a tab root returns to Library. Sources are grouped
   by language and can be pinned (persisted in `pinned_sources`), and the Extensions tab has
   an inline search bar. Extensions are managed through the host (repo URLs, install,
   uninstall).

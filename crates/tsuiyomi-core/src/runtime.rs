@@ -96,12 +96,40 @@ pub fn host_data_dir() -> Option<PathBuf> {
 ///
 /// Returns `Ok(None)` when this build has no embedded archive and no runtime is cached.
 pub fn ensure_runtime(jar_override: Option<&Path>) -> Result<Option<HostRuntime>, CoreError> {
-    if jar_override.is_none() && HostRuntime::discover(None).is_none() {
-        if let Some(bytes) = embedded_archive() {
-            extract_archive(bytes)?;
-        }
+    if let Some(bytes) = embedded_archive() {
+        sync_embedded_runtime(bytes)?;
     }
     Ok(HostRuntime::discover(jar_override))
+}
+
+/// Extract the embedded runtime when the cache is missing or was built from another
+/// archive. Without the stamp, a rebuilt binary would keep using the previous jar.
+fn sync_embedded_runtime(bytes: &[u8]) -> Result<(), CoreError> {
+    let Some(target) = cached_runtime_dir() else {
+        return Err(CoreError::Host {
+            message: "cannot resolve the cache directory".to_owned(),
+        });
+    };
+    let stamp = archive_stamp(bytes);
+    let stamp_path = target.join(".archive-stamp");
+    let cached = fs::read_to_string(&stamp_path)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    if cached != Some(stamp) {
+        let _ = fs::remove_dir_all(&target);
+    }
+    if !target.is_dir() {
+        extract_archive(bytes)?;
+        let _ = fs::write(&stamp_path, stamp.to_string());
+    }
+    Ok(())
+}
+
+fn archive_stamp(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(embedded_host)]

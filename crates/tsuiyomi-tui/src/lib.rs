@@ -359,6 +359,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     }
                 }
             }
+            Action::HostToggle => {
+                if app.tab == 4 && app.more_section == MoreSection::About {
+                    app.toggle_host();
+                }
+            }
             Action::Latest => {
                 if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     app.load_remote_latest();
@@ -519,11 +524,36 @@ fn handle_chapter_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
 }
 
 fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
-    if area.height < 3 {
-        return;
-    }
-    let area = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
+    let inside = |top: u16| {
+        Rect::new(
+            area.x + 1,
+            area.y + top,
+            area.width.saturating_sub(2),
+            area.height.saturating_sub(top),
+        )
+    };
     match app.browse_view {
+        BrowseView::Sources => {
+            let list = inside(2);
+            if contains(list, column, row) {
+                let offset = app.browse_list_state.offset();
+                app.select_source_row(offset + (row - list.y) as usize);
+            }
+        }
+        BrowseView::Extensions => {
+            let list = inside(3);
+            if contains(list, column, row) {
+                let offset = app.browse_list_state.offset();
+                app.select_browse_index(offset + (row - list.y) as usize);
+            }
+        }
+        BrowseView::Stores => {
+            let list = inside(2);
+            if contains(list, column, row) {
+                let offset = app.browse_list_state.offset();
+                app.select_browse_index(offset + (row - list.y) as usize);
+            }
+        }
         BrowseView::Local | BrowseView::RemoteResults => {
             let grid_area = library_grid_area(area);
             if let Some(index) = grid_index_at(
@@ -538,23 +568,14 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_browse_index(index);
             }
         }
-        BrowseView::Sources => {
-            let list = library_grid_area(area);
-            if contains(list, column, row) {
-                let row_in_list = row.saturating_sub(list.y + 1) as usize;
-                app.select_source_row(row_in_list);
-            }
-        }
-        BrowseView::Extensions | BrowseView::Stores | BrowseView::Chapters => {
-            let list = library_grid_area(area);
-            let offset = if app.browse_view == BrowseView::Chapters {
-                app.browse_local_list_state.offset()
-            } else {
-                app.browse_list_state.offset()
-            };
-            if contains(list, column, row) {
-                let row_in_list = row.saturating_sub(list.y + 1) as usize;
-                app.select_browse_index(offset + row_in_list);
+        BrowseView::Chapters => {
+            let content = library_grid_area(area);
+            let library = library_layout(content);
+            let list_area = inner(library.list);
+            if contains(list_area, column, row) {
+                let visible_row = (row - list_area.y) as usize;
+                let index = app.browse_local_list_state.offset() + visible_row;
+                app.select_browse_index(index);
             }
         }
         BrowseView::Details | BrowseView::RemoteDetails | BrowseView::Migrate => {}

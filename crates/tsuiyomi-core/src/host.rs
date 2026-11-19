@@ -48,6 +48,9 @@ pub struct RemoteManga {
     pub genre: Vec<String>,
     pub status: String,
     pub thumbnail_url: Option<String>,
+    /// Opaque per-source state (slugs, ids, tokens) that must be sent back with later
+    /// requests. Mihon stores this in `SManga.memo`.
+    pub memo: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -63,6 +66,8 @@ pub struct RemoteChapter {
     pub chapter_number: f32,
     pub scanlator: Option<String>,
     pub upload_date: i64,
+    /// Opaque per-chapter state required by sources such as Asura Scans.
+    pub memo: Option<String>,
 }
 
 /// A source declared by an extension, used for pinning and detail views.
@@ -259,17 +264,28 @@ impl HostClient {
         })
     }
 
-    pub fn details(&self, source_id: &str, url: &str) -> Result<RemoteManga, CoreError> {
+    pub fn details(
+        &self,
+        source_id: &str,
+        url: &str,
+        memo: Option<&str>,
+    ) -> Result<RemoteManga, CoreError> {
         let path = format!(
-            "/api/v1/manga/{}/details?url={}",
+            "/api/v1/manga/{}/details?url={}&memo={}",
             encode(source_id),
-            encode(url)
+            encode(url),
+            encode(memo.unwrap_or_default())
         );
         let row: MangaRow = self.get(&path)?;
         Ok(row.into_manga(source_id, self))
     }
 
-    pub fn chapters(&self, source_id: &str, url: &str) -> Result<Vec<RemoteChapter>, CoreError> {
+    pub fn chapters(
+        &self,
+        source_id: &str,
+        url: &str,
+        memo: Option<&str>,
+    ) -> Result<Vec<RemoteChapter>, CoreError> {
         #[derive(Deserialize)]
         struct Data {
             #[serde(default)]
@@ -287,12 +303,15 @@ impl HostClient {
             scanlator: Option<String>,
             #[serde(default)]
             date_upload: i64,
+            #[serde(default)]
+            memo: Option<String>,
         }
 
         let path = format!(
-            "/api/v1/manga/{}/chapters?url={}",
+            "/api/v1/manga/{}/chapters?url={}&memo={}",
             encode(source_id),
-            encode(url)
+            encode(url),
+            encode(memo.unwrap_or_default())
         );
         let data: Data = self.get(&path)?;
         Ok(data
@@ -304,6 +323,7 @@ impl HostClient {
                 chapter_number: row.chapter_number,
                 scanlator: row.scanlator.filter(|value| !value.trim().is_empty()),
                 upload_date: row.date_upload,
+                memo: row.memo.filter(|value| !value.trim().is_empty()),
             })
             .collect())
     }
@@ -313,7 +333,13 @@ impl HostClient {
     /// Some sources split a page across a server list and a relative path, so the reader
     /// cannot reuse `imageUrl` directly. The endpoint rebuilds the page and lets the
     /// source run its own request.
-    pub fn pages(&self, source_id: &str, url: &str) -> Result<Vec<String>, CoreError> {
+    pub fn pages(
+        &self,
+        source_id: &str,
+        url: &str,
+        memo: Option<&str>,
+        name: Option<&str>,
+    ) -> Result<Vec<String>, CoreError> {
         #[derive(Deserialize)]
         struct Data {
             #[serde(default)]
@@ -328,9 +354,11 @@ impl HostClient {
         }
 
         let path = format!(
-            "/api/v1/manga/{}/pages?url={}",
+            "/api/v1/manga/{}/pages?url={}&memo={}&name={}",
             encode(source_id),
-            encode(url)
+            encode(url),
+            encode(memo.unwrap_or_default()),
+            encode(name.unwrap_or_default())
         );
         let data: Data = self.get(&path)?;
         Ok(data
@@ -572,6 +600,8 @@ struct MangaRow {
     status: i32,
     #[serde(default)]
     thumbnail_url: Option<String>,
+    #[serde(default)]
+    memo: Option<String>,
 }
 
 impl MangaRow {
@@ -599,6 +629,7 @@ impl MangaRow {
                 .thumbnail_url
                 .filter(|value| !value.trim().is_empty())
                 .map(|url| client.proxy_url(source_id, &url)),
+            memo: self.memo.filter(|value| !value.trim().is_empty()),
         }
     }
 }
@@ -773,21 +804,33 @@ mod tests {
 
     #[test]
     fn lists_chapters_and_proxies_pages() {
-        let (address, _requests) = server(vec![
-            r#"{"chapters":[{"url":"/ch/1","name":"Chapter 1","date_upload":123,"chapter_number":1.0,"scanlator":"Team"}]}"#,
+        let (address, requests) = server(vec![
+            r#"{"chapters":[{"url":"/ch/1","name":"Chapter 1","date_upload":123,"chapter_number":1.0,"scanlator":"Team","memo":"{\"mangaSlug\":\"x\"}"}]}"#,
             r#"{"pages":[{"index":0,"number":0,"url":"/p/1","imageUrl":"https://img.example/1.jpg"},{"index":1,"number":1,"url":"https://img.example/2.jpg","imageUrl":null}]}"#,
         ]);
         let client = HostClient::new(address);
 
-        let chapters = client.chapters("7", "/manga/1").unwrap();
+        let chapters = client.chapters("7", "/manga/1", None).unwrap();
+        let _ = requests.recv();
         assert_eq!(chapters[0].name, "Chapter 1");
         assert_eq!(chapters[0].scanlator.as_deref(), Some("Team"));
+        assert_eq!(chapters[0].memo.as_deref(), Some("{\"mangaSlug\":\"x\"}"));
 
-        let pages = client.pages("7", "/ch/1").unwrap();
+        let pages = client
+            .pages(
+                "7",
+                "/ch/1",
+                chapters[0].memo.as_deref(),
+                Some(&chapters[0].name),
+            )
+            .unwrap();
         assert_eq!(pages.len(), 2);
         assert!(pages[0].contains("/api/v1/image?sourceId=7"));
         assert!(pages[0].contains("imageUrl=https%3A%2F%2Fimg.example%2F1.jpg"));
         assert!(pages[1].contains("imageUrl="));
+        let page_request = requests.recv().unwrap();
+        assert!(page_request.contains("memo=%7B%22mangaSlug%22%3A%22x%22%7D"));
+        assert!(page_request.contains("name=Chapter%201"));
     }
 
     #[test]

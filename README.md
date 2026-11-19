@@ -129,8 +129,10 @@ Mihon extension APKs are JVM bytecode. tsuiyomi does not load them itself; it ru
 headless [miwayomi](https://github.com/miwayomi/miwayomi) host on loopback and talks to
 its REST API.
 
-The host is started automatically when you first open Browse. It is discovered in this
-order:
+The host is started automatically when you first open Browse. It runs only on loopback,
+on an ephemeral port, and is stopped when tsuiyomi exits. Its state, data directory, and
+log path are listed in **More → About**, where `H` stops or restarts it. It is discovered
+in this order:
 
 1. `host_url` in the config (use an already-running server).
 2. `host_jar` in the config, or `TSUIYOMI_HOST_JAR` (development override).

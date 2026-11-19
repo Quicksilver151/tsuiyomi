@@ -14,11 +14,31 @@ index 6405438..13bd319 100644
  
      if (config.flareSolverrUrl != null) {
          println("[miwayomi] FlareSolverr enabled at ${config.flareSolverrUrl}")
+diff --git a/server/src/main/kotlin/miwayomi/api/Dtos.kt b/server/src/main/kotlin/miwayomi/api/Dtos.kt
+index 54c1a1f..8994b4d 100644
+--- a/server/src/main/kotlin/miwayomi/api/Dtos.kt
++++ b/server/src/main/kotlin/miwayomi/api/Dtos.kt
+@@ -22,6 +22,7 @@ data class MangaDto(
+     val status: Int,
+     val thumbnail_url: String?,
+     val initialized: Boolean,
++    val memo: String? = null,
+ )
+ 
+ @Serializable
+@@ -31,6 +32,7 @@ data class ChapterDto(
+     val date_upload: Long,
+     val chapter_number: Float,
+     val scanlator: String?,
++    val memo: String? = null,
+ )
+ 
+ @Serializable
 diff --git a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt b/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
-index e2ec6fa..617ff72 100644
+index e2ec6fa..12af79f 100644
 --- a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
 +++ b/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
-@@ -1,6 +1,7 @@
+@@ -1,18 +1,31 @@
  package miwayomi.api
  
  import eu.kanade.tachiyomi.source.model.FilterList
@@ -26,24 +46,50 @@ index e2ec6fa..617ff72 100644
  import eu.kanade.tachiyomi.source.model.SChapter
  import eu.kanade.tachiyomi.source.model.SManga
  import eu.kanade.tachiyomi.source.online.HttpSource
-@@ -50,8 +51,8 @@ fun Application.registerMangaApi() {
+ import io.ktor.server.application.Application
++import io.ktor.server.application.ApplicationCall
+ import io.ktor.server.application.call
+ import io.ktor.server.response.respond
+ import io.ktor.server.routing.get
+ import io.ktor.server.routing.routing
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.jsonObject
+ import miwayomi.source.MangaSourceManager
+ import uy.kohesive.injekt.Injekt
+ import uy.kohesive.injekt.api.get
+ 
++private val memoJson = Json { ignoreUnknownKeys = true }
++
++/** Extensions keep per-item state (slugs, ids, tokens) in `memo`; it must round-trip. */
++private fun ApplicationCall.memoParam(name: String = "memo"): JsonObject? =
++    request.queryParameters[name]
++        ?.takeIf { it.isNotBlank() }
++        ?.let { raw -> runCatching { memoJson.parseToJsonElement(raw).jsonObject }.getOrNull() }
++
+ fun Application.registerMangaApi() {
+     val mangaSources = Injekt.get<MangaSourceManager>()
+ 
+@@ -50,8 +63,9 @@ fun Application.registerMangaApi() {
          get("/api/v1/manga/{sourceId}/details") {
              val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
              val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
 -            val manga = SManga.create().also { it.url = url }
 -            val res = source.getMangaDetails(manga)
 +            val manga = SManga.create().also { it.url = url; it.title = "" }
++            call.memoParam()?.let { manga.memo = it }
 +            val res = source.getMangaUpdate(manga, emptyList(), fetchDetails = true, fetchChapters = false).manga
              if (runCatching { res.url }.getOrNull().isNullOrBlank()) res.url = url
              call.respond(res.toDto())
          }
-@@ -59,19 +60,43 @@ fun Application.registerMangaApi() {
+@@ -59,19 +73,48 @@ fun Application.registerMangaApi() {
          get("/api/v1/manga/{sourceId}/chapters") {
              val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
              val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
 -            val manga = SManga.create().also { it.url = url }
 -            val chapters = source.getChapterList(manga)
 +            val manga = SManga.create().also { it.url = url; it.title = "" }
++            call.memoParam()?.let { manga.memo = it }
 +            val chapters = source.getMangaUpdate(manga, emptyList(), fetchDetails = false, fetchChapters = true).chapters
              call.respond(ChaptersDto(chapters.map { it.toDto() }))
          }
@@ -73,7 +119,11 @@ index e2ec6fa..617ff72 100644
              val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
              val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
 -            val chapter = SChapter.create().also { it.url = url }
-+            val chapter = SChapter.create().also { it.url = url; it.name = "" }
++            val chapter = SChapter.create().also {
++                it.url = url
++                it.name = call.request.queryParameters["name"].orEmpty()
++            }
++            call.memoParam()?.let { chapter.memo = it }
              val pages = source.getPageList(chapter)
              val httpSource = source as? HttpSource
              pages.forEach { p ->
@@ -85,6 +135,26 @@ index e2ec6fa..617ff72 100644
                      runCatching { p.imageUrl = httpSource.getImageUrl(p) }
                  }
              }
+diff --git a/server/src/main/kotlin/miwayomi/api/Mappers.kt b/server/src/main/kotlin/miwayomi/api/Mappers.kt
+index 6c0c3c0..06e751e 100644
+--- a/server/src/main/kotlin/miwayomi/api/Mappers.kt
++++ b/server/src/main/kotlin/miwayomi/api/Mappers.kt
+@@ -25,6 +25,7 @@ fun SManga.toDto(): MangaDto = MangaDto(
+     status = status,
+     thumbnail_url = thumbnail_url,
+     initialized = initialized,
++    memo = memo.takeIf { it.isNotEmpty() }?.toString(),
+ )
+ 
+ fun SChapter.toDto(): ChapterDto = ChapterDto(
+@@ -33,6 +34,7 @@ fun SChapter.toDto(): ChapterDto = ChapterDto(
+     date_upload = date_upload,
+     chapter_number = chapter_number,
+     scanlator = scanlator,
++    memo = memo.takeIf { it.isNotEmpty() }?.toString(),
+ )
+ 
+ fun Page.toDto(): PageDto = PageDto(
 diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt
 new file mode 100644
 index 0000000..b090b6f

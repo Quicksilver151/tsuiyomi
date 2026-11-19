@@ -105,6 +105,10 @@ database rows. tsuiyomi owns reading progress.
 - [x] Sources grouped by language, with a persistent `Pinned` group.
 - [x] Inline extension search (name or package).
 - [x] Pin all sources of an extension from the Extensions tab.
+- [x] Tabs rendered inside the Browse panel; Esc at a tab root returns to Library.
+- [x] Chapter and manga `memo` round-trips through the host API, fixing
+      "Refresh Chapter List" on Asura Scans and other memo-dependent sources.
+- [x] Host state and logs in About, with `H` to stop or restart the sidecar.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.
 
