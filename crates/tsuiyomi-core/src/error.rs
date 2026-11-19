@@ -18,6 +18,13 @@ pub enum CoreError {
         source: io::Error,
     },
 
+    #[error("failed to write {path}: {source}")]
+    WriteFile {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
     #[error("failed to parse {path}: {source}")]
     ParseJson {
         path: PathBuf,

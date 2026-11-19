@@ -190,20 +190,26 @@ Rules:
   WebView-dependent sources are unsupported. Library itself also uses a tile grid, not a
   list. Category keys only affect Library's series grid. There is no filesystem import
   browser; users place folders in local/ and rescan.
+- Chapter downloads land in `<downloads>/<source>/<series>/<chapter>/<page>.<ext>` using
+  Mihon's sanitized directory names (`downloads.rs`). `D` on a remote story screen or in
+  the reader downloads the selected chapter on a worker thread; downloaded chapters are
+  read from disk through the same reader path. The root comes from `downloads_path`,
+  `TSUIYOMI_DOWNLOADS`, a sibling `downloads/` when the library lives in `local/`, or the
+  app data directory. There is no series-level queue or delete UI yet.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
-  `incognito`, `host_url`, `host_jar`, `pinned_sources`, and `remote_library`, and
-  preserves unknown keys from existing files.
+  `incognito`, `host_url`, `host_jar`, `pinned_sources`, `remote_library`, and
+  `downloads_path`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
   About. Entry pages are listed in `SettingsPage`; each page is a gray-divider grouped
   row list. Implemented real options: appearance/theme/accent/thumbnail size, library
   path/rescan/sort/default category, reader mode/zoom/prefetch/cache, and Security →
-  Incognito (stops progress writes). Downloads, tracking, and remote browse pages are
-  explicit informational placeholders. More has a single focus: Enter enters the selected
+  Incognito (stops progress writes). Downloads shows the download folder; tracking is an
+  informational placeholder. More has a single focus: Enter enters the selected
   section/page or activates a setting, Esc backs out one level, and left/right adjust the
   selected setting. Clicking sections, menu rows, and sliders works.
 - Core has tests for chapter parsing, config loading, scanning, categories, page

@@ -8,14 +8,15 @@ use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    chapter::natural_cmp, chapter_pages, ensure_runtime, fetch_bytes, host_data_dir,
-    page_dimensions, read_cover, read_page, remote_cover_path, save_config, scan_library, Chapter,
-    Config, ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource,
-    ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries,
-    RemoteSource, Series, Theme,
+    chapter::natural_cmp, chapter_dir, chapter_pages, downloads_dir, ensure_runtime, fetch_bytes,
+    host_data_dir, is_downloaded, page_dimensions, read_cover, read_page, remote_cover_path,
+    save_config, scan_library, Chapter, ChapterKind, Config, ExtensionInfo, HostClient,
+    HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter,
+    RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
+    download_worker::{DownloadRequest, DownloadWorker},
     layout::TAB_COUNT,
     palette,
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
@@ -104,7 +105,6 @@ pub enum BrowseView {
     #[default]
     Sources,
     Local,
-    Details,
     Chapters,
     RemoteResults,
     RemoteDetails,
@@ -508,12 +508,11 @@ pub struct AppState {
     pub reader_origin: ReaderOrigin,
     pub image_picker: Option<Picker>,
     /// Decoded custom cover for the selected series.
-    pub cover: Option<StatefulProtocol>,
-    pub cover_path: Option<PathBuf>,
     pub progress: ProgressStore,
     /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
     pub(crate) scroll_worker: Option<ScrollWorker>,
     pub(crate) size_worker: Option<SizeWorker>,
+    pub(crate) download_worker: Option<DownloadWorker>,
     pub size_generation: u64,
     pub scroll_generation: u64,
     /// Tunables for lazy scroll loading; a future settings menu will expose these.
@@ -540,7 +539,6 @@ pub struct AppState {
     pub text_input: Option<TextInput>,
     pub browse_selection: usize,
     pub browse_list_state: ListState,
-    pub browse_detail: Option<PathBuf>,
     pub browse_columns: usize,
     pub browse_grid_offset: usize,
     pub library_columns: usize,
@@ -556,6 +554,8 @@ pub struct AppState {
     pub accent: Option<String>,
     pub picker: Option<PickerState>,
     pub quit_confirm: bool,
+    /// Chapter download currently running, if any.
+    pub downloading: Option<String>,
     pub status: Option<String>,
 }
 
@@ -575,11 +575,10 @@ impl AppState {
             reader: None,
             reader_origin: ReaderOrigin::Library,
             image_picker: None,
-            cover: None,
-            cover_path: None,
             progress: ProgressStore::default(),
             scroll_worker: None,
             size_worker: None,
+            download_worker: None,
             size_generation: 0,
             scroll_generation: 0,
             scroll_cache: ScrollCacheConfig::default(),
@@ -600,7 +599,6 @@ impl AppState {
             text_input: None,
             browse_selection: 0,
             browse_list_state: ListState::default(),
-            browse_detail: None,
             browse_columns: 1,
             browse_grid_offset: 0,
             library_columns: 1,
@@ -615,42 +613,13 @@ impl AppState {
             accent: None,
             picker: None,
             quit_confirm: false,
+            downloading: None,
             status,
         }
     }
 
     pub fn set_image_picker(&mut self, picker: Picker) {
         self.image_picker = Some(picker);
-    }
-
-    /// Load the selected series' custom cover if it changed.
-    pub fn ensure_cover(&mut self) {
-        let path = self
-            .selected_series()
-            .and_then(|series| series.cover.clone());
-        self.ensure_cover_path(path);
-    }
-
-    pub fn ensure_cover_path(&mut self, path: Option<PathBuf>) {
-        if self.cover_path == path {
-            return;
-        }
-        self.cover_path = path.clone();
-        self.cover = None;
-
-        let Some(path) = path else {
-            return;
-        };
-        let Some(picker) = self.image_picker.as_ref() else {
-            return;
-        };
-        let Ok(bytes) = read_cover(&path) else {
-            return;
-        };
-        let Ok(image) = image::load_from_memory(&bytes) else {
-            return;
-        };
-        self.cover = Some(picker.new_resize_protocol(image));
     }
 
     /// Load one library tile cover into the grid cache.
@@ -674,11 +643,6 @@ impl AppState {
         }
         self.tile_covers
             .insert(path.to_path_buf(), picker.new_resize_protocol(image));
-    }
-
-    fn invalidate_cover(&mut self) {
-        self.cover = None;
-        self.cover_path = None;
     }
 
     pub fn browse_previous(&mut self) {
@@ -755,13 +719,9 @@ impl AppState {
                 else {
                     return;
                 };
-                self.browse_detail = Some(path);
-                self.browse_view = BrowseView::Details;
-            }
-            BrowseView::Details => {
-                if let Some(path) = self.browse_detail.clone() {
-                    self.open_browse_series(&path);
-                }
+                // Go straight to the story screen: chapter list on the left, cover and
+                // metadata on the right. Remote sources work the same way.
+                self.open_browse_series(&path);
             }
             BrowseView::Chapters => self.open_browse_local_chapter(self.browse_selection),
             BrowseView::RemoteResults => {
@@ -785,10 +745,6 @@ impl AppState {
     pub fn browse_parent(&mut self) {
         match self.browse_view {
             BrowseView::Chapters => {
-                self.browse_view = BrowseView::Details;
-                self.clamp_browse_selection();
-            }
-            BrowseView::Details => {
                 self.browse_view = BrowseView::Local;
                 self.clamp_browse_selection();
             }
@@ -831,7 +787,7 @@ impl AppState {
             BrowseView::RemoteDetails => self.load_remote_chapters(),
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
             BrowseView::Chapters => self.refresh(),
-            BrowseView::Details | BrowseView::GlobalResults | BrowseView::Migrate => {}
+            BrowseView::GlobalResults | BrowseView::Migrate => {}
         }
         self.clamp_browse_selection();
     }
@@ -840,7 +796,6 @@ impl AppState {
         match self.browse_view {
             BrowseView::Sources => 1 + self.remote.sources.len(),
             BrowseView::Local => self.library.series.len(),
-            BrowseView::Details => 0,
             BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
             BrowseView::RemoteDetails => self.remote.chapters.len(),
@@ -871,7 +826,7 @@ impl AppState {
     }
 
     pub fn browse_detail_series(&self) -> Option<&Series> {
-        let path = self.browse_detail.as_deref()?;
+        let path = self.browse_local_series.as_deref()?;
         self.library
             .series
             .iter()
@@ -1634,40 +1589,23 @@ impl AppState {
     }
 
     pub fn open_remote_chapter(&mut self, index: usize) {
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
         let Some(manga) = self.remote.manga.clone() else {
             return;
         };
         let Some(chapter) = self.remote.chapters.get(index).cloned() else {
             return;
         };
-        let urls = match client.pages(
-            &manga.source_id,
-            &chapter.url,
-            chapter.memo.as_deref(),
-            Some(&chapter.name),
-        ) {
-            Ok(urls) => urls,
+        let pages = match self.remote_chapter_pages(&manga, &chapter) {
+            Ok(pages) => pages,
             Err(error) => {
                 self.set_remote_error(error);
                 return;
             }
         };
-        if urls.is_empty() {
+        if pages.is_empty() {
             self.set_remote_error("Chapter has no pages.");
             return;
         }
-
-        let pages: Vec<Page> = urls
-            .into_iter()
-            .enumerate()
-            .map(|(page, url)| Page {
-                name: format!("{:03}.jpg", page + 1),
-                source: PageSource::Remote { url },
-            })
-            .collect();
         let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
         let start_page = self
             .progress
@@ -2240,6 +2178,211 @@ impl AppState {
 
     pub(crate) fn set_size_worker(&mut self, worker: SizeWorker) {
         self.size_worker = Some(worker);
+    }
+
+    pub(crate) fn set_download_worker(&mut self, worker: DownloadWorker) {
+        self.download_worker = Some(worker);
+    }
+
+    /// Apply finished chapter downloads. Returns whether the UI changed.
+    pub fn poll_downloads(&mut self) -> bool {
+        let mut changed = false;
+        while let Some(result) = self
+            .download_worker
+            .as_ref()
+            .and_then(DownloadWorker::try_result)
+        {
+            self.downloading = None;
+            let (message, error) = match &result.result {
+                Ok(dir) => (
+                    format!("Downloaded {} to {}", result.label, dir.display()),
+                    false,
+                ),
+                Err(error) => (
+                    format!("Download failed for {}: {error}", result.label),
+                    true,
+                ),
+            };
+            self.status = Some(message.clone());
+            if self.tab == 3 {
+                self.remote.status = Some(message);
+                self.remote.error = error;
+            }
+            changed = true;
+        }
+        changed
+    }
+
+    /// Whether the current screen has a remote chapter that can be downloaded.
+    pub fn has_downloadable_chapter(&self) -> bool {
+        self.active_remote_chapter().is_some()
+    }
+
+    /// Download the selected remote chapter to the Mihon-style downloads tree.
+    pub fn download_selected_chapter(&mut self) {
+        let Some((manga, chapter)) = self.active_remote_chapter() else {
+            self.status = Some("Open a remote chapter to download it.".to_owned());
+            return;
+        };
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        if self.remote.sources.is_empty() {
+            self.load_remote_sources();
+        }
+        let Some(root) = downloads_dir(&self.config) else {
+            self.status = Some("Cannot resolve the downloads directory.".to_owned());
+            return;
+        };
+        let source = self.remote_source_name(&manga.source_id);
+        if is_downloaded(
+            &root,
+            &source,
+            &manga.title,
+            &chapter.name,
+            chapter.scanlator.as_deref(),
+        ) {
+            self.status = Some(format!("{} is already downloaded", chapter.name));
+            return;
+        }
+
+        let pages = match self.remote_chapter_pages(&manga, &chapter) {
+            Ok(pages) => pages,
+            Err(error) => {
+                self.set_remote_error(error);
+                return;
+            }
+        };
+        let label = format!("{} · {}", manga.title, chapter.name);
+        let Some(worker) = self.download_worker.as_ref() else {
+            self.status = Some("The download worker is unavailable.".to_owned());
+            return;
+        };
+        worker.request(DownloadRequest {
+            label: label.clone(),
+            root,
+            source_name: source,
+            series_title: manga.title,
+            chapter_name: chapter.name,
+            scanlator: chapter.scanlator,
+            pages,
+        });
+        self.downloading = Some(label.clone());
+        let message = format!("Downloading {label}…");
+        self.status = Some(message.clone());
+        if self.tab == 3 {
+            self.remote.status = Some(message);
+            self.remote.error = false;
+        }
+    }
+
+    /// The remote chapter under the cursor in the reader, Library, or Browse.
+    fn active_remote_chapter(&self) -> Option<(RemoteManga, RemoteChapter)> {
+        if self.reader.is_some() {
+            return match self.reader_origin {
+                ReaderOrigin::Remote => {
+                    let manga = self.remote.manga.clone()?;
+                    let chapter = self.remote.chapters.get(self.remote.chapter_index)?.clone();
+                    Some((manga, chapter))
+                }
+                ReaderOrigin::LibraryRemote => {
+                    let manga = self.library_remote.manga.clone()?;
+                    let chapter = self
+                        .library_remote
+                        .chapters
+                        .get(self.library_remote.chapter_index)?
+                        .clone();
+                    Some((manga, chapter))
+                }
+                ReaderOrigin::Library | ReaderOrigin::BrowseLocal => None,
+            };
+        }
+
+        if self.tab == 3 && self.browse_view == BrowseView::RemoteDetails {
+            let manga = self.remote.manga.clone()?;
+            let chapter = self.remote.chapters.get(self.browse_selection)?.clone();
+            return Some((manga, chapter));
+        }
+        if self.tab == 0 && self.view == LibraryView::RemoteDetails {
+            let manga = self.library_remote.manga.clone()?;
+            let chapter = self
+                .library_remote
+                .chapters
+                .get(self.library_remote.chapter_index)?
+                .clone();
+            return Some((manga, chapter));
+        }
+        None
+    }
+
+    fn remote_source_name(&self, source_id: &str) -> String {
+        self.remote
+            .sources
+            .iter()
+            .find(|source| source.id == source_id)
+            .map(RemoteSource::display_name)
+            .unwrap_or_else(|| source_id.to_owned())
+    }
+
+    fn downloaded_chapter_dir(
+        &self,
+        manga: &RemoteManga,
+        chapter: &RemoteChapter,
+    ) -> Option<PathBuf> {
+        let root = downloads_dir(&self.config)?;
+        let source = self.remote_source_name(&manga.source_id);
+        let dir = chapter_dir(
+            &root,
+            &source,
+            &manga.title,
+            &chapter.name,
+            chapter.scanlator.as_deref(),
+        );
+        dir.is_dir().then_some(dir)
+    }
+
+    /// Pages for a remote chapter: the downloaded directory when present, otherwise
+    /// the source through the host.
+    fn remote_chapter_pages(
+        &mut self,
+        manga: &RemoteManga,
+        chapter: &RemoteChapter,
+    ) -> Result<Vec<Page>, String> {
+        if let Some(dir) = self.downloaded_chapter_dir(manga, chapter) {
+            let local = Chapter {
+                path: dir,
+                title: chapter.name.clone(),
+                number: Some(chapter.chapter_number),
+                kind: ChapterKind::Directory,
+                scanlator: chapter.scanlator.clone(),
+                date: None,
+            };
+            return chapter_pages(&local).map_err(|error| error.to_string());
+        }
+
+        let client = self
+            .host_client
+            .clone()
+            .ok_or_else(|| "the extension host is not running".to_owned())?;
+        let urls = client
+            .pages(
+                &manga.source_id,
+                &chapter.url,
+                chapter.memo.as_deref(),
+                Some(&chapter.name),
+            )
+            .map_err(|error| error.to_string())?;
+        if urls.is_empty() {
+            return Err("Chapter has no pages.".to_owned());
+        }
+        Ok(urls
+            .into_iter()
+            .enumerate()
+            .map(|(index, url)| Page {
+                name: format!("{:03}.jpg", index + 1),
+                source: PageSource::Remote { url },
+            })
+            .collect())
     }
 
     /// Apply any scroll page built by the worker. Returns whether the UI changed.
@@ -4112,33 +4255,17 @@ impl AppState {
         let Some(manga) = self.library_remote.manga.clone() else {
             return;
         };
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
-        let urls = match client.pages(
-            &manga.source_id,
-            &chapter.url,
-            chapter.memo.as_deref(),
-            Some(&chapter.name),
-        ) {
-            Ok(urls) => urls,
+        let pages = match self.remote_chapter_pages(&manga, &chapter) {
+            Ok(pages) => pages,
             Err(error) => {
                 self.set_remote_error(error);
                 return;
             }
         };
-        if urls.is_empty() {
-            self.status = Some("Chapter has no pages.".to_owned());
+        if pages.is_empty() {
+            self.set_remote_error("Chapter has no pages.");
             return;
         }
-        let pages: Vec<Page> = urls
-            .into_iter()
-            .enumerate()
-            .map(|(page, url)| Page {
-                name: format!("{:03}.jpg", page + 1),
-                source: PageSource::Remote { url },
-            })
-            .collect();
         let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
         let start_page = self
             .progress
@@ -4237,7 +4364,6 @@ impl AppState {
         match scan_library(&self.library.root) {
             Ok(library) => {
                 self.library = library;
-                self.invalidate_cover();
                 self.tile_covers.clear();
 
                 self.category_index = self
@@ -4284,15 +4410,6 @@ impl AppState {
                         self.browse_view = BrowseView::Local;
                     }
                 }
-                if self.browse_detail.as_deref().is_some_and(|path| {
-                    !self.library.series.iter().any(|series| series.path == path)
-                }) {
-                    self.browse_detail = None;
-                    if self.browse_view == BrowseView::Details {
-                        self.browse_view = BrowseView::Local;
-                    }
-                }
-
                 self.merge_remote_library();
                 self.clamp_selection();
                 self.clamp_browse_selection();
@@ -5055,17 +5172,14 @@ mod tests {
         app.select_browse_index(position);
 
         app.browse_open();
-        assert_eq!(app.browse_view, BrowseView::Details);
+        assert_eq!(app.tab, 3);
+        assert_eq!(app.browse_view, BrowseView::Chapters);
+        assert_eq!(app.view, LibraryView::Series);
         assert_eq!(
             app.browse_detail_series()
                 .map(|series| series.title.as_str()),
             Some("Berserk")
         );
-
-        app.browse_open();
-        assert_eq!(app.tab, 3);
-        assert_eq!(app.browse_view, BrowseView::Chapters);
-        assert_eq!(app.view, LibraryView::Series);
         assert_eq!(
             app.selected_browse_local_series()
                 .map(|series| series.title.as_str()),
@@ -5097,6 +5211,46 @@ mod tests {
             },
         ];
         app
+    }
+
+    #[test]
+    fn opens_a_downloaded_chapter_without_the_host() {
+        let root = tempfile::tempdir().unwrap();
+        let downloads = root.path().join("downloads");
+        let dir = chapter_dir(&downloads, "Alpha (EN)", "Test Manga", "Chapter 1", None);
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::from_pixel(10, 20, image::Rgb([10, 20, 30]))
+            .save(dir.join("001.png"))
+            .unwrap();
+
+        let mut app = remote_app();
+        app.config.downloads_path = Some(downloads);
+        app.library_remote.manga = Some(RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/test".to_owned(),
+            title: "Test Manga".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        });
+        app.library_remote.chapters = vec![RemoteChapter {
+            url: "/chapter/1".to_owned(),
+            name: "Chapter 1".to_owned(),
+            chapter_number: 1.0,
+            scanlator: None,
+            upload_date: 0,
+            memo: None,
+        }];
+
+        app.open_library_remote_chapter(0);
+
+        let reader = app.reader.as_ref().expect("chapter should open");
+        assert_eq!(reader.pages.len(), 1);
+        assert!(matches!(reader.pages[0].source, PageSource::File(_)));
     }
 
     #[test]
@@ -5424,29 +5578,6 @@ mod tests {
 
         assert_eq!(app.browse_view, BrowseView::Sources);
         assert_eq!(app.browse_selection, 0);
-    }
-
-    #[test]
-    fn loads_the_selected_series_cover() {
-        let root = tempfile::tempdir().unwrap();
-        let cover_path = root.path().join("cover.jpg");
-        image::RgbImage::from_pixel(20, 30, image::Rgb([20, 40, 60]))
-            .save(&cover_path)
-            .unwrap();
-
-        let mut library = library();
-        library.series[0].cover = Some(cover_path.clone());
-        let mut app = AppState::new(library, None);
-        app.set_image_picker(Picker::halfblocks());
-
-        app.ensure_cover();
-        assert_eq!(app.cover_path.as_deref(), Some(cover_path.as_path()));
-        assert!(app.cover.is_some());
-
-        app.selected = 1;
-        app.ensure_cover();
-        assert!(app.cover_path.is_none());
-        assert!(app.cover.is_none());
     }
 
     #[test]

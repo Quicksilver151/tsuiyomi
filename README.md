@@ -123,11 +123,17 @@ Controls:
 - `r` refreshes the current list.
 - `e` jumps to the Extensions tab; `d` removes a store from the store list.
 - `F` adds or removes the open manga from the library.
+- `D` downloads the selected remote chapter (also available in the reader).
 - `/` on the Sources tab searches every pinned source and groups the hits by source.
 
 The Library is one grid: local series and manga saved from sources share it, categories,
 sorting, and the reader. New saved manga go to the default category. Saved entries are
 mirrored into the config so they appear before the extension host starts.
+
+Local and saved-source series open the same story screen: chapter list on the left,
+cover and metadata on the right. Browse uses that screen too. Remote chapters can be
+downloaded with `D`; they are read from disk afterwards, even when the source is
+offline.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.
@@ -239,6 +245,7 @@ reader_zoom = 100
 scroll_prefetch_behind = 2
 scroll_prefetch_ahead = 2
 scroll_cache_margin = 4
+# downloads_path = "/path/to/downloads"  # defaults to the sibling of local/
 theme = "catppuccin_mocha"
 # accent = "#b4befe"   # optional palette color or hex override
 fullscreen = false      # start with the title and commands boxes hidden
@@ -278,7 +285,8 @@ categories:
 - **Appearance** — theme, accent, fullscreen, thumbnail size.
 - **Library** — library path, rescan, sort order, default category.
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
-- **Downloads** — informational; this build reads a local library directly.
+- **Downloads** — shows the download folder; `D` downloads the selected remote
+  chapter, and downloaded chapters are read from disk.
 - **Tracking** — informational; no remote tracking services.
 - **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.
@@ -286,8 +294,9 @@ categories:
 - **Advanced** — logging and diagnostic notes.
 - **About** — version, graphics protocol, and reader state.
 
-Downloads, tracking, and remote browsing are not implemented. Their pages say so
-instead of pretending to work.
+Tracking is not implemented; its page says so instead of pretending to work.
+Downloaded chapters follow Mihon's layout:
+`<downloads>/<source>/<series>/<chapter>/<page>.<ext>`.
 
 ## Themes
 

@@ -56,6 +56,9 @@ pub enum Theme {
 pub struct Config {
     /// Root of the library, containing one directory per series.
     pub library_path: Option<PathBuf>,
+    /// Root of downloaded chapters. Defaults to the sibling `downloads/` directory
+    /// when the library lives in a Mihon-style `local/` folder.
+    pub downloads_path: Option<PathBuf>,
     /// External extension-host base URL, e.g. `http://127.0.0.1:4567`. When unset,
     /// tsuiyomi starts the bundled host.
     pub host_url: Option<String>,
@@ -99,6 +102,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             library_path: default_library_path(),
+            downloads_path: None,
             host_url: None,
             host_jar: None,
             reading_mode: ReadingMode::default(),
@@ -134,6 +138,9 @@ pub fn load_config() -> Config {
 
     if let Some(path) = env::var_os("TSUIYOMI_LIBRARY") {
         config.library_path = Some(PathBuf::from(path));
+    }
+    if let Some(path) = env::var_os("TSUIYOMI_DOWNLOADS") {
+        config.downloads_path = Some(PathBuf::from(path));
     }
     if let Ok(url) = env::var("TSUIYOMI_HOST_URL") {
         let url = url.trim();

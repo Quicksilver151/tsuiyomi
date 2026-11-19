@@ -118,6 +118,10 @@ database rows. tsuiyomi owns reading progress.
       in the background, the first page is visible while waiting, and long webtoon pages
       are split into small bounded blocks (with a decoded-page cache) instead of one giant
       protocol. `Default` stays leftmost in the category bar.
+- [x] Download remote chapters with `D` into Mihon's
+      `<downloads>/<source>/<series>/<chapter>/<page>.<ext>` layout, on a worker thread,
+      and read downloaded pages from disk.
+- [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.
 

@@ -12,9 +12,10 @@ use ratatui_image::{
     sliced::{SignedPosition, SlicedImage},
     Resize, StatefulImage,
 };
+use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    Chapter, ChapterDate, ChapterKind, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteSource, Series, Theme,
+    downloads_dir, is_downloaded, Chapter, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
+    RemoteManga, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -316,9 +317,9 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let items: &[(&str, &str)] = if app.reader.is_some() {
+    let mut items: Vec<(&str, &str)> = if app.reader.is_some() {
         if app.reader_mode == ReaderMode::Scroll {
-            &[
+            vec![
                 ("q", "quit"),
                 ("↑↓", "scroll"),
                 ("←→", "page"),
@@ -328,7 +329,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("Esc", "back"),
             ]
         } else {
-            &[
+            vec![
                 ("q", "quit"),
                 ("←→", "page"),
                 ("f", "full"),
@@ -337,7 +338,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         }
     } else if app.tab == 3 {
         match app.browse_view {
-            BrowseView::Sources => &[
+            BrowseView::Sources => vec![
                 ("q", "quit"),
                 ("↑↓", "source"),
                 ("↵", "open"),
@@ -347,7 +348,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("r", "refresh"),
                 ("Esc", "back"),
             ],
-            BrowseView::Local => &[
+            BrowseView::Local => vec![
                 ("q", "quit"),
                 ("↑↓←→", "move"),
                 ("↵", "open"),
@@ -356,14 +357,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("r", "rescan"),
                 ("Esc", "back"),
             ],
-            BrowseView::Details => &[
-                ("q", "quit"),
-                ("↵", "chapters"),
-                ("[ ]", "tabs"),
-                ("e", "extensions"),
-                ("Esc", "back"),
-            ],
-            BrowseView::Chapters => &[
+            BrowseView::Chapters => vec![
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
@@ -371,7 +365,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("e", "extensions"),
                 ("Esc", "back"),
             ],
-            BrowseView::RemoteResults => &[
+            BrowseView::RemoteResults => vec![
                 ("q", "quit"),
                 ("↑↓←→", "move"),
                 ("s", "search"),
@@ -382,7 +376,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("e", "extensions"),
                 ("Esc", "back"),
             ],
-            BrowseView::RemoteDetails => &[
+            BrowseView::RemoteDetails => vec![
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
@@ -392,14 +386,14 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("e", "extensions"),
                 ("Esc", "back"),
             ],
-            BrowseView::GlobalResults => &[
+            BrowseView::GlobalResults => vec![
                 ("q", "quit"),
                 ("↑↓", "source"),
                 ("←→", "result"),
                 ("↵", "open"),
                 ("Esc", "back"),
             ],
-            BrowseView::Extensions => &[
+            BrowseView::Extensions => vec![
                 ("q", "quit"),
                 ("↑↓", "extension"),
                 ("↵", "install"),
@@ -411,7 +405,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("[ ]", "tabs"),
                 ("Esc", "back"),
             ],
-            BrowseView::Stores => &[
+            BrowseView::Stores => vec![
                 ("q", "quit"),
                 ("↑↓", "store"),
                 ("a", "add"),
@@ -420,7 +414,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("[ ]", "tabs"),
                 ("Esc", "back"),
             ],
-            BrowseView::Migrate => &[
+            BrowseView::Migrate => vec![
                 ("q", "quit"),
                 ("[ ]", "tabs"),
                 ("e", "extensions"),
@@ -429,14 +423,14 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         }
     } else if app.tab == 4 {
         if app.more_focus == MoreFocus::Sections {
-            &[
+            vec![
                 ("q", "quit"),
                 ("↑↓", "section"),
                 ("↵", "enter"),
                 ("Esc", "back"),
             ]
         } else if app.more_section == MoreSection::About {
-            &[
+            vec![
                 ("q", "quit"),
                 ("H", "host"),
                 ("[ ]", "sections"),
@@ -445,14 +439,14 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         } else if app.more_section == MoreSection::Settings
             && app.settings_page == SettingsPage::Main
         {
-            &[
+            vec![
                 ("q", "quit"),
                 ("↑↓", "category"),
                 ("↵", "open"),
                 ("Esc", "back"),
             ]
         } else {
-            &[
+            vec![
                 ("q", "quit"),
                 ("↑↓", "setting"),
                 ("←→", "change"),
@@ -462,7 +456,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         }
     } else if app.tab == 0 {
         match app.view {
-            LibraryView::Series => &[
+            LibraryView::Series => vec![
                 ("q", "quit"),
                 ("↑↓←→", "move"),
                 ("↵", "open"),
@@ -471,7 +465,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("f", "full"),
                 ("Esc", "back"),
             ],
-            LibraryView::Chapters | LibraryView::RemoteDetails => &[
+            LibraryView::Chapters | LibraryView::RemoteDetails => vec![
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
@@ -479,7 +473,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             ],
         }
     } else {
-        &[
+        vec![
             ("q", "quit"),
             ("↑↓", "move"),
             ("Tab", "tabs"),
@@ -490,6 +484,11 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             ("↵", "open"),
         ]
     };
+
+    if app.has_downloadable_chapter() && !items.iter().any(|(key, _)| *key == "D") {
+        let at = items.len().saturating_sub(1);
+        items.insert(at, ("D", "download"));
+    }
 
     let mut spans = Vec::new();
     for (position, (key, label)) in items.iter().enumerate() {
@@ -515,10 +514,6 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let layout = library_layout(area);
 
     match app.view {
-        LibraryView::RemoteDetails => {
-            draw_library_remote_detail(frame, area, app);
-            return;
-        }
         LibraryView::Series => {
             draw_categories(frame, layout.categories, app);
             let indices = app.visible_indices();
@@ -532,27 +527,104 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
             );
             app.library_columns = columns;
             app.library_grid_offset = offset;
-            return;
         }
         LibraryView::Chapters => {
             draw_breadcrumb(frame, layout.categories, app);
-            let (title, chapters) = app
-                .selected_series()
-                .map(|series| (series.title.clone(), series.chapters.clone()))
-                .unwrap_or_else(|| ("Series".to_owned(), Vec::new()));
-            draw_chapter_list(
-                frame,
-                layout.list,
-                &title,
-                &chapters,
-                &app.progress,
-                &mut app.chapter_list_state,
-                app.chapter_index,
-            );
+            draw_library_chapters(frame, layout.list, layout.details, app);
+        }
+        LibraryView::RemoteDetails => {
+            draw_breadcrumb(frame, layout.categories, app);
+            draw_library_remote_detail(frame, layout.list, layout.details, app);
         }
     }
+}
 
-    draw_details(frame, layout.details, app);
+fn draw_library_chapters(
+    frame: &mut Frame,
+    list_area: Rect,
+    details_area: Rect,
+    app: &mut AppState,
+) {
+    let Some(series) = app.selected_series().cloned() else {
+        draw_browse_empty(frame, list_area, "Series not found. Rescan the library.");
+        return;
+    };
+    let items = local_chapter_items(&series.chapters, &app.progress);
+    draw_story_chapters(
+        frame,
+        list_area,
+        &series.title,
+        items,
+        series.chapters.len(),
+        app.chapter_index,
+        &mut app.chapter_list_state,
+    );
+
+    let cover_path = series.cover.clone();
+    if let Some(path) = &cover_path {
+        app.ensure_tile_cover(path);
+    }
+    let cover = cover_path
+        .as_ref()
+        .and_then(|path| app.tile_covers.get_mut(path));
+    draw_story_info(
+        frame,
+        details_area,
+        &series.title,
+        series_lines(&series),
+        cover,
+    );
+}
+
+fn draw_library_remote_detail(
+    frame: &mut Frame,
+    list_area: Rect,
+    details_area: Rect,
+    app: &mut AppState,
+) {
+    let Some(manga) = app.library_remote.manga.clone() else {
+        draw_browse_empty(frame, list_area, "No saved manga selected.");
+        return;
+    };
+    let chapters = app.library_remote.chapters.clone();
+    let source = source_display_name(app, &manga.source_id);
+    let download_source = source.clone().unwrap_or_else(|| manga.source_id.clone());
+    let download_root = downloads_dir(&app.config);
+    let series_title = manga.title.clone();
+    let items = remote_chapter_items(
+        &manga.source_id,
+        &manga.url,
+        &chapters,
+        &app.progress,
+        |chapter| {
+            download_root.as_deref().is_some_and(|root| {
+                is_downloaded(
+                    root,
+                    &download_source,
+                    &series_title,
+                    &chapter.name,
+                    chapter.scanlator.as_deref(),
+                )
+            })
+        },
+    );
+    draw_story_chapters(
+        frame,
+        list_area,
+        &manga.title,
+        items,
+        chapters.len(),
+        app.library_remote.chapter_index,
+        &mut app.library_remote.list_state,
+    );
+
+    let cover_path =
+        app.ensure_library_cover(&manga.source_id, &manga.url, manga.thumbnail_url.as_deref());
+    let lines = remote_story_lines(&manga, &chapters, source.as_deref(), "saved to library");
+    let cover = cover_path
+        .as_ref()
+        .and_then(|path| app.tile_covers.get_mut(path));
+    draw_story_info(frame, details_area, &manga.title, lines, cover);
 }
 
 fn draw_series_grid(
@@ -759,7 +831,6 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
         BrowseView::Stores => draw_stores(frame, area, app),
         BrowseView::Migrate => draw_migrate(frame, area, app),
         BrowseView::Local
-        | BrowseView::Details
         | BrowseView::Chapters
         | BrowseView::RemoteResults
         | BrowseView::RemoteDetails
@@ -780,7 +851,6 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     app.browse_columns = columns;
                     app.browse_grid_offset = offset;
                 }
-                BrowseView::Details => draw_browse_detail(frame, content, app),
                 BrowseView::Chapters => draw_browse_chapters(frame, content, app),
                 BrowseView::RemoteResults => draw_remote_grid(frame, content, app),
                 BrowseView::RemoteDetails => draw_remote_detail(frame, content, app),
@@ -979,7 +1049,7 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             browse_host_label(app),
             format!("{} sources", 1 + app.remote.sources.len()),
         ),
-        BrowseView::Local | BrowseView::Details => (
+        BrowseView::Local => (
             "Local source".to_owned(),
             display_path(&app.library.root),
             format!("{} series", app.library.series.len()),
@@ -1214,246 +1284,111 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
 }
 
 fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let layout = library_layout(area);
     let Some(manga) = app.remote.manga.clone() else {
-        draw_browse_empty(frame, area, "No manga selected.");
+        draw_browse_empty(frame, layout.list, "No manga selected.");
         return;
     };
     let chapters = app.remote.chapters.clone();
+    let source = source_display_name(app, &manga.source_id);
+    let download_source = source.clone().unwrap_or_else(|| manga.source_id.clone());
+    let download_root = downloads_dir(&app.config);
+    let series_title = manga.title.clone();
+    let items = remote_chapter_items(
+        &manga.source_id,
+        &manga.url,
+        &chapters,
+        &app.progress,
+        |chapter| {
+            download_root.as_deref().is_some_and(|root| {
+                is_downloaded(
+                    root,
+                    &download_source,
+                    &series_title,
+                    &chapter.name,
+                    chapter.scanlator.as_deref(),
+                )
+            })
+        },
+    );
+    draw_story_chapters(
+        frame,
+        layout.list,
+        &manga.title,
+        items,
+        chapters.len(),
+        app.browse_selection,
+        &mut app.browse_list_state,
+    );
+
     if let Some(url) = &manga.thumbnail_url {
         app.ensure_remote_tile_cover(url);
     }
-    let saved = app.is_favorite(&manga.source_id, &manga.url);
-    let source = app
-        .remote
-        .sources
-        .iter()
-        .find(|source| source.id == manga.source_id)
-        .map(RemoteSource::display_name);
-    let selection = app.browse_selection;
+    let note = if app.is_favorite(&manga.source_id, &manga.url) {
+        "saved · F removes"
+    } else {
+        "not saved · F adds"
+    };
+    let lines = remote_story_lines(&manga, &chapters, source.as_deref(), note);
     let cover = manga
         .thumbnail_url
         .as_ref()
         .and_then(|url| app.remote.tile_covers.get_mut(url));
-    let detail = RemoteDetail {
-        title: manga.title.clone(),
-        author: manga.author.clone(),
-        artist: manga.artist.clone(),
-        status: manga.status.clone(),
-        genre: manga.genre.clone(),
-        description: manga.description.clone(),
-        source,
-        note: if saved {
-            "saved · F removes".to_owned()
-        } else {
-            "not saved · F adds".to_owned()
-        },
-        chapters,
-        selection,
-    };
-    draw_remote_series(frame, area, &detail, cover, &mut app.browse_list_state);
+    draw_story_info(frame, layout.details, &manga.title, lines, cover);
 }
 
-/// The saved-manga details screen. It mirrors Browse's details so a manga looks the
-/// same whether it is opened from a source or from the library.
-fn draw_library_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let Some(manga) = app.library_remote.manga.clone() else {
-        draw_browse_empty(frame, area, "No saved manga selected.");
-        return;
-    };
-    let chapters = app.library_remote.chapters.clone();
-    let cover_path =
-        app.ensure_library_cover(&manga.source_id, &manga.url, manga.thumbnail_url.as_deref());
-    let source = app
-        .remote
-        .sources
-        .iter()
-        .find(|source| source.id == manga.source_id)
-        .map(RemoteSource::display_name);
-    let selection = app.library_remote.chapter_index;
-    let cover = cover_path
-        .as_ref()
-        .and_then(|path| app.tile_covers.get_mut(path));
-    let detail = RemoteDetail {
-        title: manga.title.clone(),
-        author: manga.author.clone(),
-        artist: manga.artist.clone(),
-        status: manga.status.clone(),
-        genre: manga.genre.clone(),
-        description: manga.description.clone(),
-        source,
-        note: "saved to library".to_owned(),
-        chapters,
-        selection,
-    };
-    draw_remote_series(
-        frame,
-        area,
-        &detail,
-        cover,
-        &mut app.library_remote.list_state,
-    );
-}
-
-struct RemoteDetail {
-    title: String,
-    author: Option<String>,
-    artist: Option<String>,
-    status: String,
-    genre: Vec<String>,
-    description: Option<String>,
-    source: Option<String>,
-    note: String,
-    chapters: Vec<RemoteChapter>,
-    selection: usize,
-}
-
-fn draw_remote_series(
-    frame: &mut Frame,
-    area: Rect,
-    detail: &RemoteDetail,
-    cover: Option<&mut StatefulProtocol>,
-    list_state: &mut ListState,
-) {
-    let block = panel(
+/// Right-hand metadata shared by Browse and Library remote story screens.
+fn remote_story_lines(
+    manga: &RemoteManga,
+    chapters: &[RemoteChapter],
+    source: Option<&str>,
+    note: &str,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![
         Line::from(Span::styled(
-            " Series ",
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        )),
-        c_accent(),
-    );
-    let inner = block.inner(area);
-    frame.render_widget(&block, area);
-
-    let (cover_area, detail_area) = if inner.width >= 34 {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(inner.width / 3), Constraint::Min(0)])
-            .split(inner);
-        (Some(chunks[0]), chunks[1])
-    } else {
-        (None, inner)
-    };
-
-    if let Some(cover_area) = cover_area {
-        let mut rendered = false;
-        if let Some(protocol) = cover {
-            render_centered_image(frame, cover_area, protocol);
-            rendered = true;
-        }
-        if !rendered {
-            frame.render_widget(
-                Paragraph::new(
-                    detail
-                        .title
-                        .chars()
-                        .next()
-                        .map(|character| character.to_uppercase().collect::<String>())
-                        .unwrap_or_default(),
-                )
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
-                Rect::new(
-                    cover_area.x,
-                    cover_area.y + cover_area.height / 2,
-                    cover_area.width,
-                    1,
-                ),
-            );
-        }
-    }
-
-    let mut meta = vec![
-        Line::from(Span::styled(
-            detail.title.clone(),
+            manga.title.clone(),
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
-    if let Some(author) = &detail.author {
-        meta.push(field("Author", author, c_peach()));
+    if let Some(author) = &manga.author {
+        lines.push(field("Author", author, c_peach()));
     }
-    if let Some(artist) = &detail.artist {
-        meta.push(field("Artist", artist, c_mauve()));
+    if let Some(artist) = &manga.artist {
+        lines.push(field("Artist", artist, c_mauve()));
     }
-    if let Some(source) = &detail.source {
-        meta.push(field("Source", source, c_blue()));
+    if let Some(source) = source {
+        lines.push(field("Source", source, c_blue()));
     }
-    meta.push(field("Status", &detail.status, c_green()));
-    if !detail.genre.is_empty() {
-        meta.push(field("Tags", &detail.genre.join(", "), c_teal()));
+    lines.push(field("Status", &manga.status, c_green()));
+    if !manga.genre.is_empty() {
+        lines.push(field("Tags", &manga.genre.join(", "), c_teal()));
     }
-    meta.push(field(
-        "Chapters",
-        &detail.chapters.len().to_string(),
-        c_green(),
-    ));
-    meta.push(field("Library", &detail.note, c_yellow()));
+    lines.push(field("Chapters", &chapters.len().to_string(), c_green()));
+    if let Some(latest) = chapters.first() {
+        lines.push(field("Latest", &latest.name, c_blue()));
+    }
+    lines.push(field("Library", note, c_yellow()));
+    lines.push(Line::from(""));
 
-    meta.push(Line::from(""));
-    let description = detail.description.as_deref().unwrap_or("").trim();
-    let description_lines = if description.is_empty() {
-        meta.push(Line::from(Span::styled(
+    let description = manga.description.as_deref().unwrap_or("").trim();
+    if description.is_empty() {
+        lines.push(Line::from(Span::styled(
             "No description.",
             Style::default().fg(c_overlay1()),
         )));
-        1
     } else {
-        meta.push(Line::from(description.to_owned()));
-        let characters = description.chars().count().min(usize::from(u16::MAX)) as u16;
-        characters.div_ceil(detail_area.width.max(1))
-    };
-
-    let chapter_items: Vec<ListItem> = detail
-        .chapters
-        .iter()
-        .map(|chapter| {
-            let scanlator = chapter.scanlator.clone().unwrap_or_default();
-            ListItem::new(Line::from(vec![
-                Span::raw(chapter.name.clone()),
-                Span::styled(format!("  {scanlator}"), Style::default().fg(c_overlay1())),
-            ]))
-        })
-        .collect();
-    if detail.chapters.is_empty() {
-        list_state.select(None);
-    } else {
-        list_state.select(Some(detail.selection.min(detail.chapters.len() - 1)));
+        lines.push(Line::from(description.to_owned()));
     }
-    let chapter_list = List::new(chapter_items)
-        .block(panel(
-            Line::from(vec![
-                Span::styled(
-                    " Chapters ",
-                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("{} ", detail.chapters.len()),
-                    Style::default().fg(c_overlay0()),
-                ),
-            ]),
-            c_surface1(),
-        ))
-        .highlight_style(
-            Style::default()
-                .fg(c_accent())
-                .bg(c_surface0())
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("› ");
+    lines
+}
 
-    let meta_height = (meta.len() as u16).saturating_sub(1) + description_lines;
-    let meta_height = meta_height.min(detail_area.height.saturating_sub(4).max(3));
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(meta_height), Constraint::Min(0)])
-        .split(detail_area);
-    frame.render_widget(
-        Paragraph::new(Text::from(meta))
-            .style(Style::default().fg(c_subtext1()))
-            .wrap(Wrap { trim: true }),
-        chunks[0],
-    );
-    frame.render_stateful_widget(chapter_list, chunks[1], list_state);
+fn source_display_name(app: &AppState, source_id: &str) -> Option<String> {
+    app.remote
+        .sources
+        .iter()
+        .find(|source| source.id == source_id)
+        .map(RemoteSource::display_name)
 }
 
 fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -1623,91 +1558,34 @@ fn draw_migrate(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let (title, chapters) = app
-        .selected_browse_local_series()
-        .map(|series| (series.title.clone(), series.chapters.clone()))
-        .unwrap_or_else(|| ("Series".to_owned(), Vec::new()));
-    draw_chapter_list(
+    let layout = library_layout(area);
+    let Some(series) = app.selected_browse_local_series().cloned() else {
+        draw_browse_empty(frame, layout.list, "Series not found. Rescan the library.");
+        return;
+    };
+    let items = local_chapter_items(&series.chapters, &app.progress);
+    draw_story_chapters(
         frame,
-        area,
-        &title,
-        &chapters,
-        &app.progress,
-        &mut app.browse_local_list_state,
+        layout.list,
+        &series.title,
+        items,
+        series.chapters.len(),
         app.browse_local_chapter,
+        &mut app.browse_local_list_state,
     );
-}
-
-fn draw_browse_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let Some(cover) = app
-        .browse_detail_series()
-        .map(|series| series.cover.clone())
-    else {
-        draw_browse_empty(frame, area, "Series not found. Rescan the library.");
-        return;
-    };
-    app.ensure_cover_path(cover);
-
-    let Some(series) = app.browse_detail_series() else {
-        draw_browse_empty(frame, area, "Series not found. Rescan the library.");
-        return;
-    };
-    let cover_initial = series
-        .title
-        .chars()
-        .next()
-        .map(|character| character.to_uppercase().collect::<String>())
-        .unwrap_or_default();
-    let mut lines = series_lines(series);
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Enter opens chapters · Esc goes back.",
-        Style::default().fg(c_overlay0()),
-    )));
-
-    let block = panel(
-        Line::from(Span::styled(
-            " Series ",
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        )),
-        c_accent(),
-    );
-    let inner = block.inner(area);
-    frame.render_widget(&block, area);
-
-    let (cover_area, text_area) = if inner.width >= 30 {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(inner.width / 3), Constraint::Min(0)])
-            .split(inner);
-        (Some(chunks[0]), chunks[1])
-    } else {
-        (None, inner)
-    };
-
-    if let Some(cover_area) = cover_area {
-        if let Some(protocol) = app.cover.as_mut() {
-            render_centered_image(frame, cover_area, protocol);
-        } else if cover_area.height > 0 {
-            frame.render_widget(
-                Paragraph::new(cover_initial)
-                    .alignment(Alignment::Center)
-                    .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
-                Rect::new(
-                    cover_area.x,
-                    cover_area.y + cover_area.height / 2,
-                    cover_area.width,
-                    1,
-                ),
-            );
-        }
+    let cover_path = series.cover.clone();
+    if let Some(path) = &cover_path {
+        app.ensure_tile_cover(path);
     }
-
-    frame.render_widget(
-        Paragraph::new(Text::from(lines))
-            .style(Style::default().fg(c_subtext1()))
-            .wrap(Wrap { trim: true }),
-        text_area,
+    let cover = cover_path
+        .as_ref()
+        .and_then(|path| app.tile_covers.get_mut(path));
+    draw_story_info(
+        frame,
+        layout.details,
+        &series.title,
+        series_lines(&series),
+        cover,
     );
 }
 
@@ -1831,10 +1709,23 @@ fn placeholder_message(frame: &mut Frame, area: Rect, message: &str) {
 }
 
 fn draw_breadcrumb(frame: &mut Frame, area: Rect, app: &AppState) {
-    let title = app
-        .selected_series()
-        .map(|series| series.title.as_str())
-        .unwrap_or("Series");
+    let (title, chapters) = if app.view == LibraryView::RemoteDetails {
+        (
+            app.library_remote
+                .manga
+                .as_ref()
+                .map(|manga| manga.title.as_str())
+                .unwrap_or("Saved manga"),
+            app.library_remote.chapters.len(),
+        )
+    } else {
+        (
+            app.selected_series()
+                .map(|series| series.title.as_str())
+                .unwrap_or("Series"),
+            app.chapter_count(),
+        )
+    };
     let line = Line::from(vec![
         Span::raw(" "),
         Span::styled("Library", Style::default().fg(c_overlay1())),
@@ -1844,24 +1735,61 @@ fn draw_breadcrumb(frame: &mut Frame, area: Rect, app: &AppState) {
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  {} chapters", app.chapter_count()),
+            format!("  {chapters} chapters"),
             Style::default().fg(c_overlay0()),
         ),
         Span::styled("   ↵ open · Esc back", Style::default().fg(c_overlay0())),
     ]);
+    let mut line = line;
+    if let Some(status) = &app.status {
+        line.spans.push(Span::styled(
+            format!("   {status}"),
+            Style::default().fg(c_peach()),
+        ));
+    }
     frame.render_widget(Paragraph::new(line), area);
 }
 
-fn draw_chapter_list(
+fn draw_story_chapters(
     frame: &mut Frame,
     area: Rect,
-    series_title: &str,
-    chapters: &[Chapter],
-    progress: &ProgressStore,
-    list_state: &mut ListState,
+    title: &str,
+    items: Vec<ListItem<'static>>,
+    count: usize,
     selected: usize,
+    list_state: &mut ListState,
 ) {
-    let items: Vec<ListItem> = chapters
+    if count == 0 {
+        list_state.select(None);
+    } else {
+        list_state.select(Some(selected.min(count - 1)));
+    }
+
+    let list = List::new(items)
+        .block(panel(
+            Line::from(vec![
+                Span::styled(
+                    format!(" {title} · Chapters "),
+                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
+            ]),
+            c_accent(),
+        ))
+        .style(Style::default().fg(c_text()))
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+
+    frame.render_stateful_widget(list, area, list_state);
+}
+
+fn local_chapter_items(chapters: &[Chapter], progress: &ProgressStore) -> Vec<ListItem<'static>> {
+    chapters
         .iter()
         .map(|chapter| {
             let mut spans = vec![
@@ -1879,35 +1807,103 @@ fn draw_chapter_list(
             }
             ListItem::new(Line::from(spans))
         })
-        .collect();
+        .collect()
+}
 
-    let count = chapters.len();
-    if count == 0 {
-        list_state.select(None);
-    } else {
-        list_state.select(Some(selected.min(count - 1)));
+fn remote_chapter_items(
+    source_id: &str,
+    manga_url: &str,
+    chapters: &[RemoteChapter],
+    progress: &ProgressStore,
+    downloaded: impl Fn(&RemoteChapter) -> bool,
+) -> Vec<ListItem<'static>> {
+    chapters
+        .iter()
+        .map(|chapter| {
+            let mut spans = vec![Span::raw(chapter.name.clone())];
+            if let Some(scanlator) = chapter
+                .scanlator
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                spans.push(Span::styled(
+                    format!("  {scanlator}"),
+                    Style::default().fg(c_overlay1()),
+                ));
+            }
+            let key = remote_progress_key(source_id, manga_url, &chapter.url);
+            if let Some(entry) = progress.entry(&key) {
+                spans.push(Span::styled(
+                    format!("  {}/{}", entry.page + 1, entry.pages),
+                    Style::default().fg(c_teal()),
+                ));
+            }
+            if downloaded(chapter) {
+                spans.push(Span::styled("  ⬇", Style::default().fg(c_green())));
+            }
+            ListItem::new(Line::from(spans))
+        })
+        .collect()
+}
+
+/// Right-hand pane shared by every story screen: cover thumbnail above the metadata.
+fn draw_story_info(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    lines: Vec<Line<'static>>,
+    cover: Option<&mut StatefulProtocol>,
+) {
+    let block = panel(
+        Line::from(Span::styled(
+            " Details ",
+            Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
+        )),
+        c_surface1(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
     }
 
-    let title = Line::from(vec![
-        Span::styled(
-            format!(" {series_title} · Chapters "),
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
-    ]);
+    let cover_height = (u32::from(inner.height) * 2 / 5).clamp(6, 16) as u16;
+    let cover_height = cover_height.min(inner.height.saturating_sub(3));
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(cover_height), Constraint::Min(0)])
+        .split(inner);
 
-    let list = List::new(items)
-        .block(panel(title, c_accent()))
-        .style(Style::default().fg(c_text()))
-        .highlight_style(
-            Style::default()
-                .fg(c_accent())
-                .bg(c_surface0())
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("› ");
+    let mut rendered = false;
+    if let Some(protocol) = cover {
+        render_centered_image(frame, chunks[0], protocol);
+        rendered = true;
+    }
+    if !rendered && chunks[0].height > 0 {
+        let initial = title
+            .chars()
+            .next()
+            .map(|character| character.to_uppercase().collect::<String>())
+            .unwrap_or_default();
+        frame.render_widget(
+            Paragraph::new(initial)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+            Rect::new(
+                chunks[0].x,
+                chunks[0].y + chunks[0].height / 2,
+                chunks[0].width,
+                1,
+            ),
+        );
+    }
 
-    frame.render_stateful_widget(list, area, list_state);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(c_subtext1()))
+            .wrap(Wrap { trim: true }),
+        chunks[1],
+    );
 }
 
 fn chapter_number(number: Option<f32>) -> String {
@@ -1918,38 +1914,8 @@ fn chapter_number(number: Option<f32>) -> String {
     }
 }
 
-fn chapter_date(date: ChapterDate) -> String {
-    format!("{:04}-{:02}-{:02}", date.year, date.month, date.day)
-}
-
-fn chapter_kind_label(kind: ChapterKind) -> &'static str {
-    match kind {
-        ChapterKind::Directory => "Folder",
-        ChapterKind::Zip => "CBZ/ZIP",
-        ChapterKind::Rar => "RAR/CBR",
-        ChapterKind::SevenZip => "CB7/7Z",
-        ChapterKind::Tar => "CBT/TAR",
-        ChapterKind::Epub => "EPUB",
-    }
-}
-
 fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
-}
-
-fn draw_details(frame: &mut Frame, area: Rect, app: &AppState) {
-    let lines = chapter_lines(app);
-    let paragraph = Paragraph::new(Text::from(lines))
-        .block(panel(
-            Line::from(Span::styled(
-                " Details ",
-                Style::default().fg(c_blue()).add_modifier(Modifier::BOLD),
-            )),
-            c_surface1(),
-        ))
-        .style(Style::default().fg(c_subtext1()))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
 }
 
 fn series_lines(series: &Series) -> Vec<Line<'static>> {
@@ -1967,6 +1933,7 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
     if let Some(artist) = &series.artist {
         lines.push(field("Artist", artist, c_mauve()));
     }
+    lines.push(field("Source", "Local library", c_blue()));
     if let Some(status) = &series.status {
         lines.push(field("Status", status, c_green()));
     }
@@ -2003,63 +1970,6 @@ fn series_lines(series: &Series) -> Vec<Line<'static>> {
     lines
 }
 
-fn chapter_lines(app: &AppState) -> Vec<Line<'static>> {
-    let Some(chapter) = app.selected_chapter() else {
-        let mut lines = vec![Line::from(Span::styled(
-            "No chapters found.",
-            Style::default().fg(c_subtext1()),
-        ))];
-        if let Some(status) = &app.status {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                status.clone(),
-                Style::default().fg(c_peach()),
-            )));
-        }
-        return lines;
-    };
-
-    let series = app
-        .selected_series()
-        .map(|series| series.title.clone())
-        .unwrap_or_default();
-    let mut lines = vec![
-        Line::from(Span::styled(
-            chapter.title.clone(),
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        field("Series", &series, c_text()),
-        field("Number", &chapter_number(chapter.number), c_green()),
-        field("Type", chapter_kind_label(chapter.kind), c_blue()),
-        field("Path", &chapter.path.display().to_string(), c_overlay1()),
-    ];
-    if let Some(scanlator) = &chapter.scanlator {
-        lines.push(field("Scanlator", scanlator, c_teal()));
-    }
-    if let Some(date) = chapter.date {
-        lines.push(field("Date", &chapter_date(date), c_blue()));
-    }
-
-    if let Some(entry) = app.progress.entry(&chapter.path) {
-        lines.push(field(
-            "Progress",
-            &format!("{}/{}", entry.page + 1, entry.pages),
-            c_teal(),
-        ));
-    }
-
-    if let Some(status) = &app.status {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            status.clone(),
-            Style::default().fg(c_peach()),
-        )));
-    }
-
-    lines
-}
-
 fn field(label: &str, value: &str, value_color: Color) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!("{label:<9}"), Style::default().fg(c_overlay1())),
@@ -2073,12 +1983,7 @@ fn draw_more(frame: &mut Frame, area: Rect, app: &AppState) {
 
     match app.more_section {
         MoreSection::Settings => draw_more_settings(frame, layout.content, app),
-        MoreSection::Downloads => placeholder(
-            frame,
-            layout.content,
-            "Downloads",
-            "Download management is not implemented yet.",
-        ),
+        MoreSection::Downloads => draw_more_downloads(frame, layout.content, app),
         MoreSection::Categories => draw_more_categories(frame, layout.content, app),
         MoreSection::Statistics => draw_more_statistics(frame, layout.content, app),
         MoreSection::Storage => draw_more_storage(frame, layout.content, app),
@@ -2424,6 +2329,43 @@ fn reading_mode_label(mode: ReadingMode) -> &'static str {
         ReadingMode::Webtoon => "Webtoon",
         ReadingMode::ContinuousVertical => "Long strip + gaps",
     }
+}
+
+fn draw_more_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
+    let root = downloads_dir(&app.config)
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "(unavailable)".to_owned());
+    let lines = vec![
+        Line::from(Span::styled(
+            "Chapter downloads",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("Select a remote chapter and press D, or press D in the reader."),
+        Line::from("Downloaded chapters are read from disk, even when the source is offline."),
+        Line::from(""),
+        field("Folder", &root, c_blue()),
+        field(
+            "Layout",
+            "<source>/<series>/<chapter>/<page>.<ext>",
+            c_teal(),
+        ),
+    ];
+    let block = panel(
+        Line::from(Span::styled(
+            " Downloads ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(c_subtext1()))
+            .wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
@@ -2883,7 +2825,8 @@ mod tests {
 
         assert!(text.contains("Chapters"));
         assert!(text.contains("Chapter 1"));
-        assert!(text.contains("Folder"));
+        assert!(text.contains("Details"));
+        assert!(text.contains("Local library"));
         assert!(text.contains("Esc back"));
     }
 
@@ -2951,16 +2894,12 @@ mod tests {
 
         app.browse_open();
         let text = render(&mut app, 80, 30);
-        assert!(text.contains("Series"));
-        assert!(text.contains("Test Series"));
-        assert!(text.contains("Enter opens chapters"));
-
-        app.browse_open();
-        let text = render(&mut app, 80, 30);
         assert_eq!(app.tab, 3);
         assert_eq!(app.browse_view, BrowseView::Chapters);
         assert!(text.contains("Chapters"));
         assert!(text.contains("Chapter 1"));
+        assert!(text.contains("Details"));
+        assert!(text.contains("Test Series"));
     }
 
     #[test]
@@ -3038,7 +2977,7 @@ mod tests {
     }
 
     #[test]
-    fn details_pane_renders_with_a_custom_cover() {
+    fn library_story_screen_renders_the_cover_and_info() {
         let root = tempfile::tempdir().unwrap();
         let cover = root.path().join("cover.jpg");
         image::RgbImage::from_pixel(20, 30, image::Rgb([120, 80, 160]))
@@ -3047,15 +2986,16 @@ mod tests {
 
         let mut app = test_app();
         app.set_image_picker(ratatui_image::picker::Picker::halfblocks());
-        app.library.series[0].cover = Some(cover);
-        app.tab = 3;
-        app.browse_view = BrowseView::Details;
-        app.browse_detail = Some(app.library.series[0].path.clone());
+        app.library.series[0].cover = Some(cover.clone());
+        app.view = LibraryView::Chapters;
 
         let text = render(&mut app, 100, 30);
-        assert!(app.cover.is_some());
+        assert!(app.tile_covers.contains_key(&cover));
         assert!(text.contains("Test Series"));
         assert!(text.contains("Author"));
+        // Chapter list on the left, story details on the right.
+        assert!(text.contains("Chapters"));
+        assert!(text.contains("Details"));
     }
 
     #[test]

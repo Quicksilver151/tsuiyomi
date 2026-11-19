@@ -4,6 +4,7 @@
 //! `tsuiyomi-core`.
 
 mod app;
+mod download_worker;
 mod draw;
 mod input;
 mod layout;
@@ -30,6 +31,7 @@ use crate::{
         BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, SettingId,
         SettingsPage, SETTINGS_PAGES,
     },
+    download_worker::DownloadWorker,
     draw::draw,
     input::Action,
     layout::{
@@ -56,6 +58,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_progress(ProgressStore::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
+    app.set_download_worker(DownloadWorker::spawn());
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
@@ -105,6 +108,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             terminal.autoresize()?;
         }
         if app.poll_scroll_results() {
+            needs_draw = true;
+        }
+        if app.poll_downloads() {
             needs_draw = true;
         }
         if needs_draw {
@@ -246,10 +252,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         BrowseView::Local | BrowseView::RemoteResults => {
                             app.browse_previous_column();
                         }
-                        BrowseView::Details
-                        | BrowseView::Chapters
-                        | BrowseView::RemoteDetails
-                        | BrowseView::Migrate => app.browse_parent(),
+                        BrowseView::Chapters | BrowseView::RemoteDetails | BrowseView::Migrate => {
+                            app.browse_parent()
+                        }
                         BrowseView::GlobalResults => app.global_previous_item(),
                         BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {}
                     }
@@ -270,7 +275,6 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                             app.browse_next_column();
                         }
                         BrowseView::Sources
-                        | BrowseView::Details
                         | BrowseView::Chapters
                         | BrowseView::RemoteDetails
                         | BrowseView::Migrate => app.browse_open(),
@@ -423,6 +427,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.remove_selected_store();
                 }
             }
+            Action::Download => {
+                if app.has_downloadable_chapter() {
+                    app.download_selected_chapter();
+                }
+            }
             Action::UpdateExtension => {
                 if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.update_selected_extension();
@@ -522,7 +531,13 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     }
 
     if app.view == LibraryView::RemoteDetails {
-        // The saved-manga details screen has no clickable rows, like Browse details.
+        let library = library_layout(layout.content);
+        let list_area = inner(library.list);
+        if contains(list_area, column, row) {
+            let visible_row = (row - list_area.y) as usize;
+            let index = app.library_remote.list_state.offset() + visible_row;
+            app.select_index(index);
+        }
         return;
     }
 
@@ -610,10 +625,17 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_browse_index(index);
             }
         }
-        BrowseView::Details
-        | BrowseView::RemoteDetails
-        | BrowseView::GlobalResults
-        | BrowseView::Migrate => {}
+        BrowseView::RemoteDetails => {
+            let content = library_grid_area(area);
+            let library = library_layout(content);
+            let list_area = inner(library.list);
+            if contains(list_area, column, row) {
+                let visible_row = (row - list_area.y) as usize;
+                let index = app.browse_list_state.offset() + visible_row;
+                app.select_browse_index(index);
+            }
+        }
+        BrowseView::GlobalResults | BrowseView::Migrate => {}
     }
 }
 
