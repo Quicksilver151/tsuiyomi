@@ -374,6 +374,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     if app.browse_view == BrowseView::Stores {
                         app.open_extensions();
                     } else {
+                        app.set_browse_tab(BrowseTab::Extensions);
                         app.open_stores();
                     }
                 }

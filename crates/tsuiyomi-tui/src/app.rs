@@ -738,15 +738,17 @@ impl AppState {
                 self.browse_grid_offset = 0;
                 self.select_browse_entry(0);
             }
-            BrowseView::Local
-            | BrowseView::RemoteResults
-            | BrowseView::Extensions
-            | BrowseView::Stores => {
+            BrowseView::Stores => {
+                self.browse_view = BrowseView::Extensions;
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+            }
+            BrowseView::Local | BrowseView::RemoteResults => {
                 self.browse_view = BrowseView::Sources;
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
-            BrowseView::Sources | BrowseView::Migrate => {}
+            BrowseView::Extensions | BrowseView::Sources | BrowseView::Migrate => {}
         }
     }
 
