@@ -579,7 +579,7 @@ fn draw_series_grid(
     for (position, series_index) in indices[start..end].iter().enumerate() {
         let index = start + position;
         let series = &app.library.series[*series_index];
-        let tile = grid_tile_rect(area, columns, offset, index, tile_height, indices.len());
+        let tile = grid_tile_rect(area, columns, offset, index, tile_height);
         let is_selected = index == selected;
         if is_selected {
             frame.render_widget(
@@ -980,7 +980,7 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     for (position, result) in results[start..end].iter().enumerate() {
         let index = start + position;
-        let tile = grid_tile_rect(area, columns, offset, index, tile_height, results.len());
+        let tile = grid_tile_rect(area, columns, offset, index, tile_height);
         let is_selected = index == selected;
         if is_selected {
             frame.render_widget(
