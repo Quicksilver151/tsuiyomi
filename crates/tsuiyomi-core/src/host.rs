@@ -95,6 +95,17 @@ pub struct ExtensionInfo {
     pub repo_url: String,
 }
 
+/// A manga saved in the host's library (favorites table).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RemoteFavorite {
+    pub source_id: String,
+    pub url: String,
+    pub title: String,
+    pub thumbnail_url: Option<String>,
+    pub last_read_url: Option<String>,
+    pub last_read_name: Option<String>,
+}
+
 /// Result of installing one extension.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct InstallOutcome {
@@ -471,6 +482,94 @@ impl HostClient {
         }
     }
 
+    pub fn favorites(&self) -> Result<Vec<RemoteFavorite>, CoreError> {
+        #[derive(Deserialize)]
+        struct Row {
+            #[serde(rename = "sourceId")]
+            source_id: String,
+            url: String,
+            title: String,
+            #[serde(rename = "thumbnailUrl", default)]
+            thumbnail_url: Option<String>,
+            #[serde(rename = "lastReadUrl", default)]
+            last_read_url: Option<String>,
+            #[serde(rename = "lastReadName", default)]
+            last_read_name: Option<String>,
+        }
+        let rows: Vec<Row> = self.get("/api/v1/favorites")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let source_id = row.source_id;
+                RemoteFavorite {
+                    url: row.url,
+                    title: row.title,
+                    thumbnail_url: row
+                        .thumbnail_url
+                        .filter(|value| !value.trim().is_empty())
+                        .map(|url| self.proxy_url(&source_id, &url)),
+                    last_read_url: row.last_read_url,
+                    last_read_name: row.last_read_name,
+                    source_id,
+                }
+            })
+            .collect())
+    }
+
+    pub fn add_favorite(&self, manga: &RemoteManga) -> Result<(), CoreError> {
+        #[derive(Deserialize)]
+        struct Result_ {
+            #[serde(default)]
+            ok: bool,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        let result: Result_ = self.post(
+            "/api/v1/favorites",
+            json!({
+                "sourceId": manga.source_id,
+                "url": manga.url,
+                "title": manga.title,
+                "thumbnailUrl": manga.thumbnail_url.as_deref().map(unproxy_url),
+            }),
+        )?;
+        if result.ok {
+            Ok(())
+        } else {
+            Err(CoreError::Network {
+                url: self.absolute_url("/api/v1/favorites"),
+                message: result
+                    .error
+                    .unwrap_or_else(|| "could not add to library".to_owned()),
+            })
+        }
+    }
+
+    pub fn remove_favorite(&self, source_id: &str, url: &str) -> Result<(), CoreError> {
+        #[derive(Deserialize)]
+        struct Result_ {
+            #[serde(default)]
+            ok: bool,
+        }
+        let path = format!(
+            "/api/v1/favorites?sourceId={}&url={}",
+            encode(source_id),
+            encode(url)
+        );
+        let result: Result_ = self.send(
+            self.absolute_url(&path),
+            self.agent.delete(&self.absolute_url(&path)).call(),
+        )?;
+        if result.ok {
+            Ok(())
+        } else {
+            Err(CoreError::Network {
+                url: self.absolute_url("/api/v1/favorites"),
+                message: "could not remove from library".to_owned(),
+            })
+        }
+    }
+
     pub fn repos(&self) -> Result<Vec<String>, CoreError> {
         #[derive(Deserialize)]
         struct Data {
@@ -562,7 +661,50 @@ fn fnv1a(value: &str) -> String {
     format!("{hash:016x}")
 }
 
-fn encode(value: &str) -> String {
+/// Undo a proxy URL produced by [`HostClient::proxy_url`] so stored favorites keep the
+/// original image URL instead of an old host port.
+fn unproxy_url(url: &str) -> String {
+    let Some((_, query)) = url.split_once("/api/v1/proxy?") else {
+        return url.to_owned();
+    };
+    for pair in query.split('&') {
+        if let Some(value) = pair.strip_prefix("url=") {
+            return decode(value);
+        }
+    }
+    url.to_owned()
+}
+
+pub(crate) fn decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                let hex = &value[index + 1..index + 3];
+                if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                    out.push(byte);
+                    index += 3;
+                    continue;
+                }
+                out.push(bytes[index]);
+                index += 1;
+            }
+            b'+' => {
+                out.push(b' ');
+                index += 1;
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+pub(crate) fn encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.bytes() {
         match byte {
@@ -715,7 +857,10 @@ impl ExtensionRow {
 
 /// Read an arbitrary URL into memory. Used for cover thumbnails and remote pages.
 pub fn fetch_bytes(url: &str) -> Result<Vec<u8>, CoreError> {
-    let response = ureq::get(url).call().map_err(|error| CoreError::Network {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(60))
+        .build();
+    let response = agent.get(url).call().map_err(|error| CoreError::Network {
         url: url.to_owned(),
         message: error.to_string(),
     })?;

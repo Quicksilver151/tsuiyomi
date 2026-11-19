@@ -8,16 +8,16 @@ use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    chapter::natural_cmp, chapter_pages, ensure_runtime, fetch_bytes, host_data_dir, read_cover,
-    read_page, save_config, scan_library, Chapter, Config, ExtensionInfo, HostClient, HostProcess,
-    Library, LibrarySort, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteManga,
-    RemoteSource, Series, Theme,
+    chapter::natural_cmp, chapter_pages, ensure_runtime, fetch_bytes, host_data_dir,
+    page_dimensions, read_cover, read_page, save_config, scan_library, Chapter, Config,
+    ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore,
+    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSource, Series, Theme,
 };
 
 use crate::{
     layout::TAB_COUNT,
     palette,
-    scroll_worker::{BuildRequest, BuildResult, ScrollWorker},
+    scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
 };
 
 /// Lines moved per arrow/wheel step in continuous scroll mode.
@@ -31,6 +31,22 @@ pub enum LibraryView {
     #[default]
     Series,
     Chapters,
+    RemoteChapters,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LibraryScope {
+    #[default]
+    Local,
+    Remote,
+}
+
+#[derive(Default)]
+pub struct LibraryRemoteState {
+    pub manga: Option<RemoteManga>,
+    pub chapters: Vec<RemoteChapter>,
+    pub chapter_index: usize,
+    pub list_state: ListState,
 }
 
 /// Where the reader was opened from, so closing it returns to the right place.
@@ -40,6 +56,7 @@ pub enum ReaderOrigin {
     Library,
     BrowseLocal,
     Remote,
+    LibraryRemote,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -96,9 +113,16 @@ pub enum BrowseView {
     Chapters,
     RemoteResults,
     RemoteDetails,
+    GlobalResults,
     Extensions,
     Stores,
     Migrate,
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalGroup {
+    pub source: RemoteSource,
+    pub mangas: Vec<RemoteManga>,
 }
 
 /// One rendered row in the Sources list. Headers are not selectable.
@@ -118,6 +142,7 @@ pub enum SourceRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAction {
     SearchRemote,
+    GlobalSearch,
     AddExtensionStore,
     SetHostUrl,
 }
@@ -151,6 +176,14 @@ pub struct RemoteState {
     pub host: Option<String>,
     /// Persistent hint, e.g. an ignored `host_url` that was actually a repository URL.
     pub host_hint: Option<String>,
+    pub favorites: Vec<RemoteFavorite>,
+    pub favorites_loaded: bool,
+    pub global_query: String,
+    pub global_groups: Vec<GlobalGroup>,
+    pub global_group: usize,
+    pub global_item: usize,
+    /// Where RemoteDetails returns to (regular results or global search).
+    pub remote_details_origin: BrowseView,
     pub extension_list_state: ListState,
 }
 
@@ -176,6 +209,13 @@ impl Default for RemoteState {
             repos: Vec::new(),
             host: None,
             host_hint: None,
+            favorites: Vec::new(),
+            favorites_loaded: false,
+            global_query: String::new(),
+            global_groups: Vec::new(),
+            global_group: 0,
+            global_item: 0,
+            remote_details_origin: BrowseView::RemoteResults,
             extension_list_state: ListState::default(),
         }
     }
@@ -459,6 +499,8 @@ pub struct AppState {
     pub view: LibraryView,
     pub reader_mode: ReaderMode,
     pub library: Library,
+    pub library_scope: LibraryScope,
+    pub library_remote: LibraryRemoteState,
     pub category_index: usize,
     pub selected: usize,
     pub chapter_index: usize,
@@ -472,6 +514,8 @@ pub struct AppState {
     pub progress: ProgressStore,
     /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
     pub(crate) scroll_worker: Option<ScrollWorker>,
+    pub(crate) size_worker: Option<SizeWorker>,
+    pub size_generation: u64,
     pub scroll_generation: u64,
     /// Tunables for lazy scroll loading; a future settings menu will expose these.
     pub scroll_cache: ScrollCacheConfig,
@@ -522,6 +566,8 @@ impl AppState {
             view: LibraryView::Series,
             reader_mode: ReaderMode::Page,
             library,
+            library_scope: LibraryScope::Local,
+            library_remote: LibraryRemoteState::default(),
             category_index: 0,
             selected: 0,
             chapter_index: 0,
@@ -533,6 +579,8 @@ impl AppState {
             cover_path: None,
             progress: ProgressStore::default(),
             scroll_worker: None,
+            size_worker: None,
+            size_generation: 0,
             scroll_generation: 0,
             scroll_cache: ScrollCacheConfig::default(),
             zoom: 100,
@@ -720,6 +768,7 @@ impl AppState {
                     return;
                 };
                 self.remote.manga = Some(manga);
+                self.remote.remote_details_origin = BrowseView::RemoteResults;
                 self.load_remote_details();
                 self.load_remote_chapters();
                 self.browse_view = BrowseView::RemoteDetails;
@@ -728,7 +777,7 @@ impl AppState {
             }
             BrowseView::RemoteDetails => self.open_remote_chapter(self.browse_selection),
             BrowseView::Extensions => self.toggle_selected_extension(),
-            BrowseView::Stores | BrowseView::Migrate => {}
+            BrowseView::Stores | BrowseView::GlobalResults | BrowseView::Migrate => {}
         }
     }
 
@@ -743,9 +792,14 @@ impl AppState {
                 self.clamp_browse_selection();
             }
             BrowseView::RemoteDetails => {
-                self.browse_view = BrowseView::RemoteResults;
+                self.browse_view = self.remote.remote_details_origin;
                 self.browse_selection = 0;
                 self.browse_grid_offset = 0;
+                self.select_browse_entry(0);
+            }
+            BrowseView::GlobalResults => {
+                self.browse_view = BrowseView::Sources;
+                self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
             BrowseView::Stores => {
@@ -776,7 +830,7 @@ impl AppState {
             BrowseView::RemoteDetails => self.load_remote_chapters(),
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
             BrowseView::Chapters => self.refresh(),
-            BrowseView::Details | BrowseView::Migrate => {}
+            BrowseView::Details | BrowseView::GlobalResults | BrowseView::Migrate => {}
         }
         self.clamp_browse_selection();
     }
@@ -791,7 +845,7 @@ impl AppState {
             BrowseView::RemoteDetails => self.remote.chapters.len(),
             BrowseView::Extensions => self.filtered_extension_count(),
             BrowseView::Stores => self.remote.repos.len(),
-            BrowseView::Migrate => 0,
+            BrowseView::GlobalResults | BrowseView::Migrate => 0,
         }
     }
 
@@ -1162,6 +1216,175 @@ impl AppState {
         }
     }
 
+    pub fn load_favorites(&mut self) {
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        match client.favorites() {
+            Ok(favorites) => {
+                self.remote.favorites = favorites;
+                self.remote.favorites_loaded = true;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn is_favorite(&self, source_id: &str, url: &str) -> bool {
+        self.remote
+            .favorites
+            .iter()
+            .any(|favorite| favorite.source_id == source_id && favorite.url == url)
+    }
+
+    pub fn toggle_current_favorite(&mut self) {
+        if !self.remote.favorites_loaded {
+            self.load_favorites();
+        }
+        let Some(manga) = self.remote.manga.clone() else {
+            return;
+        };
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        if self.is_favorite(&manga.source_id, &manga.url) {
+            match client.remove_favorite(&manga.source_id, &manga.url) {
+                Ok(()) => {
+                    self.remote.status = Some(format!("Removed {} from library", manga.title));
+                    self.remote.error = false;
+                    self.load_favorites();
+                }
+                Err(error) => self.set_remote_error(error),
+            }
+        } else {
+            match client.add_favorite(&manga) {
+                Ok(()) => {
+                    self.remote.status = Some(format!("Added {} to library", manga.title));
+                    self.remote.error = false;
+                    self.load_favorites();
+                }
+                Err(error) => self.set_remote_error(error),
+            }
+        }
+    }
+
+    fn pinned_sources(&self) -> Vec<RemoteSource> {
+        self.remote
+            .sources
+            .iter()
+            .filter(|source| {
+                self.config
+                    .pinned_sources
+                    .iter()
+                    .any(|key| pin_key_matches(key, source))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Search every pinned source and group the results by source.
+    pub fn global_search(&mut self, query: &str) {
+        let query = query.trim();
+        if query.is_empty() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let sources = self.pinned_sources();
+        if sources.is_empty() {
+            self.remote.status =
+                Some("Pin a source first (P) to search across sources.".to_owned());
+            self.remote.error = false;
+            return;
+        }
+
+        let mut groups = Vec::new();
+        let mut failures = Vec::new();
+        for source in sources {
+            match client.search(&source.id, query, 1) {
+                Ok(page) => {
+                    if !page.mangas.is_empty() {
+                        groups.push(GlobalGroup {
+                            source,
+                            mangas: page.mangas,
+                        });
+                    }
+                }
+                Err(error) => failures.push(error.to_string()),
+            }
+        }
+        groups.sort_by(|left, right| {
+            natural_cmp(&left.source.display_name(), &right.source.display_name())
+        });
+
+        let has_groups = !groups.is_empty();
+        self.remote.global_query = query.to_owned();
+        self.remote.global_groups = groups;
+        self.remote.global_group = 0;
+        self.remote.global_item = 0;
+        self.remote.status = if !has_groups {
+            if let Some(error) = failures.first() {
+                Some(format!("No results · {error}"))
+            } else {
+                Some("No results.".to_owned())
+            }
+        } else if failures.is_empty() {
+            None
+        } else {
+            Some(format!("{} sources failed", failures.len()))
+        };
+        self.remote.error = !has_groups && !failures.is_empty();
+        self.browse_view = BrowseView::GlobalResults;
+        self.browse_selection = 0;
+    }
+
+    pub fn global_next_group(&mut self) {
+        if self.remote.global_groups.is_empty() {
+            return;
+        }
+        self.remote.global_group =
+            (self.remote.global_group + 1).min(self.remote.global_groups.len() - 1);
+        self.remote.global_item = 0;
+    }
+
+    pub fn global_previous_group(&mut self) {
+        self.remote.global_group = self.remote.global_group.saturating_sub(1);
+        self.remote.global_item = 0;
+    }
+
+    pub fn global_next_item(&mut self) {
+        let Some(group) = self.remote.global_groups.get(self.remote.global_group) else {
+            return;
+        };
+        if group.mangas.is_empty() {
+            return;
+        }
+        self.remote.global_item = (self.remote.global_item + 1).min(group.mangas.len() - 1);
+    }
+
+    pub fn global_previous_item(&mut self) {
+        self.remote.global_item = self.remote.global_item.saturating_sub(1);
+    }
+
+    pub fn global_open(&mut self) {
+        let Some(group) = self.remote.global_groups.get(self.remote.global_group) else {
+            return;
+        };
+        let Some(manga) = group.mangas.get(self.remote.global_item).cloned() else {
+            return;
+        };
+        self.remote.manga = Some(manga);
+        self.remote.remote_details_origin = BrowseView::GlobalResults;
+        self.load_remote_details();
+        self.load_remote_chapters();
+        self.browse_view = BrowseView::RemoteDetails;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+    }
+
     /// Connect to the configured host, or start the bundled one.
     ///
     /// Starting the JVM is deferred until remote sources are actually used, so a local-
@@ -1215,6 +1438,8 @@ impl AppState {
                 self.remote.host = Some(process.base_url().to_owned());
                 self.host_client = Some(HostClient::new(process.base_url()));
                 self.host_process = Some(process);
+                self.remote.favorites.clear();
+                self.remote.favorites_loaded = false;
                 self.remote.status = None;
                 self.remote.error = false;
             }
@@ -1237,6 +1462,9 @@ impl AppState {
                 self.remote.sources = sources;
                 self.remote.status = None;
                 self.remote.error = false;
+                if !self.remote.favorites_loaded {
+                    self.load_favorites();
+                }
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -1403,7 +1631,14 @@ impl AppState {
         self.reader_origin = ReaderOrigin::Remote;
         self.browse_selection = index;
         self.status = None;
-        self.load_page();
+        match self.reader_mode {
+            ReaderMode::Page => self.load_page(),
+            ReaderMode::Scroll => {
+                // Show the first page while page sizes are measured in the background.
+                self.load_page();
+                self.build_scroll(terminal_width());
+            }
+        }
     }
 
     pub fn close_remote_reader(&mut self) {
@@ -1416,6 +1651,7 @@ impl AppState {
             ReaderOrigin::Remote => self.remote.chapter_index,
             ReaderOrigin::BrowseLocal => self.browse_local_chapter,
             ReaderOrigin::Library => self.chapter_index,
+            ReaderOrigin::LibraryRemote => self.library_remote.chapter_index,
         }
     }
 
@@ -1424,6 +1660,7 @@ impl AppState {
             ReaderOrigin::Remote => self.remote.chapters.len(),
             ReaderOrigin::BrowseLocal => self.browse_local_chapter_count(),
             ReaderOrigin::Library => self.chapter_count(),
+            ReaderOrigin::LibraryRemote => self.library_remote_chapter_count(),
         }
     }
 
@@ -1485,6 +1722,7 @@ impl AppState {
         };
         match input.action {
             TextAction::SearchRemote => self.search_remote(&input.value),
+            TextAction::GlobalSearch => self.global_search(&input.value),
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
             TextAction::SetHostUrl => self.set_host_url(&input.value),
         }
@@ -1510,6 +1748,8 @@ impl AppState {
         self.remote.chapters.clear();
         self.remote.extensions.clear();
         self.remote.repos.clear();
+        self.remote.favorites.clear();
+        self.remote.favorites_loaded = false;
         self.remote.status = None;
         self.remote.error = false;
         if self.host_client.is_some() {
@@ -1878,7 +2118,11 @@ impl AppState {
         }
         match self.reader_mode {
             ReaderMode::Page => self.load_page(),
-            ReaderMode::Scroll => self.build_scroll(terminal_width()),
+            ReaderMode::Scroll => {
+                // Show the first page while page sizes are measured in the background.
+                self.load_page();
+                self.build_scroll(terminal_width());
+            }
         }
     }
 
@@ -1887,9 +2131,29 @@ impl AppState {
         self.scroll_worker = Some(worker);
     }
 
+    pub(crate) fn set_size_worker(&mut self, worker: SizeWorker) {
+        self.size_worker = Some(worker);
+    }
+
     /// Apply any scroll page built by the worker. Returns whether the UI changed.
     pub fn poll_scroll_results(&mut self) -> bool {
         let mut changed = false;
+
+        while let Some(result) = self.size_worker.as_ref().and_then(SizeWorker::try_result) {
+            let matches = self.reader.as_ref().is_some_and(|reader| {
+                reader.chapter_path == result.chapter
+                    && reader.pages.len() == result.sizes.len()
+                    && self.size_generation == result.generation
+            });
+            if !matches {
+                continue;
+            }
+            if let Some(reader) = self.reader.as_mut() {
+                reader.page_sizes = result.sizes;
+            }
+            self.build_scroll(terminal_width());
+            changed = true;
+        }
         loop {
             let Some(result) = self
                 .scroll_worker
@@ -1946,8 +2210,10 @@ impl AppState {
             return false;
         };
         if !scroll_visible_ready(pending) {
+            scroll_debug("promote blocked");
             return false;
         }
+        scroll_debug("promote");
 
         let pending = reader.pending_scroll.take().expect("pending checked above");
         reader.page_index = page_at_offset(&pending);
@@ -2015,7 +2281,11 @@ impl AppState {
     }
 
     pub fn visible_count(&self) -> usize {
-        self.visible_indices().len()
+        if self.library_scope == LibraryScope::Remote {
+            self.remote.favorites.len()
+        } else {
+            self.visible_indices().len()
+        }
     }
 
     pub fn selected_series(&self) -> Option<&Series> {
@@ -2036,7 +2306,9 @@ impl AppState {
     pub fn open(&mut self) {
         match self.view {
             LibraryView::Series => {
-                if self.selected_series().is_some() {
+                if self.library_scope == LibraryScope::Remote {
+                    self.open_library_remote(self.selected);
+                } else if self.selected_series().is_some() {
                     self.view = LibraryView::Chapters;
                     self.chapter_index = 0;
                     self.status = None;
@@ -2045,6 +2317,9 @@ impl AppState {
                 }
             }
             LibraryView::Chapters => self.open_chapter(),
+            LibraryView::RemoteChapters => {
+                self.open_library_remote_chapter(self.library_remote.chapter_index)
+            }
         }
     }
 
@@ -2070,6 +2345,12 @@ impl AppState {
             ReaderOrigin::Library => {
                 self.view = LibraryView::Chapters;
             }
+            ReaderOrigin::LibraryRemote => {
+                self.view = LibraryView::RemoteChapters;
+                self.library_remote
+                    .list_state
+                    .select(Some(self.library_remote.chapter_index));
+            }
         }
         self.reader_origin = ReaderOrigin::Library;
     }
@@ -2086,6 +2367,12 @@ impl AppState {
                 self.chapter_index = 0;
                 self.status = None;
                 self.chapter_list_state.select(None);
+            }
+            LibraryView::RemoteChapters => {
+                self.view = LibraryView::Series;
+                self.library_remote.chapter_index = 0;
+                self.status = None;
+                self.library_remote.list_state.select(None);
             }
             LibraryView::Series => self.select_tab(0),
         }
@@ -2107,6 +2394,14 @@ impl AppState {
             }
             LibraryView::Chapters => {
                 self.chapter_index = self.chapter_index.saturating_sub(1);
+                self.status = None;
+            }
+            LibraryView::RemoteChapters => {
+                self.library_remote.chapter_index =
+                    self.library_remote.chapter_index.saturating_sub(1);
+                self.library_remote
+                    .list_state
+                    .select(Some(self.library_remote.chapter_index));
                 self.status = None;
             }
         }
@@ -2131,6 +2426,16 @@ impl AppState {
             LibraryView::Chapters => {
                 if let Some(last) = self.chapter_count().checked_sub(1) {
                     self.chapter_index = (self.chapter_index + 1).min(last);
+                    self.status = None;
+                }
+            }
+            LibraryView::RemoteChapters => {
+                if let Some(last) = self.library_remote_chapter_count().checked_sub(1) {
+                    self.library_remote.chapter_index =
+                        (self.library_remote.chapter_index + 1).min(last);
+                    self.library_remote
+                        .list_state
+                        .select(Some(self.library_remote.chapter_index));
                     self.status = None;
                 }
             }
@@ -2808,7 +3113,11 @@ impl AppState {
 
         match self.reader_mode {
             ReaderMode::Page => self.load_page(),
-            ReaderMode::Scroll => self.build_scroll(terminal_width()),
+            ReaderMode::Scroll => {
+                // Show the first page while page sizes are measured in the background.
+                self.load_page();
+                self.build_scroll(terminal_width());
+            }
         }
     }
 
@@ -2858,6 +3167,11 @@ impl AppState {
             }
             LibraryView::Chapters if index < self.chapter_count() => {
                 self.chapter_index = index;
+                self.status = None;
+            }
+            LibraryView::RemoteChapters if index < self.library_remote_chapter_count() => {
+                self.library_remote.chapter_index = index;
+                self.library_remote.list_state.select(Some(index));
                 self.status = None;
             }
             _ => {}
@@ -2922,7 +3236,11 @@ impl AppState {
         }
         match self.reader_mode {
             ReaderMode::Page => self.load_page(),
-            ReaderMode::Scroll => self.build_scroll(terminal_width()),
+            ReaderMode::Scroll => {
+                // Show the first page while page sizes are measured in the background.
+                self.load_page();
+                self.build_scroll(terminal_width());
+            }
         }
     }
 
@@ -3028,6 +3346,7 @@ impl AppState {
     }
 
     fn build_scroll(&mut self, width: u16) {
+        scroll_debug(&format!("build_scroll width={width}"));
         let Some(pages) = self.reader.as_ref().map(|reader| reader.pages.clone()) else {
             return;
         };
@@ -3042,13 +3361,39 @@ impl AppState {
         let available_pixel_width = u32::from(width.max(1)) * font_width;
         let zoom = f64::from(self.zoom) / 100.0;
 
+        if self
+            .reader
+            .as_ref()
+            .is_some_and(|reader| reader.page_sizes.len() != pages.len())
+            && !cfg!(test)
+        {
+            if let (Some(worker), Some(reader)) = (self.size_worker.as_ref(), self.reader.as_ref())
+            {
+                self.size_generation = self.size_generation.wrapping_add(1);
+                worker.request(SizeRequest {
+                    generation: self.size_generation,
+                    chapter: reader.chapter_path.clone(),
+                    pages,
+                });
+                return;
+            }
+        }
+
+        let started = std::time::Instant::now();
         let sizes = match self.page_sizes(&pages) {
             Ok(sizes) => sizes,
             Err(error) => {
+                scroll_debug(&format!("page_sizes error: {error}"));
                 self.set_reader_error(error);
                 return;
             }
         };
+        scroll_debug(&format!(
+            "page_sizes {} pages in {:?}: {:?}",
+            sizes.len(),
+            started.elapsed(),
+            sizes.iter().take(4).collect::<Vec<_>>()
+        ));
 
         let mut layout = Vec::with_capacity(sizes.len());
         let mut total_rows = 0u32;
@@ -3094,6 +3439,13 @@ impl AppState {
         let page_count = layout.len();
         let generation = self.bump_scroll_generation();
 
+        scroll_debug(&format!(
+            "layout {} pages rows={} viewport={} offset={}",
+            layout.len(),
+            total_rows,
+            viewport_height,
+            offset
+        ));
         if let Some(reader) = self.reader.as_mut() {
             reader.error = None;
             let state = ScrollState {
@@ -3108,8 +3460,10 @@ impl AppState {
                 total_rows,
             };
             if reader.scroll.is_some() {
+                scroll_debug("state -> pending");
                 reader.pending_scroll = Some(state);
             } else {
+                scroll_debug("state -> scroll");
                 reader.scroll = Some(state);
             }
         }
@@ -3123,15 +3477,32 @@ impl AppState {
         }
 
         let mut sizes = Vec::with_capacity(pages.len());
-        for page in pages {
-            let bytes = read_page(page).map_err(|error| error.to_string())?;
-            let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
-                .with_guessed_format()
-                .map_err(|error| format!("{}: {error}", page.name))?;
-            let size = reader
-                .into_dimensions()
-                .map_err(|error| format!("{}: {error}", page.name))?;
-            sizes.push(size);
+        for chunk in pages.chunks(8) {
+            let started = std::time::Instant::now();
+            let batch: Vec<Option<(u32, u32)>> = std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|page| scope.spawn(move || page_dimensions(page).ok()))
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap_or(None))
+                    .collect()
+            });
+            for (page, size) in chunk.iter().zip(batch) {
+                // A bad page falls back to the previous size instead of aborting the
+                // whole scroll view.
+                let size = size
+                    .or_else(|| sizes.last().copied())
+                    .unwrap_or((800, 1200));
+                scroll_debug(&format!(
+                    "dim {} {:?} -> {:?}",
+                    page.name,
+                    started.elapsed(),
+                    size
+                ));
+                sizes.push(size);
+            }
         }
 
         if let Some(reader) = self.reader.as_mut() {
@@ -3467,6 +3838,176 @@ impl AppState {
         self.fullscreen = !self.fullscreen;
     }
 
+    pub fn toggle_library_scope(&mut self) {
+        self.library_scope = match self.library_scope {
+            LibraryScope::Local => LibraryScope::Remote,
+            LibraryScope::Remote => LibraryScope::Local,
+        };
+        self.selected = 0;
+        self.library_grid_offset = 0;
+        self.chapter_index = 0;
+        self.view = LibraryView::Series;
+        self.status = None;
+        if self.library_scope == LibraryScope::Remote && !self.remote.favorites_loaded {
+            self.load_favorites();
+        }
+    }
+
+    pub fn library_remote_chapter_count(&self) -> usize {
+        self.library_remote.chapters.len()
+    }
+
+    pub fn selected_library_remote_chapter(&self) -> Option<&RemoteChapter> {
+        self.library_remote
+            .chapters
+            .get(self.library_remote.chapter_index)
+    }
+
+    /// Open a favorite from the Remote library grid.
+    pub fn open_library_remote(&mut self, index: usize) {
+        let count = self.remote.favorites.len();
+        if count == 0 {
+            return;
+        }
+        let index = index.min(count - 1);
+        let Some(favorite) = self.remote.favorites.get(index).cloned() else {
+            return;
+        };
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let mut manga = RemoteManga {
+            source_id: favorite.source_id.clone(),
+            url: favorite.url.clone(),
+            title: favorite.title.clone(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: favorite.thumbnail_url.clone(),
+            memo: None,
+        };
+        if let Ok(details) = client.details(&manga.source_id, &manga.url, None) {
+            manga.author = details.author;
+            manga.artist = details.artist;
+            manga.description = details.description;
+            manga.genre = details.genre;
+            manga.status = details.status;
+            manga.memo = details.memo;
+            if manga.thumbnail_url.is_none() {
+                manga.thumbnail_url = details.thumbnail_url;
+            }
+        }
+        let chapters = match client.chapters(&manga.source_id, &manga.url, manga.memo.as_deref()) {
+            Ok(mut chapters) => {
+                chapters.sort_by(|left, right| {
+                    right
+                        .chapter_number
+                        .partial_cmp(&left.chapter_number)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| natural_cmp(&right.name, &left.name))
+                });
+                chapters
+            }
+            Err(error) => {
+                self.set_remote_error(error);
+                return;
+            }
+        };
+        if chapters.is_empty() {
+            self.status = Some(format!("{} has no chapters", manga.title));
+            return;
+        }
+        self.library_remote.manga = Some(manga);
+        self.library_remote.chapters = chapters;
+        self.library_remote.chapter_index = 0;
+        self.library_remote.list_state = ListState::default();
+        self.library_remote.list_state.select(Some(0));
+        self.view = LibraryView::RemoteChapters;
+        self.status = None;
+    }
+
+    pub fn open_library_remote_chapter(&mut self, index: usize) {
+        let Some(chapter) = self.library_remote.chapters.get(index).cloned() else {
+            return;
+        };
+        let Some(manga) = self.library_remote.manga.clone() else {
+            return;
+        };
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let urls = match client.pages(
+            &manga.source_id,
+            &chapter.url,
+            chapter.memo.as_deref(),
+            Some(&chapter.name),
+        ) {
+            Ok(urls) => urls,
+            Err(error) => {
+                self.set_remote_error(error);
+                return;
+            }
+        };
+        if urls.is_empty() {
+            self.status = Some("Chapter has no pages.".to_owned());
+            return;
+        }
+        let pages: Vec<Page> = urls
+            .into_iter()
+            .enumerate()
+            .map(|(page, url)| Page {
+                name: format!("{:03}.jpg", page + 1),
+                source: PageSource::Remote { url },
+            })
+            .collect();
+        let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
+        let start_page = self
+            .progress
+            .entry(&key)
+            .map(|entry| entry.page)
+            .unwrap_or(0)
+            .min(pages.len() - 1);
+        self.reader = Some(ReaderState {
+            series_title: manga.title,
+            chapter_title: chapter.name,
+            chapter_path: key,
+            pages,
+            page_sizes: Vec::new(),
+            page_index: start_page,
+            protocol: None,
+            scroll: None,
+            pending_scroll: None,
+            error: None,
+        });
+        self.reader_origin = ReaderOrigin::LibraryRemote;
+        self.library_remote.chapter_index = index;
+        self.library_remote.list_state.select(Some(index));
+        self.remote.reader = false;
+        self.status = None;
+        self.record_progress(
+            &self
+                .reader
+                .as_ref()
+                .map(|reader| reader.chapter_path.clone())
+                .unwrap_or_default(),
+            start_page,
+            self.reader.as_ref().map_or(0, |reader| reader.pages.len()),
+        );
+        match self.reader_mode {
+            ReaderMode::Page => self.load_page(),
+            ReaderMode::Scroll => {
+                // Show the first page while page sizes are measured in the background.
+                self.load_page();
+                self.build_scroll(terminal_width());
+            }
+        }
+    }
+
     /// Human-readable extension host state for the About page.
     pub fn host_summary(&self) -> String {
         if let Some(process) = &self.host_process {
@@ -3495,6 +4036,8 @@ impl AppState {
             self.remote.results.clear();
             self.remote.manga = None;
             self.remote.chapters.clear();
+            self.remote.favorites.clear();
+            self.remote.favorites_loaded = false;
             self.remote.status = None;
             self.status = Some("Extension host stopped.".to_owned());
         } else {
@@ -3637,6 +4180,24 @@ fn apply_scroll_result(scroll: &mut ScrollState, result: BuildResult) -> bool {
     }
 }
 
+fn scroll_debug(message: &str) {
+    if std::env::var_os("TSUIYOMI_DEBUG_SCROLL").is_none() {
+        return;
+    }
+    use std::io::Write;
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/tsuiyomi-scroll.log")
+    {
+        let _ = writeln!(file, "{millis} {message}");
+    }
+}
+
 fn scroll_visible_ready(scroll: &ScrollState) -> bool {
     if scroll.layout.is_empty() {
         return true;
@@ -3680,6 +4241,11 @@ pub(crate) fn build_scroll_protocol(
     page: &Page,
     layout: ScrollPageLayout,
 ) -> Result<SlicedProtocol, String> {
+    let started = std::time::Instant::now();
+    scroll_debug(&format!(
+        "build start {} {}x{} rows={}",
+        page.name, layout.pixel_width, layout.pixel_height, layout.rows
+    ));
     let bytes = read_page(page).map_err(|error| error.to_string())?;
     let image =
         image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?;
@@ -3688,13 +4254,20 @@ pub(crate) fn build_scroll_protocol(
         layout.pixel_height,
         image::imageops::FilterType::Triangle,
     );
-    SlicedProtocol::new_with_resize(
+    let result = SlicedProtocol::new_with_resize(
         picker,
         image,
         Size::new(layout.cell_width, layout.rows),
         Resize::Fit(None),
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string());
+    scroll_debug(&format!(
+        "build end {} {:?} ok={}",
+        page.name,
+        started.elapsed(),
+        result.is_ok()
+    ));
+    result
 }
 
 fn in_category(series: &Series, category: Option<&str>) -> bool {
@@ -4410,6 +4983,51 @@ mod tests {
         app.extension_search_stop(true);
         assert!(!app.extension_search);
         assert_eq!(app.filtered_extension_count(), 2);
+    }
+
+    #[test]
+    fn global_search_navigation_moves_between_sources_and_results() {
+        let mut app = remote_app();
+        let manga = |title: &str| RemoteManga {
+            source_id: "1".to_owned(),
+            url: format!("/manga/{title}"),
+            title: title.to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        app.remote.global_groups = vec![
+            GlobalGroup {
+                source: app.remote.sources[0].clone(),
+                mangas: vec![manga("Alpha"), manga("Beta")],
+            },
+            GlobalGroup {
+                source: app.remote.sources[1].clone(),
+                mangas: vec![manga("Gamma")],
+            },
+        ];
+
+        app.global_next_item();
+        assert_eq!(app.remote.global_item, 1);
+        app.global_previous_item();
+        assert_eq!(app.remote.global_item, 0);
+        app.global_next_group();
+        assert_eq!(app.remote.global_group, 1);
+        assert_eq!(app.remote.global_item, 0);
+        app.global_previous_group();
+        assert_eq!(app.remote.global_group, 0);
+
+        app.global_open();
+        assert_eq!(app.browse_view, BrowseView::RemoteDetails);
+        assert_eq!(
+            app.remote.manga.as_ref().map(|manga| manga.title.as_str()),
+            Some("Alpha")
+        );
+        assert_eq!(app.remote.remote_details_origin, BrowseView::GlobalResults);
     }
 
     #[test]

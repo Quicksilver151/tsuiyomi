@@ -55,6 +55,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_image_picker(picker);
     app.set_progress(ProgressStore::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
+    app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
     // releases mouse capture.
@@ -207,7 +208,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Confirm => {}
             Action::Previous => {
                 if app.tab == 3 {
-                    app.browse_previous();
+                    if app.browse_view == BrowseView::GlobalResults {
+                        app.global_previous_group();
+                    } else {
+                        app.browse_previous();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
@@ -220,7 +225,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::Next => {
                 if app.tab == 3 {
-                    app.browse_next();
+                    if app.browse_view == BrowseView::GlobalResults {
+                        app.global_next_group();
+                    } else {
+                        app.browse_next();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
@@ -241,6 +250,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         | BrowseView::Chapters
                         | BrowseView::RemoteDetails
                         | BrowseView::Migrate => app.browse_parent(),
+                        BrowseView::GlobalResults => app.global_previous_item(),
                         BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
@@ -264,6 +274,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         | BrowseView::Chapters
                         | BrowseView::RemoteDetails
                         | BrowseView::Migrate => app.browse_open(),
+                        BrowseView::GlobalResults => app.global_next_item(),
                         BrowseView::Extensions | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
@@ -346,6 +357,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                             );
                         }
                         BrowseView::Extensions => app.extension_search_start(),
+                        BrowseView::Sources => {
+                            app.open_text_input(
+                                app::TextAction::GlobalSearch,
+                                "Search pinned sources",
+                                "",
+                            );
+                        }
                         _ => {}
                     }
                 }
@@ -362,6 +380,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::HostToggle => {
                 if app.tab == 4 && app.more_section == MoreSection::About {
                     app.toggle_host();
+                }
+            }
+            Action::Favorite => {
+                if app.tab == 3 && app.browse_view == BrowseView::RemoteDetails {
+                    app.toggle_current_favorite();
+                }
+            }
+            Action::LibraryScope => {
+                if app.tab == 0 && app.view == LibraryView::Series {
+                    app.toggle_library_scope();
                 }
             }
             Action::Latest => {
@@ -407,7 +435,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::Open => {
                 if app.tab == 3 {
-                    app.browse_open();
+                    if app.browse_view == BrowseView::GlobalResults {
+                        app.global_open();
+                    } else {
+                        app.browse_open();
+                    }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.focus_more_content();
@@ -491,6 +523,20 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     }
 
     if app.tab != 0 {
+        return;
+    }
+
+    if app.view == LibraryView::RemoteChapters {
+        let list_area = Rect::new(
+            layout.content.x + 1,
+            layout.content.y + 1,
+            layout.content.width.saturating_sub(2),
+            layout.content.height.saturating_sub(2),
+        );
+        if contains(list_area, column, row) {
+            let offset = app.library_remote.list_state.offset();
+            app.select_index(offset + (row - list_area.y) as usize);
+        }
         return;
     }
 
@@ -578,7 +624,10 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_browse_index(index);
             }
         }
-        BrowseView::Details | BrowseView::RemoteDetails | BrowseView::Migrate => {}
+        BrowseView::Details
+        | BrowseView::RemoteDetails
+        | BrowseView::GlobalResults
+        | BrowseView::Migrate => {}
     }
 }
 

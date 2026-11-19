@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use crate::{
@@ -41,6 +42,156 @@ pub fn chapter_pages(chapter: &Chapter) -> Result<Vec<Page>, CoreError> {
             pages_in_archive(&chapter.path, chapter.kind)
         }
     }
+}
+
+/// Read only enough of a page to learn its pixel dimensions.
+///
+/// Scroll mode needs the dimensions of every page up front. Downloading whole remote
+/// pages just for that is painfully slow for webcomic strips, so remote images are read
+/// in chunks until the header yields a size.
+pub fn page_dimensions(page: &Page) -> Result<(u32, u32), CoreError> {
+    match &page.source {
+        PageSource::File(path) => image::ImageReader::open(path)
+            .map_err(|error| CoreError::Archive {
+                path: path.clone(),
+                message: error.to_string(),
+            })?
+            .into_dimensions()
+            .map_err(|error| CoreError::Archive {
+                path: path.clone(),
+                message: error.to_string(),
+            }),
+        PageSource::Archive { path, name, kind } => {
+            let bytes = archive::read_entry(path, *kind, name)?;
+            dimensions_from_bytes(&bytes)
+        }
+        PageSource::Remote { url } => remote_dimensions(url),
+    }
+}
+
+fn dimensions_from_bytes(bytes: &[u8]) -> Result<(u32, u32), CoreError> {
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| CoreError::Archive {
+            path: PathBuf::new(),
+            message: error.to_string(),
+        })?
+        .into_dimensions()
+        .map_err(|error| CoreError::Archive {
+            path: PathBuf::new(),
+            message: error.to_string(),
+        })
+}
+
+fn remote_dimensions(url: &str) -> Result<(u32, u32), CoreError> {
+    // The page URL points at the host's page-aware image endpoint. Its query carries the
+    // original image URL, which the host proxy can serve with a Range request: a few KB
+    // instead of the whole (sometimes huge) page.
+    let started = std::time::Instant::now();
+    if let Some(probe) = proxy_dimension_url(url) {
+        probe_debug(&format!("probe {probe}"));
+        match ranged_dimensions(&probe, true) {
+            Ok(size) => {
+                probe_debug(&format!("probe ok {size:?} {:?}", started.elapsed()));
+                return Ok(size);
+            }
+            Err(error) => probe_debug(&format!("probe failed {error}")),
+        }
+    } else {
+        probe_debug("no probe url");
+    }
+    let result = ranged_dimensions(url, false);
+    probe_debug(&format!(
+        "fallback {:?} {:?}",
+        result.as_ref().map(|size| *size),
+        started.elapsed()
+    ));
+    result
+}
+
+fn probe_debug(message: &str) {
+    if std::env::var_os("TSUIYOMI_DEBUG_SCROLL").is_none() {
+        return;
+    }
+    use std::io::Write;
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/tsuiyomi-scroll.log")
+    {
+        let _ = writeln!(file, "{millis} probe {message}");
+    }
+}
+
+fn ranged_dimensions(url: &str, range: bool) -> Result<(u32, u32), CoreError> {
+    const CHUNK: usize = 16 * 1024;
+    const MAX: usize = 256 * 1024;
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(15))
+        .build();
+    let mut request = agent.get(url);
+    if range {
+        request = request.set("Range", &format!("bytes=0-{}", MAX - 1));
+    }
+    let response = request.call().map_err(|error| CoreError::Network {
+        url: url.to_owned(),
+        message: error.to_string(),
+    })?;
+    let mut reader = response.into_reader();
+    let mut buffer = Vec::with_capacity(CHUNK);
+    let mut chunk = [0u8; CHUNK];
+
+    while buffer.len() < MAX {
+        let read = reader
+            .read(&mut chunk)
+            .map_err(|error| CoreError::Network {
+                url: url.to_owned(),
+                message: error.to_string(),
+            })?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+        if let Ok(size) = dimensions_from_bytes(&buffer) {
+            return Ok(size);
+        }
+    }
+
+    dimensions_from_bytes(&buffer).map_err(|_| CoreError::Network {
+        url: url.to_owned(),
+        message: "could not read image dimensions".to_owned(),
+    })
+}
+
+/// Extract a host proxy URL for the original image from a page-image endpoint URL.
+fn proxy_dimension_url(url: &str) -> Option<String> {
+    let (base, query) = url.split_once("/api/v1/image?")?;
+    let mut source = None;
+    let mut image = None;
+    let mut page = None;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        match key {
+            "sourceId" => source = Some(crate::host::decode(value)),
+            "imageUrl" => image = Some(crate::host::decode(value)),
+            "url" => page = Some(crate::host::decode(value)),
+            _ => {}
+        }
+    }
+    let source = source?;
+    let target = image
+        .filter(|value| value.starts_with("http"))
+        .or_else(|| page.filter(|value| value.starts_with("http")))?;
+    Some(format!(
+        "{base}/api/v1/proxy?sourceId={}&url={}",
+        crate::host::encode(&source),
+        crate::host::encode(&target)
+    ))
 }
 
 /// Read the bytes for a page.
@@ -321,5 +472,18 @@ mod tests {
             ]
         );
         assert_eq!(read_page(&pages[0]).unwrap(), b"page one");
+    }
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn derives_a_ranged_probe_url_from_the_image_endpoint() {
+        let url = "http://127.0.0.1:1234/api/v1/image?sourceId=7&url=%2Fdata%2Fx&imageUrl=https%3A%2F%2Fcdn.example%2Fa.webp";
+        let probe = proxy_dimension_url(url).unwrap();
+        assert!(probe.starts_with("http://127.0.0.1:1234/api/v1/proxy?sourceId=7&url="));
+        assert!(probe.contains("https%3A%2F%2Fcdn.example%2Fa.webp"));
     }
 }

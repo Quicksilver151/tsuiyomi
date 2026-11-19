@@ -18,13 +18,15 @@ use tsuiyomi_core::{
 
 use crate::{
     app::{
-        AppState, BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind,
-        PickerState, ReaderMode, SettingId, SettingsPage, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
+        AppState, BrowseTab, BrowseView, LibraryScope, LibraryView, MoreFocus, MoreRow,
+        MoreSection, PickerKind, PickerState, ReaderMode, SettingId, SettingsPage, SourceRow,
+        MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
-        app_layout, grid_columns, grid_row_offset, grid_tile_rect, grid_visible_rows,
-        library_grid_area, library_layout, more_layout, reader_bar_layout, setting_columns,
-        settings_rows, tab_layouts, tile_cover_height, TAB_NAMES, TILE_TEXT_HEIGHT,
+        app_layout, grid_columns, grid_margin, grid_row_offset, grid_tile_rect, grid_tile_width,
+        grid_visible_rows, library_grid_area, library_layout, more_layout, reader_bar_layout,
+        setting_columns, settings_rows, tab_layouts, tile_cover_height, TAB_NAMES, TILE_GAP,
+        TILE_TEXT_HEIGHT,
     },
     palette::{
         accent_choices, c_accent, c_base, c_blue, c_green, c_mauve, c_overlay0, c_overlay1,
@@ -384,9 +386,17 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
+                ("F", "library"),
                 ("r", "refresh"),
                 ("[ ]", "tabs"),
                 ("e", "extensions"),
+                ("Esc", "back"),
+            ],
+            BrowseView::GlobalResults => &[
+                ("q", "quit"),
+                ("↑↓", "source"),
+                ("←→", "result"),
+                ("↵", "open"),
                 ("Esc", "back"),
             ],
             BrowseView::Extensions => &[
@@ -450,6 +460,32 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("Esc", "back"),
             ]
         }
+    } else if app.tab == 0 {
+        match app.view {
+            LibraryView::Series if app.library_scope == LibraryScope::Remote => &[
+                ("q", "quit"),
+                ("↑↓←→", "move"),
+                ("↵", "read"),
+                ("v", "local"),
+                ("Esc", "back"),
+            ],
+            LibraryView::Series => &[
+                ("q", "quit"),
+                ("↑↓←→", "move"),
+                ("↵", "open"),
+                ("v", "remote"),
+                ("r", "rescan"),
+                ("c", "config"),
+                ("f", "full"),
+                ("Esc", "back"),
+            ],
+            LibraryView::Chapters | LibraryView::RemoteChapters => &[
+                ("q", "quit"),
+                ("↑↓", "chapter"),
+                ("↵", "read"),
+                ("Esc", "back"),
+            ],
+        }
     } else {
         &[
             ("q", "quit"),
@@ -487,6 +523,15 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let layout = library_layout(area);
 
     match app.view {
+        LibraryView::Series if app.library_scope == LibraryScope::Remote => {
+            draw_remote_library_header(frame, layout.categories, app);
+            draw_favorite_grid(frame, library_grid_area(area), app);
+            return;
+        }
+        LibraryView::RemoteChapters => {
+            draw_remote_library_chapters(frame, area, app);
+            return;
+        }
         LibraryView::Series => {
             draw_categories(frame, layout.categories, app);
             let indices = app.visible_indices();
@@ -521,6 +566,169 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     }
 
     draw_details(frame, layout.details, app);
+}
+
+fn draw_remote_library_header(frame: &mut Frame, area: Rect, app: &AppState) {
+    let line = Line::from(vec![
+        Span::styled(
+            " Remote library ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{} saved · v switches to local", app.remote.favorites.len()),
+            Style::default().fg(c_overlay0()),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_favorite_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let favorites = app.remote.favorites.clone();
+    let columns = grid_columns(area, app.config.thumbnail_width);
+    if favorites.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No saved manga. Add one from a source with F.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        app.library_columns = columns;
+        return;
+    }
+    let cover_height = tile_cover_height(app.config.thumbnail_width, area.height);
+    let tile_height = cover_height + TILE_TEXT_HEIGHT;
+    let selected = app.selected.min(favorites.len() - 1);
+    app.selected = selected;
+    let visible_rows = grid_visible_rows(area, tile_height);
+    let offset = grid_row_offset(
+        area,
+        columns,
+        selected,
+        app.library_grid_offset,
+        favorites.len(),
+        tile_height,
+    );
+    let start = offset.saturating_mul(columns);
+    let end = (offset.saturating_add(visible_rows))
+        .saturating_mul(columns)
+        .min(favorites.len());
+
+    for favorite in favorites[start..end].iter() {
+        if let Some(url) = &favorite.thumbnail_url {
+            app.ensure_remote_tile_cover(url);
+        }
+    }
+
+    for (position, favorite) in favorites[start..end].iter().enumerate() {
+        let index = start + position;
+        let tile = grid_tile_rect(area, columns, offset, index, tile_height);
+        let is_selected = index == selected;
+        if is_selected {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                tile,
+            );
+        }
+        let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
+        let mut rendered = false;
+        if let Some(url) = &favorite.thumbnail_url {
+            if let Some(protocol) = app.remote.tile_covers.get_mut(url) {
+                render_centered_image(frame, cover_area, protocol);
+                rendered = true;
+            }
+        }
+        if !rendered {
+            let initial = favorite
+                .title
+                .chars()
+                .next()
+                .map(|character| character.to_uppercase().collect::<String>())
+                .unwrap_or_default();
+            frame.render_widget(
+                Paragraph::new(initial)
+                    .alignment(Alignment::Center)
+                    .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                Rect::new(
+                    cover_area.x,
+                    cover_area.y + cover_area.height / 2,
+                    cover_area.width,
+                    1,
+                ),
+            );
+        }
+        frame.render_widget(
+            Paragraph::new(truncate_text(&favorite.title, tile.width))
+                .alignment(Alignment::Center)
+                .style(if is_selected {
+                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(c_text())
+                }),
+            Rect::new(tile.x, tile.y + cover_height, tile.width, 1),
+        );
+        frame.render_widget(
+            Paragraph::new("saved")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay0())),
+            Rect::new(tile.x, tile.y + cover_height + 1, tile.width, 1),
+        );
+    }
+
+    app.library_columns = columns;
+    app.library_grid_offset = offset;
+}
+
+fn draw_remote_library_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let title = app
+        .library_remote
+        .manga
+        .as_ref()
+        .map(|manga| manga.title.clone())
+        .unwrap_or_else(|| "Saved manga".to_owned());
+    let chapters = app.library_remote.chapters.clone();
+    if chapters.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No chapters.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        return;
+    }
+    let items: Vec<ListItem> = chapters
+        .iter()
+        .map(|chapter| {
+            let scanlator = chapter.scanlator.clone().unwrap_or_default();
+            ListItem::new(Line::from(vec![
+                Span::raw(chapter.name.clone()),
+                Span::styled(format!("  {scanlator}"), Style::default().fg(c_overlay1())),
+            ]))
+        })
+        .collect();
+    let count = chapters.len();
+    app.library_remote
+        .list_state
+        .select(Some(app.library_remote.chapter_index.min(count - 1)));
+    let list = List::new(items)
+        .block(panel(
+            Line::from(vec![
+                Span::styled(
+                    format!(" {title} · Chapters "),
+                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
+            ]),
+            c_accent(),
+        ))
+        .style(Style::default().fg(c_text()))
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, area, &mut app.library_remote.list_state);
 }
 
 fn draw_series_grid(
@@ -708,7 +916,8 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
         | BrowseView::Details
         | BrowseView::Chapters
         | BrowseView::RemoteResults
-        | BrowseView::RemoteDetails => {
+        | BrowseView::RemoteDetails
+        | BrowseView::GlobalResults => {
             draw_browse_path(frame, Rect::new(area.x, area.y, area.width, 1), app);
             let content = library_grid_area(area);
             match app.browse_view {
@@ -729,6 +938,7 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 BrowseView::Chapters => draw_browse_chapters(frame, content, app),
                 BrowseView::RemoteResults => draw_remote_grid(frame, content, app),
                 BrowseView::RemoteDetails => draw_remote_detail(frame, content, app),
+                BrowseView::GlobalResults => draw_global_results(frame, content, app),
                 _ => {}
             }
             if let Some(status) = &app.remote.status {
@@ -800,6 +1010,112 @@ fn browse_status(app: &AppState) -> Option<String> {
         .or_else(|| app.remote.host_hint.clone())
 }
 
+fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let groups = app.remote.global_groups.clone();
+    if groups.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No results.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        return;
+    }
+
+    let columns = grid_columns(area, app.config.thumbnail_width);
+    let tile_width = grid_tile_width(area, columns);
+    let cover_height = tile_cover_height(app.config.thumbnail_width, area.height);
+    let group_height = cover_height + 3;
+    let visible = (area.height / group_height).max(1) as usize;
+    let offset = if app.remote.global_group >= visible {
+        app.remote.global_group + 1 - visible
+    } else {
+        0
+    };
+    let margin = grid_margin(area, columns);
+    let stride = tile_width.saturating_add(TILE_GAP);
+    let selected_group = app.remote.global_group;
+    let selected_item = app.remote.global_item;
+
+    for (group_index, group) in groups.iter().enumerate().skip(offset).take(visible) {
+        let y = area.y + (group_index - offset) as u16 * group_height;
+        let header = Line::from(vec![
+            Span::styled(
+                format!(" {}", group.source.display_name()),
+                Style::default()
+                    .fg(if group_index == selected_group {
+                        c_accent()
+                    } else {
+                        c_text()
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {} results", group.mangas.len()),
+                Style::default().fg(c_overlay0()),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(header), Rect::new(area.x, y, area.width, 1));
+
+        let item = if group_index == selected_group {
+            selected_item
+        } else {
+            0
+        };
+        let horizontal = item.saturating_sub(columns.saturating_sub(1));
+        let cover_y = y + 1;
+        for (position, manga) in group
+            .mangas
+            .iter()
+            .enumerate()
+            .skip(horizontal)
+            .take(columns)
+        {
+            let x = area.x + margin + (position - horizontal) as u16 * stride;
+            let tile = Rect::new(x, cover_y, tile_width, cover_height);
+            let is_selected = group_index == selected_group && position == item;
+            if is_selected {
+                frame.render_widget(
+                    Block::default().style(Style::default().bg(c_surface0())),
+                    tile,
+                );
+            }
+            let mut rendered = false;
+            if let Some(url) = &manga.thumbnail_url {
+                app.ensure_remote_tile_cover(url);
+                if let Some(protocol) = app.remote.tile_covers.get_mut(url) {
+                    render_centered_image(frame, tile, protocol);
+                    rendered = true;
+                }
+            }
+            if !rendered {
+                let initial = manga
+                    .title
+                    .chars()
+                    .next()
+                    .map(|character| character.to_uppercase().collect::<String>())
+                    .unwrap_or_default();
+                frame.render_widget(
+                    Paragraph::new(initial)
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                    Rect::new(tile.x, tile.y + tile.height / 2, tile.width, 1),
+                );
+            }
+            frame.render_widget(
+                Paragraph::new(truncate_text(&manga.title, tile.width))
+                    .alignment(Alignment::Center)
+                    .style(if is_selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    }),
+                Rect::new(tile.x, cover_y + cover_height, tile.width, 1),
+            );
+        }
+    }
+}
+
 fn browse_host_label(app: &AppState) -> String {
     if app.host_process.is_some() {
         "extension host".to_owned()
@@ -840,6 +1156,19 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
                 BrowseView::RemoteDetails => format!("{} chapters", app.remote.chapters.len()),
                 _ => format!("{} results", app.remote.results.len()),
             },
+        ),
+        BrowseView::GlobalResults => (
+            "Global search".to_owned(),
+            format!("\"{}\"", app.remote.global_query),
+            format!(
+                "{} sources · {} results",
+                app.remote.global_groups.len(),
+                app.remote
+                    .global_groups
+                    .iter()
+                    .map(|group| group.mangas.len())
+                    .sum::<usize>()
+            ),
         ),
         BrowseView::Extensions => (
             "Extensions".to_owned(),
@@ -1116,6 +1445,15 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         meta.push(field("Tags", &manga.genre.join(", "), c_teal()));
     }
     meta.push(field("Chapters", &chapters.len().to_string(), c_green()));
+    meta.push(field(
+        "Library",
+        if app.is_favorite(&manga.source_id, &manga.url) {
+            "saved · F removes"
+        } else {
+            "not saved · F adds"
+        },
+        c_yellow(),
+    ));
 
     let chapter_items: Vec<ListItem> = chapters
         .iter()
@@ -1517,6 +1855,12 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                         area,
                     );
                 }
+            } else if let Some(protocol) = reader.protocol.as_mut() {
+                frame.render_stateful_widget(
+                    StatefulImage::new().resize(Resize::Fit(None)),
+                    chunks[1],
+                    protocol,
+                );
             } else {
                 placeholder_message(frame, chunks[1], "Preparing scroll view…");
             }

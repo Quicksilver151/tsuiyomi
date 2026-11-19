@@ -119,6 +119,12 @@ Controls:
 - `Esc` or `Backspace` goes back one level.
 - `r` refreshes the current list.
 - `e` jumps to the Extensions tab; `d` removes a store from the store list.
+- `F` adds or removes the open manga from the library.
+- `/` on the Sources tab searches every pinned source and groups the hits by source.
+
+Library has two scopes: local series and the **Remote library** with manga saved from
+sources. `v` switches between them. Saved manga load their chapters from the source and
+read like any other remote chapter.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.
@@ -242,6 +248,10 @@ incognito = false
 Library sort, default category, and Incognito mode live under
 **More → Settings → Library** and **Security**. Incognito stops writing
 `progress.json` while leaving existing progress readable.
+
+Scroll mode measures page sizes in the background and shows the first page while it
+works; remote dimensions are probed with small ranged requests. Set
+`TSUIYOMI_DEBUG_SCROLL=1` to write timings to `/tmp/tsuiyomi-scroll.log`.
 
 Reading mode, zoom, and scroll cache settings can also be changed in
 **More → Settings → Reader** using the thin sliders. Valid `reading_mode` values are `default`,

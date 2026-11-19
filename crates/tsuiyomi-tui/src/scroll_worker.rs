@@ -1,4 +1,5 @@
 use std::{
+    path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
@@ -8,7 +9,7 @@ use std::{
 };
 
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
-use tsuiyomi_core::Page;
+use tsuiyomi_core::{page_dimensions, Page};
 
 use crate::app::{build_scroll_protocol, ScrollPageLayout};
 
@@ -71,6 +72,74 @@ impl ScrollWorker {
     }
 
     pub fn try_result(&self) -> Option<BuildResult> {
+        self.results.try_recv().ok()
+    }
+}
+
+pub(crate) struct SizeRequest {
+    pub generation: u64,
+    pub chapter: PathBuf,
+    pub pages: Vec<Page>,
+}
+
+pub(crate) struct SizeResult {
+    pub generation: u64,
+    pub chapter: PathBuf,
+    pub sizes: Vec<(u32, u32)>,
+}
+
+/// Measures page dimensions off the UI thread. Scroll mode needs every page's size
+/// before it can lay the chapter out, and remote pages can take seconds to inspect.
+pub(crate) struct SizeWorker {
+    requests: Sender<SizeRequest>,
+    results: Receiver<SizeResult>,
+}
+
+impl SizeWorker {
+    pub fn spawn() -> Self {
+        let (request_tx, request_rx) = mpsc::channel::<SizeRequest>();
+        let (result_tx, result_rx) = mpsc::channel::<SizeResult>();
+
+        thread::spawn(move || {
+            for request in request_rx {
+                let mut sizes = Vec::with_capacity(request.pages.len());
+                for chunk in request.pages.chunks(8) {
+                    let batch: Vec<Option<(u32, u32)>> = std::thread::scope(|scope| {
+                        let handles: Vec<_> = chunk
+                            .iter()
+                            .map(|page| scope.spawn(move || page_dimensions(page).ok()))
+                            .collect();
+                        handles
+                            .into_iter()
+                            .map(|handle| handle.join().unwrap_or(None))
+                            .collect()
+                    });
+                    for size in batch {
+                        let size = size
+                            .or_else(|| sizes.last().copied())
+                            .unwrap_or((800, 1200));
+                        sizes.push(size);
+                    }
+                }
+                let _ = result_tx.send(SizeResult {
+                    generation: request.generation,
+                    chapter: request.chapter,
+                    sizes,
+                });
+            }
+        });
+
+        Self {
+            requests: request_tx,
+            results: result_rx,
+        }
+    }
+
+    pub fn request(&self, request: SizeRequest) {
+        let _ = self.requests.send(request);
+    }
+
+    pub fn try_result(&self) -> Option<SizeResult> {
         self.results.try_recv().ok()
     }
 }

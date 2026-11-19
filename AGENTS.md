@@ -170,8 +170,10 @@ Rules:
   Library. Browse has Sources, Extensions, and Migrate tabs (`[`/`]`) inside the panel
   title; Esc at a tab root returns to Library. Sources are grouped
   by language and can be pinned (persisted in `pinned_sources`), and the Extensions tab has
-  an inline search bar. Extensions are managed through the host (repo URLs, install,
-  uninstall).
+  an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
+  source. `F` saves a remote manga to the host's favorites; Library's `v` scope shows those
+  favorites and reads them through the same remote chapter/reader path. Extensions are
+  managed through the host (repo URLs, install, uninstall).
   tsuiyomi never loads APK bytecode itself; the host supplies the JVM, AndroidCompat, and
   dex2jar runtime. The bundled host is extracted from an optional archive in the binary
   into `$XDG_CACHE_HOME/tsuiyomi/host/<version>/` and supervised on loopback; `host_url`

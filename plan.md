@@ -109,6 +109,11 @@ database rows. tsuiyomi owns reading progress.
 - [x] Chapter and manga `memo` round-trips through the host API, fixing
       "Refresh Chapter List" on Asura Scans and other memo-dependent sources.
 - [x] Host state and logs in About, with `H` to stop or restart the sidecar.
+- [x] Save remote manga to the host's library (`F`) and read them from Library's remote
+      scope (`v`).
+- [x] Global search across pinned sources, grouped with horizontal result rows.
+- [x] Scroll mode: remote chapters now build scroll state at all, page sizes are measured
+      in the background, and the first page is visible while waiting.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.
 

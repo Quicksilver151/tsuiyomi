@@ -22,9 +22,9 @@ pub use config::{load_config, save_config, Config, LibrarySort, ReadingMode, The
 pub use error::CoreError;
 pub use host::{
     fetch_bytes, progress_key, ExtensionInfo, ExtensionSource, HostClient, InstallOutcome,
-    RemoteChapter, RemoteManga, RemoteMangaPage, RemoteSource,
+    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSource,
 };
 pub use library::{read_cover, scan_library, Chapter, ChapterKind, Library, ScanError, Series};
-pub use pages::{chapter_pages, read_page, Page, PageSource};
+pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
 pub use runtime::{ensure_runtime, host_data_dir, HostProcess, HostRuntime, HOST_VERSION};
