@@ -31,7 +31,15 @@ pub enum LibraryView {
     #[default]
     Series,
     Chapters,
-    Reader,
+}
+
+/// Where the reader was opened from, so closing it returns to the right place.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReaderOrigin {
+    #[default]
+    Library,
+    BrowseLocal,
+    Remote,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -76,6 +84,7 @@ pub enum BrowseView {
     Sources,
     Local,
     Details,
+    Chapters,
     RemoteResults,
     RemoteDetails,
     Extensions,
@@ -428,6 +437,7 @@ pub struct AppState {
     pub chapter_index: usize,
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
+    pub reader_origin: ReaderOrigin,
     pub image_picker: Option<Picker>,
     /// Decoded custom cover for the selected series.
     pub cover: Option<StatefulProtocol>,
@@ -442,6 +452,10 @@ pub struct AppState {
     pub zoom: u16,
     pub config: Config,
     pub browse_view: BrowseView,
+    /// Local series and chapter selected in Browse; independent of the Library tab.
+    pub browse_local_series: Option<PathBuf>,
+    pub browse_local_chapter: usize,
+    pub browse_local_list_state: ListState,
     pub host_client: Option<HostClient>,
     /// Bundled host process; `None` when using an external `host_url`.
     pub host_process: Option<HostProcess>,
@@ -479,6 +493,7 @@ impl AppState {
             chapter_index: 0,
             chapter_list_state: ListState::default(),
             reader: None,
+            reader_origin: ReaderOrigin::Library,
             image_picker: None,
             cover: None,
             cover_path: None,
@@ -489,6 +504,9 @@ impl AppState {
             zoom: 100,
             config: Config::default(),
             browse_view: BrowseView::Sources,
+            browse_local_series: None,
+            browse_local_chapter: 0,
+            browse_local_list_state: ListState::default(),
             host_client: None,
             host_process: None,
             remote: RemoteState::default(),
@@ -654,6 +672,7 @@ impl AppState {
                     self.open_browse_series(&path);
                 }
             }
+            BrowseView::Chapters => self.open_browse_local_chapter(self.browse_selection),
             BrowseView::RemoteResults => {
                 let Some(manga) = self.remote.results.get(self.browse_selection).cloned() else {
                     return;
@@ -673,6 +692,10 @@ impl AppState {
 
     pub fn browse_parent(&mut self) {
         match self.browse_view {
+            BrowseView::Chapters => {
+                self.browse_view = BrowseView::Details;
+                self.clamp_browse_selection();
+            }
             BrowseView::Details => {
                 self.browse_view = BrowseView::Local;
                 self.clamp_browse_selection();
@@ -706,6 +729,7 @@ impl AppState {
             }
             BrowseView::RemoteDetails => self.load_remote_chapters(),
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
+            BrowseView::Chapters => self.refresh(),
             BrowseView::Details => {}
         }
         self.clamp_browse_selection();
@@ -716,6 +740,7 @@ impl AppState {
             BrowseView::Sources => 1 + self.remote.sources.len(),
             BrowseView::Local => self.library.series.len(),
             BrowseView::Details => 0,
+            BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
             BrowseView::RemoteDetails => self.remote.chapters.len(),
             BrowseView::Extensions => self.remote.extensions.len(),
@@ -749,6 +774,26 @@ impl AppState {
             .series
             .iter()
             .find(|series| series.path == path)
+    }
+
+    /// Local series open in Browse. Independent of the Library tab's selection.
+    pub fn selected_browse_local_series(&self) -> Option<&Series> {
+        let path = self.browse_local_series.as_deref()?;
+        self.library
+            .series
+            .iter()
+            .find(|series| series.path == path)
+    }
+
+    pub fn browse_local_chapter_count(&self) -> usize {
+        self.selected_browse_local_series()
+            .map_or(0, |series| series.chapters.len())
+    }
+
+    pub fn selected_browse_local_chapter(&self) -> Option<&Chapter> {
+        self.selected_browse_local_series()?
+            .chapters
+            .get(self.browse_local_chapter)
     }
 
     pub fn selected_remote_manga(&self) -> Option<&RemoteManga> {
@@ -995,34 +1040,30 @@ impl AppState {
         });
         self.remote.reader = true;
         self.remote.chapter_index = index;
+        self.reader_origin = ReaderOrigin::Remote;
         self.browse_selection = index;
-        self.view = LibraryView::Reader;
         self.status = None;
         self.load_page();
     }
 
     pub fn close_remote_reader(&mut self) {
-        self.reader = None;
-        self.remote.reader = false;
-        self.view = LibraryView::Series;
-        self.browse_view = BrowseView::RemoteDetails;
-        self.browse_selection = self.remote.chapter_index;
-        self.select_browse_entry(self.browse_selection);
+        self.reader_origin = ReaderOrigin::Remote;
+        self.close_reader();
     }
 
     pub fn reader_chapter_index(&self) -> usize {
-        if self.view == LibraryView::Reader && self.remote.reader {
-            self.remote.chapter_index
-        } else {
-            self.chapter_index
+        match self.reader_origin {
+            ReaderOrigin::Remote => self.remote.chapter_index,
+            ReaderOrigin::BrowseLocal => self.browse_local_chapter,
+            ReaderOrigin::Library => self.chapter_index,
         }
     }
 
     pub fn reader_chapter_count(&self) -> usize {
-        if self.view == LibraryView::Reader && self.remote.reader {
-            self.remote.chapters.len()
-        } else {
-            self.chapter_count()
+        match self.reader_origin {
+            ReaderOrigin::Remote => self.remote.chapters.len(),
+            ReaderOrigin::BrowseLocal => self.browse_local_chapter_count(),
+            ReaderOrigin::Library => self.chapter_count(),
         }
     }
 
@@ -1047,6 +1088,11 @@ impl AppState {
         self.remote
             .tile_covers
             .insert(url.to_owned(), picker.new_resize_protocol(image));
+    }
+
+    /// True while a modal should receive printable keys instead of shortcuts.
+    pub fn text_mode(&self) -> bool {
+        self.picker.is_some() || self.text_input.is_some() || self.quit_confirm
     }
 
     pub fn open_text_input(&mut self, action: TextAction, title: &str, value: &str) {
@@ -1370,37 +1416,87 @@ impl AppState {
     }
 
     fn select_browse_entry(&mut self, index: usize) {
-        self.browse_list_state
-            .select((self.browse_item_count() > 0).then_some(index));
+        let count = self.browse_item_count();
+        if self.browse_view == BrowseView::Chapters {
+            self.browse_local_chapter = index;
+            self.browse_local_list_state
+                .select((count > 0).then_some(index));
+        } else {
+            self.browse_list_state.select((count > 0).then_some(index));
+        }
     }
 
+    /// Open a local series inside Browse. This never mutates the Library tab's view,
+    /// category, or selection.
     fn open_browse_series(&mut self, path: &Path) {
-        let category = self
-            .library
-            .series
-            .iter()
-            .find(|series| series.path == path)
-            .and_then(|series| series.categories.first())
-            .cloned();
-        if let Some(category) = category {
-            if let Some(index) = self
-                .library
-                .categories
-                .iter()
-                .position(|name| name == &category)
-            {
-                self.category_index = index;
+        self.browse_local_series = Some(path.to_path_buf());
+        self.browse_local_chapter = 0;
+        self.browse_local_list_state = ListState::default();
+        self.browse_view = BrowseView::Chapters;
+        self.browse_selection = 0;
+        self.status = None;
+        self.select_browse_entry(0);
+    }
+
+    fn open_browse_local_chapter(&mut self, index: usize) {
+        let Some(chapter) = self
+            .selected_browse_local_series()
+            .and_then(|series| series.chapters.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        let series_title = self
+            .selected_browse_local_series()
+            .map(|series| series.title.clone())
+            .unwrap_or_default();
+        let pages = match chapter_pages(&chapter) {
+            Ok(pages) => pages,
+            Err(error) => {
+                self.status = Some(error.to_string());
+                return;
             }
+        };
+        if pages.is_empty() {
+            self.status = Some(format!("{} has no pages", chapter.title));
+            return;
         }
-        if let Some(position) = self
-            .visible_indices()
-            .into_iter()
-            .position(|index| self.library.series[index].path == path)
-        {
-            self.view = LibraryView::Series;
-            self.selected = position;
-            self.status = None;
-            self.open();
+
+        let start_page = self
+            .progress
+            .entry(&chapter.path)
+            .map(|entry| entry.page)
+            .unwrap_or(0)
+            .min(pages.len() - 1);
+        self.reader = Some(ReaderState {
+            series_title,
+            chapter_title: chapter.title,
+            chapter_path: chapter.path,
+            pages,
+            page_sizes: Vec::new(),
+            page_index: start_page,
+            protocol: None,
+            scroll: None,
+            pending_scroll: None,
+            error: None,
+        });
+        self.reader_origin = ReaderOrigin::BrowseLocal;
+        self.browse_local_chapter = index;
+        self.browse_selection = index;
+        self.remote.reader = false;
+        self.status = None;
+        if let Some((path, page, pages)) = self.reader.as_ref().map(|reader| {
+            (
+                reader.chapter_path.clone(),
+                reader.page_index,
+                reader.pages.len(),
+            )
+        }) {
+            self.record_progress(&path, page, pages);
+        }
+        match self.reader_mode {
+            ReaderMode::Page => self.load_page(),
+            ReaderMode::Scroll => self.build_scroll(terminal_width()),
         }
     }
 
@@ -1567,18 +1663,42 @@ impl AppState {
                 }
             }
             LibraryView::Chapters => self.open_chapter(),
-            LibraryView::Reader => self.next_page(),
         }
+    }
+
+    /// Close the reader and return to the list it was opened from.
+    pub fn close_reader(&mut self) {
+        if self.reader.is_none() {
+            return;
+        }
+        self.reader = None;
+        self.status = None;
+        match self.reader_origin {
+            ReaderOrigin::Remote => {
+                self.remote.reader = false;
+                self.browse_view = BrowseView::RemoteDetails;
+                self.browse_selection = self.remote.chapter_index;
+                self.select_browse_entry(self.browse_selection);
+            }
+            ReaderOrigin::BrowseLocal => {
+                self.browse_view = BrowseView::Chapters;
+                self.browse_selection = self.browse_local_chapter;
+                self.select_browse_entry(self.browse_selection);
+            }
+            ReaderOrigin::Library => {
+                self.view = LibraryView::Chapters;
+            }
+        }
+        self.reader_origin = ReaderOrigin::Library;
     }
 
     /// Back out of the reader/chapter list, or return to the Library tab.
     pub fn back(&mut self) {
+        if self.reader.is_some() {
+            self.close_reader();
+            return;
+        }
         match self.view {
-            LibraryView::Reader => {
-                self.reader = None;
-                self.view = LibraryView::Chapters;
-                self.status = None;
-            }
             LibraryView::Chapters => {
                 self.view = LibraryView::Series;
                 self.chapter_index = 0;
@@ -1590,6 +1710,14 @@ impl AppState {
     }
 
     pub fn previous(&mut self) {
+        if self.reader.is_some() {
+            if self.reader_mode == ReaderMode::Scroll {
+                self.scroll_lines(-SCROLL_LINES);
+            } else {
+                self.change_page(false);
+            }
+            return;
+        }
         match self.view {
             LibraryView::Series => {
                 self.selected = self.selected.saturating_sub(self.library_columns.max(1));
@@ -1599,17 +1727,18 @@ impl AppState {
                 self.chapter_index = self.chapter_index.saturating_sub(1);
                 self.status = None;
             }
-            LibraryView::Reader => {
-                if self.reader_mode == ReaderMode::Scroll {
-                    self.scroll_lines(-SCROLL_LINES);
-                } else {
-                    self.change_page(false);
-                }
-            }
         }
     }
 
     pub fn next(&mut self) {
+        if self.reader.is_some() {
+            if self.reader_mode == ReaderMode::Scroll {
+                self.scroll_lines(SCROLL_LINES);
+            } else {
+                self.change_page(true);
+            }
+            return;
+        }
         match self.view {
             LibraryView::Series => {
                 if let Some(last) = self.visible_count().checked_sub(1) {
@@ -1621,13 +1750,6 @@ impl AppState {
                 if let Some(last) = self.chapter_count().checked_sub(1) {
                     self.chapter_index = (self.chapter_index + 1).min(last);
                     self.status = None;
-                }
-            }
-            LibraryView::Reader => {
-                if self.reader_mode == ReaderMode::Scroll {
-                    self.scroll_lines(SCROLL_LINES);
-                } else {
-                    self.change_page(true);
                 }
             }
         }
@@ -1650,7 +1772,7 @@ impl AppState {
     }
 
     pub fn next_page(&mut self) {
-        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+        if self.reader.is_some() && self.reader_mode == ReaderMode::Scroll {
             let page = self.reader.as_ref().map_or(0, |reader| reader.page_index);
             self.jump_to_page(page + 1);
         } else {
@@ -1659,7 +1781,7 @@ impl AppState {
     }
 
     pub fn previous_page(&mut self) {
-        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+        if self.reader.is_some() && self.reader_mode == ReaderMode::Scroll {
             let (page, aligned) = {
                 let Some(reader) = self.reader.as_ref() else {
                     return;
@@ -1683,7 +1805,7 @@ impl AppState {
     }
 
     pub fn next_screen(&mut self) {
-        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+        if self.reader.is_some() && self.reader_mode == ReaderMode::Scroll {
             self.scroll_lines(self.scroll_page_step());
         } else {
             self.change_page(true);
@@ -1691,7 +1813,7 @@ impl AppState {
     }
 
     pub fn previous_screen(&mut self) {
-        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+        if self.reader.is_some() && self.reader_mode == ReaderMode::Scroll {
             self.scroll_lines(-self.scroll_page_step());
         } else {
             self.change_page(false);
@@ -2135,7 +2257,7 @@ impl AppState {
                 let next = (index as i32 + delta).rem_euclid(READING_MODES.len() as i32) as usize;
                 self.config.reading_mode = READING_MODES[next];
                 self.set_reading_mode(self.config.reading_mode);
-                if self.view == LibraryView::Reader {
+                if self.reader.is_some() {
                     match self.reader_mode {
                         ReaderMode::Page => self.load_page(),
                         ReaderMode::Scroll => self.build_scroll(terminal_width()),
@@ -2275,7 +2397,7 @@ impl AppState {
             return;
         }
         self.zoom = zoom;
-        if self.view == LibraryView::Reader && self.reader_mode == ReaderMode::Scroll {
+        if self.reader.is_some() && self.reader_mode == ReaderMode::Scroll {
             self.build_scroll(terminal_width());
         }
     }
@@ -2286,7 +2408,7 @@ impl AppState {
             ReaderMode::Scroll => ReaderMode::Page,
         };
 
-        if self.view != LibraryView::Reader {
+        if self.reader.is_none() {
             return;
         }
 
@@ -2297,7 +2419,7 @@ impl AppState {
     }
 
     pub fn jump_to_page(&mut self, page: usize) {
-        if self.view != LibraryView::Reader {
+        if self.reader.is_none() {
             return;
         }
 
@@ -2393,7 +2515,7 @@ impl AppState {
             pending_scroll: None,
             error: None,
         });
-        self.view = LibraryView::Reader;
+        self.reader_origin = ReaderOrigin::Library;
         self.status = None;
         if let Some((path, page, pages)) = self.reader.as_ref().map(|reader| {
             (
@@ -2439,7 +2561,7 @@ impl AppState {
     }
 
     pub fn next_chapter(&mut self) {
-        if self.view != LibraryView::Reader {
+        if self.reader.is_none() {
             return;
         }
         if self.remote.reader {
@@ -2457,7 +2579,7 @@ impl AppState {
     }
 
     pub fn previous_chapter(&mut self) {
-        if self.view != LibraryView::Reader {
+        if self.reader.is_none() {
             return;
         }
         if self.remote.reader {
@@ -2927,13 +3049,14 @@ impl AppState {
 
     pub fn select_tab(&mut self, index: usize) {
         let index = index.min(TAB_COUNT - 1);
-        if index == 3 && self.tab != 3 {
-            self.browse_view = BrowseView::Sources;
-            self.browse_selection = 0;
-            if self.host_client.is_some() {
-                self.load_remote_sources();
-            }
-            self.select_browse_entry(0);
+        // Each tab keeps its own navigation state. Only refresh the remote source list
+        // the first time Browse is opened with a host configured.
+        if index == 3
+            && self.tab != 3
+            && self.remote.sources.is_empty()
+            && self.host_client.is_some()
+        {
+            self.load_remote_sources();
         }
         self.tab = index;
     }
@@ -2954,37 +3077,80 @@ impl AppState {
         self.fullscreen = !self.fullscreen;
     }
 
-    /// Rescan the library root, keeping the selection if possible.
+    /// Rescan the library root, keeping the Library tab's place and the Browse
+    /// selection when the underlying series still exists.
     pub fn refresh(&mut self) {
         if self.library.root.as_os_str().is_empty() {
             self.status = Some("No library configured. Set TSUIYOMI_LIBRARY.".to_owned());
             return;
         }
 
+        let previous_series = self.selected_series().map(|series| series.path.clone());
+        let previous_view = self.view;
+        let previous_chapter = self.chapter_index;
+        let previous_category = self.category_name_or_default();
+
         match scan_library(&self.library.root) {
             Ok(library) => {
                 self.library = library;
                 self.invalidate_cover();
                 self.tile_covers.clear();
-                self.view = LibraryView::Series;
-                self.reader = None;
-                self.chapter_index = 0;
-                self.chapter_list_state.select(None);
+
                 self.category_index = self
-                    .config
-                    .default_category
-                    .as_deref()
-                    .and_then(|name| {
-                        self.library
-                            .categories
-                            .iter()
-                            .position(|category| category == name)
+                    .library
+                    .categories
+                    .iter()
+                    .position(|name| name == &previous_category)
+                    .or_else(|| {
+                        self.config.default_category.as_deref().and_then(|name| {
+                            self.library.categories.iter().position(|item| item == name)
+                        })
                     })
-                    .unwrap_or_else(|| {
-                        self.category_index
-                            .min(self.library.categories.len().saturating_sub(1))
-                    });
+                    .unwrap_or(0);
+
+                let restored = previous_series.and_then(|path| {
+                    self.visible_indices()
+                        .into_iter()
+                        .position(|index| self.library.series[index].path == path)
+                });
+                if let Some(position) = restored {
+                    self.selected = position;
+                    self.view = previous_view;
+                    self.chapter_index =
+                        previous_chapter.min(self.chapter_count().saturating_sub(1));
+                    if self.view == LibraryView::Chapters {
+                        let count = self.chapter_count();
+                        self.chapter_list_state
+                            .select((count > 0).then_some(self.chapter_index));
+                    }
+                } else {
+                    self.view = LibraryView::Series;
+                    self.selected = 0;
+                    self.chapter_index = 0;
+                    self.chapter_list_state.select(None);
+                }
+
+                // Drop Browse selections whose series disappeared during the scan.
+                let browse_series_exists = self.browse_local_series.as_deref().is_none_or(|path| {
+                    self.library.series.iter().any(|series| series.path == path)
+                });
+                if !browse_series_exists {
+                    self.browse_local_series = None;
+                    if self.browse_view == BrowseView::Chapters {
+                        self.browse_view = BrowseView::Local;
+                    }
+                }
+                if self.browse_detail.as_deref().is_some_and(|path| {
+                    !self.library.series.iter().any(|series| series.path == path)
+                }) {
+                    self.browse_detail = None;
+                    if self.browse_view == BrowseView::Details {
+                        self.browse_view = BrowseView::Local;
+                    }
+                }
+
                 self.clamp_selection();
+                self.clamp_browse_selection();
                 self.status = if self.library.errors.is_empty() {
                     None
                 } else {
@@ -2996,6 +3162,14 @@ impl AppState {
             }
             Err(error) => self.status = Some(error.to_string()),
         }
+    }
+
+    fn category_name_or_default(&self) -> String {
+        self.library
+            .categories
+            .get(self.category_index)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn reset_selection(&mut self) {
@@ -3177,6 +3351,7 @@ mod tests {
     fn text_input_edits_and_cancels() {
         let mut app = AppState::default();
         app.open_text_input(TextAction::SearchRemote, "Search source", "one");
+        assert!(app.text_mode());
 
         app.input_char(' ');
         app.input_char('p');
@@ -3185,6 +3360,7 @@ mod tests {
 
         app.input_cancel();
         assert!(app.text_input.is_none());
+        assert!(!app.text_mode());
 
         app.open_text_input(TextAction::SearchRemote, "Search source", "berserk");
         app.input_submit();
@@ -3196,7 +3372,7 @@ mod tests {
     #[test]
     fn remote_reader_uses_remote_chapter_navigation_counts() {
         let mut app = AppState {
-            view: LibraryView::Reader,
+            reader_origin: ReaderOrigin::Remote,
             ..AppState::default()
         };
         app.remote.reader = true;
@@ -3313,7 +3489,7 @@ mod tests {
         app.open();
         app.open();
 
-        assert_eq!(app.view, LibraryView::Reader);
+        assert!(app.reader.is_some());
         let reader = app.reader.as_ref().unwrap();
         assert_eq!(reader.pages.len(), 2);
         assert!(reader.protocol.is_some());
@@ -3512,16 +3688,55 @@ mod tests {
 
         app.browse_open();
         assert_eq!(app.tab, 3);
-        assert_eq!(app.view, LibraryView::Chapters);
+        assert_eq!(app.browse_view, BrowseView::Chapters);
+        assert_eq!(app.view, LibraryView::Series);
         assert_eq!(
-            app.selected_series().map(|series| series.title.as_str()),
-            Some("Berserk")
-        );
-        assert_eq!(
-            app.browse_detail_series()
+            app.selected_browse_local_series()
                 .map(|series| series.title.as_str()),
             Some("Berserk")
         );
+    }
+
+    #[test]
+    fn browse_and_library_keep_independent_navigation() {
+        let mut app = AppState::new(library(), None);
+
+        // Open the first library series and its chapter list.
+        app.open();
+        assert_eq!(app.view, LibraryView::Chapters);
+        let library_series = app
+            .selected_series()
+            .map(|series| series.title.clone())
+            .unwrap();
+
+        // Browse starts at its own root, not at the Library's chapter list.
+        app.select_tab(3);
+        assert_eq!(app.view, LibraryView::Chapters);
+        assert_eq!(app.browse_view, BrowseView::Sources);
+
+        // Open a different series in Browse.
+        app.browse_view = BrowseView::Local;
+        let position = app
+            .browse_local_indices()
+            .into_iter()
+            .position(|index| app.library.series[index].title == "Berserk")
+            .unwrap();
+        app.select_browse_index(position);
+        app.browse_open();
+        app.browse_open();
+        assert_eq!(app.browse_view, BrowseView::Chapters);
+        assert_eq!(
+            app.selected_browse_local_series()
+                .map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+
+        // The Library selection did not move.
+        assert_eq!(
+            app.selected_series().map(|series| series.title.clone()),
+            Some(library_series)
+        );
+        assert_eq!(app.view, LibraryView::Chapters);
     }
 
     #[test]

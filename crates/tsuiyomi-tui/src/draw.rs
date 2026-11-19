@@ -43,33 +43,27 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
         draw_header(frame, header);
     }
 
-    match app.tab {
-        0 => draw_library(frame, layout.content, app),
-        1 => placeholder(
-            frame,
-            layout.content,
-            "Updates",
-            "Update tracking is not implemented yet.",
-        ),
-        2 => placeholder(
-            frame,
-            layout.content,
-            "History",
-            "Reading history is not implemented yet.",
-        ),
-        3 => {
-            if app.view == LibraryView::Series {
-                draw_browse(frame, layout.content, app);
-            } else {
-                draw_library(frame, layout.content, app);
-            }
-        }
-        _ => draw_more(frame, layout.content, app),
-    }
-
-    if app.view == LibraryView::Reader && (app.tab == 0 || app.tab == 3) {
+    if app.reader.is_some() {
+        draw_reader(frame, layout.content, app);
         draw_reader_bar(frame, layout.tabs, app);
     } else {
+        match app.tab {
+            0 => draw_library(frame, layout.content, app),
+            1 => placeholder(
+                frame,
+                layout.content,
+                "Updates",
+                "Update tracking is not implemented yet.",
+            ),
+            2 => placeholder(
+                frame,
+                layout.content,
+                "History",
+                "Reading history is not implemented yet.",
+            ),
+            3 => draw_browse(frame, layout.content, app),
+            _ => draw_more(frame, layout.content, app),
+        }
         draw_tabs(frame, layout.tabs, app.tab);
     }
 
@@ -320,79 +314,78 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let items: &[(&str, &str)] =
-        if app.view == LibraryView::Reader && (app.tab == 0 || app.tab == 3) {
-            if app.reader_mode == ReaderMode::Scroll {
-                &[
-                    ("q", "quit"),
-                    ("↑↓", "scroll"),
-                    ("←→", "page"),
-                    ("Space", "screen"),
-                    ("+/-", "zoom"),
-                    ("f", "full"),
-                    ("Esc", "back"),
-                ]
-            } else {
-                &[
-                    ("q", "quit"),
-                    ("←→", "page"),
-                    ("f", "full"),
-                    ("Esc", "back"),
-                ]
-            }
-        } else if app.tab == 3 && app.view == LibraryView::Chapters {
+    let items: &[(&str, &str)] = if app.reader.is_some() {
+        if app.reader_mode == ReaderMode::Scroll {
             &[
                 ("q", "quit"),
-                ("↑↓", "chapter"),
-                ("↵", "read"),
+                ("↑↓", "scroll"),
+                ("←→", "page"),
+                ("Space", "screen"),
+                ("+/-", "zoom"),
+                ("f", "full"),
                 ("Esc", "back"),
             ]
-        } else if app.tab == 3 {
-            &[
-                ("q", "quit"),
-                ("↑↓", "move"),
-                ("↵", "open"),
-                ("r", "rescan"),
-                ("Esc", "back"),
-            ]
-        } else if app.tab == 4 {
-            if app.more_focus == MoreFocus::Sections {
-                &[
-                    ("q", "quit"),
-                    ("↑↓", "section"),
-                    ("↵", "enter"),
-                    ("Esc", "back"),
-                ]
-            } else if app.more_section == MoreSection::Settings
-                && app.settings_page == SettingsPage::Main
-            {
-                &[
-                    ("q", "quit"),
-                    ("↑↓", "category"),
-                    ("↵", "open"),
-                    ("Esc", "back"),
-                ]
-            } else {
-                &[
-                    ("q", "quit"),
-                    ("↑↓", "setting"),
-                    ("←→", "change"),
-                    ("↵", "action"),
-                    ("Esc", "back"),
-                ]
-            }
         } else {
             &[
                 ("q", "quit"),
-                ("↑↓", "move"),
-                ("Tab", "tabs"),
-                ("r", "rescan"),
-                ("c", "config"),
+                ("←→", "page"),
                 ("f", "full"),
                 ("Esc", "back"),
-                ("↵", "open"),
             ]
-        };
+        }
+    } else if app.tab == 3 && app.browse_view == BrowseView::Chapters {
+        &[
+            ("q", "quit"),
+            ("↑↓", "chapter"),
+            ("↵", "read"),
+            ("Esc", "back"),
+        ]
+    } else if app.tab == 3 {
+        &[
+            ("q", "quit"),
+            ("↑↓", "move"),
+            ("↵", "open"),
+            ("r", "rescan"),
+            ("Esc", "back"),
+        ]
+    } else if app.tab == 4 {
+        if app.more_focus == MoreFocus::Sections {
+            &[
+                ("q", "quit"),
+                ("↑↓", "section"),
+                ("↵", "enter"),
+                ("Esc", "back"),
+            ]
+        } else if app.more_section == MoreSection::Settings
+            && app.settings_page == SettingsPage::Main
+        {
+            &[
+                ("q", "quit"),
+                ("↑↓", "category"),
+                ("↵", "open"),
+                ("Esc", "back"),
+            ]
+        } else {
+            &[
+                ("q", "quit"),
+                ("↑↓", "setting"),
+                ("←→", "change"),
+                ("↵", "action"),
+                ("Esc", "back"),
+            ]
+        }
+    } else {
+        &[
+            ("q", "quit"),
+            ("↑↓", "move"),
+            ("Tab", "tabs"),
+            ("r", "rescan"),
+            ("c", "config"),
+            ("f", "full"),
+            ("Esc", "back"),
+            ("↵", "open"),
+        ]
+    };
 
     let mut spans = Vec::new();
     for (position, (key, label)) in items.iter().enumerate() {
@@ -418,10 +411,6 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let layout = library_layout(area);
 
     match app.view {
-        LibraryView::Reader => {
-            draw_reader(frame, area, app);
-            return;
-        }
         LibraryView::Series => {
             draw_categories(frame, layout.categories, app);
             let indices = app.visible_indices();
@@ -652,6 +641,7 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
             app.browse_grid_offset = offset;
         }
         BrowseView::Details => draw_browse_detail(frame, content, app),
+        BrowseView::Chapters => draw_browse_chapters(frame, content, app),
         BrowseView::RemoteResults => draw_remote_grid(frame, content, app),
         BrowseView::RemoteDetails => draw_remote_detail(frame, content, app),
         BrowseView::Extensions => draw_extensions(frame, content, app),
@@ -688,6 +678,13 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             "Local source".to_owned(),
             display_path(&app.library.root),
             format!("{} series", app.library.series.len()),
+        ),
+        BrowseView::Chapters => (
+            app.selected_browse_local_series()
+                .map(|series| series.title.clone())
+                .unwrap_or_else(|| "Local source".to_owned()),
+            display_path(&app.library.root),
+            format!("{} chapters", app.browse_local_chapter_count()),
         ),
         BrowseView::RemoteResults | BrowseView::RemoteDetails => (
             app.remote
@@ -1097,6 +1094,22 @@ fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
         )
         .highlight_symbol("› ");
     frame.render_stateful_widget(list, area, &mut app.browse_list_state);
+}
+
+fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let (title, chapters) = app
+        .selected_browse_local_series()
+        .map(|series| (series.title.clone(), series.chapters.clone()))
+        .unwrap_or_else(|| ("Series".to_owned(), Vec::new()));
+    draw_chapter_list(
+        frame,
+        area,
+        &title,
+        &chapters,
+        &app.progress,
+        &mut app.browse_local_list_state,
+        app.browse_local_chapter,
+    );
 }
 
 fn draw_browse_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -2333,7 +2346,6 @@ mod tests {
     #[test]
     fn reader_view_renders_status_and_error() {
         let mut app = test_app();
-        app.view = LibraryView::Reader;
         app.reader = Some(ReaderState {
             series_title: "Test Series".to_owned(),
             chapter_title: "Chapter 1".to_owned(),
@@ -2402,7 +2414,7 @@ mod tests {
         app.browse_open();
         let text = render(&mut app, 80, 30);
         assert_eq!(app.tab, 3);
-        assert_eq!(app.view, LibraryView::Chapters);
+        assert_eq!(app.browse_view, BrowseView::Chapters);
         assert!(text.contains("Chapters"));
         assert!(text.contains("Chapter 1"));
     }

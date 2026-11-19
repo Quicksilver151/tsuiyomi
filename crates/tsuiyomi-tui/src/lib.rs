@@ -114,7 +114,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         let action = if let Some(action) = pending_action.take() {
             Some(action)
         } else if event::poll(Duration::from_millis(30))? {
-            input::read(app.picker.is_some())?
+            input::read(app.text_mode())?
         } else {
             continue;
         };
@@ -147,16 +147,53 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.text_input.is_some() {
+            match action {
+                Action::Back => app.input_cancel(),
+                Action::Open => app.input_submit(),
+                Action::Char(character) => app.input_char(character),
+                Action::Backspace => app.input_backspace(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        // The reader owns the screen while it is open: tabs are hidden, and returning
+        // goes back to the list it was opened from.
+        if app.reader.is_some() {
+            match action {
+                Action::Quit => app.quit_confirm = true,
+                Action::Back => app.close_reader(),
+                Action::Previous | Action::ScrollUp => app.previous(),
+                Action::Next | Action::ScrollDown => app.next(),
+                Action::PreviousPage => app.previous_page(),
+                Action::NextPage | Action::Open => app.next_page(),
+                Action::PreviousScreen => app.previous_screen(),
+                Action::NextScreen => app.next_screen(),
+                Action::PreviousChapter => app.previous_chapter(),
+                Action::NextChapter => app.next_chapter(),
+                Action::ToggleReaderMode => app.toggle_reader_mode(),
+                Action::ZoomIn => app.zoom_in(),
+                Action::ZoomOut => app.zoom_out(),
+                Action::ToggleFullscreen => app.toggle_fullscreen(),
+                Action::Click { column, row } => {
+                    let (width, height) = crossterm::terminal::size()?;
+                    let layout = app_layout(Rect::new(0, 0, width, height), app.fullscreen);
+                    handle_reader_click(layout.tabs, app, column, row);
+                }
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         match action {
             Action::Quit => app.quit_confirm = true,
             Action::Confirm => {}
             Action::Previous => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        app.browse_previous();
-                    } else {
-                        app.previous();
-                    }
+                    app.browse_previous();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
@@ -169,11 +206,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::Next => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        app.browse_next();
-                    } else {
-                        app.next();
-                    }
+                    app.browse_next();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
@@ -186,18 +219,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::PreviousPage => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        match app.browse_view {
-                            BrowseView::Local | BrowseView::RemoteResults => {
-                                app.browse_previous_column();
-                            }
-                            BrowseView::Details | BrowseView::RemoteDetails => {
-                                app.browse_parent();
-                            }
-                            BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {}
+                    match app.browse_view {
+                        BrowseView::Local | BrowseView::RemoteResults => {
+                            app.browse_previous_column();
                         }
-                    } else {
-                        app.previous_page();
+                        BrowseView::Details | BrowseView::Chapters | BrowseView::RemoteDetails => {
+                            app.browse_parent()
+                        }
+                        BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
@@ -211,18 +240,15 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::NextPage => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        match app.browse_view {
-                            BrowseView::Local | BrowseView::RemoteResults => {
-                                app.browse_next_column();
-                            }
-                            BrowseView::Sources
-                            | BrowseView::Details
-                            | BrowseView::RemoteDetails => app.browse_open(),
-                            BrowseView::Extensions | BrowseView::Stores => {}
+                    match app.browse_view {
+                        BrowseView::Local | BrowseView::RemoteResults => {
+                            app.browse_next_column();
                         }
-                    } else {
-                        app.next_page();
+                        BrowseView::Sources
+                        | BrowseView::Details
+                        | BrowseView::Chapters
+                        | BrowseView::RemoteDetails => app.browse_open(),
+                        BrowseView::Extensions | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
@@ -240,11 +266,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::NextChapter => app.next_chapter(),
             Action::ScrollUp => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        app.browse_previous();
-                    } else {
-                        app.previous();
-                    }
+                    app.browse_previous();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
@@ -257,11 +279,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::ScrollDown => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        app.browse_next();
-                    } else {
-                        app.next();
-                    }
+                    app.browse_next();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
@@ -291,37 +309,29 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::SelectTab(index) => app.select_tab(index),
             Action::Refresh => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        app.refresh_browse();
-                    }
+                    app.refresh_browse();
                 } else {
                     app.refresh();
                 }
             }
             Action::Search => {
-                if app.tab == 3
-                    && app.view == LibraryView::Series
-                    && app.browse_view == BrowseView::RemoteResults
-                {
+                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     let query = app.remote.query.clone();
                     app.open_text_input(app::TextAction::SearchRemote, "Search source", &query);
                 }
             }
             Action::Latest => {
-                if app.tab == 3
-                    && app.view == LibraryView::Series
-                    && app.browse_view == BrowseView::RemoteResults
-                {
+                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     app.load_remote_latest();
                 }
             }
             Action::Extensions => {
-                if app.tab == 3 && app.view == LibraryView::Series {
+                if app.tab == 3 {
                     app.open_extensions();
                 }
             }
             Action::Stores => {
-                if app.tab == 3 && app.view == LibraryView::Series {
+                if app.tab == 3 {
                     if app.browse_view == BrowseView::Stores {
                         app.open_extensions();
                     } else {
@@ -331,7 +341,6 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::AddStore => {
                 if app.tab == 3
-                    && app.view == LibraryView::Series
                     && matches!(app.browse_view, BrowseView::Extensions | BrowseView::Stores)
                 {
                     app.open_text_input(
@@ -342,50 +351,34 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::DeleteStore => {
-                if app.tab == 3
-                    && app.view == LibraryView::Series
-                    && app.browse_view == BrowseView::Stores
-                {
+                if app.tab == 3 && app.browse_view == BrowseView::Stores {
                     app.remove_selected_store();
                 }
             }
             Action::UpdateExtension => {
-                if app.tab == 3
-                    && app.view == LibraryView::Series
-                    && app.browse_view == BrowseView::Extensions
-                {
+                if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.update_selected_extension();
                 }
             }
             Action::Open => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        app.browse_open();
-                    } else {
-                        app.open();
-                    }
+                    app.browse_open();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.focus_more_content();
                     } else {
                         app.activate_setting();
                     }
-                } else {
+                } else if app.tab == 0 {
                     app.open();
                 }
             }
             Action::Back => {
                 if app.tab == 3 {
-                    if app.view == LibraryView::Series {
-                        app.browse_parent();
-                    } else if app.remote.reader {
-                        app.close_remote_reader();
-                    } else {
-                        app.back();
-                    }
+                    app.browse_parent();
                 } else if app.tab == 4 {
                     app.leave_more();
-                } else {
+                } else if app.tab == 0 {
                     app.back();
                 }
             }
@@ -427,7 +420,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
 fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     let layout = app_layout(area, app.fullscreen);
 
-    if app.view == LibraryView::Reader && (app.tab == 0 || app.tab == 3) {
+    if app.reader.is_some() {
         handle_reader_click(layout.tabs, app, column, row);
         return;
     }
@@ -443,11 +436,7 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     }
 
     if app.tab == 3 {
-        if app.view == LibraryView::Series {
-            handle_browse_click(layout.content, app, column, row);
-        } else if app.view == LibraryView::Chapters {
-            handle_chapter_click(layout.content, app, column, row);
-        }
+        handle_browse_click(layout.content, app, column, row);
         return;
     }
 
@@ -505,10 +494,18 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_browse_index(index);
             }
         }
-        BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {
+        BrowseView::Sources
+        | BrowseView::Extensions
+        | BrowseView::Stores
+        | BrowseView::Chapters => {
             let list = library_grid_area(area);
+            let offset = if app.browse_view == BrowseView::Chapters {
+                app.browse_local_list_state.offset()
+            } else {
+                0
+            };
             if contains(list, column, row) {
-                app.select_browse_index((row - list.y) as usize);
+                app.select_browse_index(offset + (row - list.y) as usize);
             }
         }
         BrowseView::Details | BrowseView::RemoteDetails => {}
