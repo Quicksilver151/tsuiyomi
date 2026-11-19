@@ -1092,7 +1092,7 @@ impl AppState {
 
     /// True while a modal should receive printable keys instead of shortcuts.
     pub fn text_mode(&self) -> bool {
-        self.picker.is_some() || self.text_input.is_some() || self.quit_confirm
+        self.picker.is_some() || self.text_input.is_some()
     }
 
     pub fn open_text_input(&mut self, action: TextAction, title: &str, value: &str) {
@@ -3349,6 +3349,13 @@ mod tests {
 
     #[test]
     fn text_input_edits_and_cancels() {
+        // The quit dialog must keep its shortcut keys, not switch to text input.
+        let quit_dialog = AppState {
+            quit_confirm: true,
+            ..AppState::default()
+        };
+        assert!(!quit_dialog.text_mode());
+
         let mut app = AppState::default();
         app.open_text_input(TextAction::SearchRemote, "Search source", "one");
         assert!(app.text_mode());
