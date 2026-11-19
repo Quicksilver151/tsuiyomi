@@ -2482,7 +2482,7 @@ impl AppState {
                 };
                 let page = reader.page_index;
                 let current = scroll.offset as i32;
-                let start = scroll.layout.get(page).map_or(0, |page| page.start) as i32;
+                let start = page_start_row(&scroll.layout, page) as i32;
                 (page, current <= start)
             };
             if aligned {
@@ -3141,7 +3141,7 @@ impl AppState {
                     return;
                 };
                 let page = page.min(reader.pages.len().saturating_sub(1));
-                let start = scroll.layout.get(page).map_or(0, |page| page.start);
+                let start = page_start_row(&scroll.layout, page);
                 let max_scroll = scroll
                     .total_rows
                     .saturating_sub(u32::from(scroll.viewport_height));
@@ -3401,7 +3401,14 @@ impl AppState {
             sizes.iter().take(4).collect::<Vec<_>>()
         ));
 
-        const MAX_SEGMENT_ROWS: u32 = 400;
+        // Scroll mode is drawn as a stack of bounded blocks. Block size matters:
+        // ratatui-image's kitty backend can only address 297 rows (its diacritic
+        // table), so a taller block scrolled past by more than that draws the wrong
+        // scanline; very tall protocols also hit terminal texture limits. The worker
+        // caches the decoded page, so splitting into blocks costs only crop+encode.
+        const MAX_BLOCK_PIXELS: u32 = 2048;
+        const MAX_BLOCK_ROWS: u32 = 256;
+        let block_rows = (MAX_BLOCK_PIXELS / font_height).clamp(24, MAX_BLOCK_ROWS);
 
         let mut layout = Vec::with_capacity(sizes.len());
         let mut total_rows = 0u32;
@@ -3419,18 +3426,20 @@ impl AppState {
 
             // Very tall webtoon pages are split into segments. One giant protocol per
             // page is slow to encode and often misrenders; segments stay small.
-            let mut remaining = rows;
-            let mut source_y = 0u32;
-            while remaining > 0 {
-                let segment_rows = remaining.min(MAX_SEGMENT_ROWS);
+            let mut consumed = 0u32;
+            while consumed < rows {
+                let segment_rows = (rows - consumed).min(block_rows);
                 let segment_px_height = segment_rows * font_height;
-                let remaining_source = source_height.saturating_sub(source_y);
-                let segment_source_height = if segment_rows == remaining {
-                    remaining_source
+                let top_px = (f64::from(consumed) * f64::from(font_height) / scale).floor() as u32;
+                let bottom_px = if consumed + segment_rows >= rows {
+                    source_height
                 } else {
-                    ((f64::from(segment_px_height) / scale).round() as u32)
-                        .clamp(1, remaining_source.max(1))
+                    ((f64::from(consumed + segment_rows) * f64::from(font_height) / scale).floor()
+                        as u32)
+                        .min(source_height)
                 };
+                let segment_source_y = top_px.min(source_height.saturating_sub(1));
+                let segment_source_height = bottom_px.saturating_sub(segment_source_y).max(1);
 
                 layout.push(ScrollPageLayout {
                     start: total_rows,
@@ -3439,12 +3448,11 @@ impl AppState {
                     pixel_width,
                     pixel_height: segment_px_height,
                     page: page_index,
-                    source_y,
+                    source_y: segment_source_y,
                     source_height: segment_source_height,
                 });
                 total_rows = total_rows.saturating_add(segment_rows);
-                source_y = source_y.saturating_add(segment_source_height);
-                remaining -= segment_rows;
+                consumed += segment_rows;
             }
         }
 
@@ -3709,10 +3717,10 @@ impl AppState {
         let Some(scroll) = scroll else {
             return;
         };
-        let Some(page) = reader.pages.get(index).cloned() else {
+        let Some(layout) = scroll.layout.get(index).copied() else {
             return;
         };
-        let Some(layout) = scroll.layout.get(index).copied() else {
+        let Some(page) = reader.pages.get(layout.page).cloned() else {
             return;
         };
         let Some(picker) = self.image_picker.clone() else {
@@ -3771,8 +3779,8 @@ impl AppState {
             let mut page = scroll
                 .layout
                 .iter()
-                .rposition(|page| page.start as i32 <= next)
-                .unwrap_or(0);
+                .rposition(|segment| segment.start as i32 <= next)
+                .map_or(0, |index| scroll.layout[index].page);
             if at_end && !reader.pages.is_empty() {
                 page = reader.pages.len() - 1;
             }
@@ -4283,12 +4291,19 @@ fn scroll_visible_ready(scroll: &ScrollState) -> bool {
     })
 }
 
+fn page_start_row(layout: &[ScrollPageLayout], page: usize) -> u32 {
+    layout
+        .iter()
+        .find(|segment| segment.page == page)
+        .map_or(0, |segment| segment.start)
+}
+
 fn page_at_offset(scroll: &ScrollState) -> usize {
     let max_scroll = scroll
         .total_rows
         .saturating_sub(u32::from(scroll.viewport_height));
     if scroll.offset >= max_scroll {
-        return scroll.layout.len().saturating_sub(1);
+        return scroll.layout.last().map_or(0, |segment| segment.page);
     }
     scroll
         .layout
@@ -4309,15 +4324,39 @@ pub(crate) fn build_scroll_protocol(
         page.name, layout.pixel_width, layout.pixel_height, layout.rows
     ));
     let bytes = read_page(page).map_err(|error| error.to_string())?;
-    let mut image =
+    let image =
         image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?;
-    if layout.source_y > 0 || layout.source_height < image.height() {
-        let height = layout
-            .source_height
-            .min(image.height().saturating_sub(layout.source_y))
-            .max(1);
-        image = image.crop_imm(0, layout.source_y, image.width(), height);
-    }
+    let result = build_scroll_block(picker, &image, &page.name, layout);
+    scroll_debug(&format!(
+        "build end {} {:?} ok={}",
+        page.name,
+        started.elapsed(),
+        result.is_ok()
+    ));
+    result
+}
+
+/// Crop and encode one scroll block from an already decoded page.
+///
+/// The worker keeps decoded pages in a small cache so each block of a long webtoon
+/// strip does not download and decode the whole image again.
+pub(crate) fn build_scroll_block(
+    picker: &Picker,
+    image: &image::DynamicImage,
+    name: &str,
+    layout: ScrollPageLayout,
+) -> Result<SlicedProtocol, String> {
+    let started = std::time::Instant::now();
+    let source_y = layout.source_y.min(image.height().saturating_sub(1));
+    let available = image.height().saturating_sub(source_y);
+    let height = layout.source_height.min(available).max(1);
+    let cropped;
+    let image = if source_y > 0 || height < image.height() {
+        cropped = image.crop_imm(0, source_y, image.width(), height);
+        &cropped
+    } else {
+        image
+    };
     let image = image.resize_exact(
         layout.pixel_width,
         layout.pixel_height,
@@ -4330,12 +4369,16 @@ pub(crate) fn build_scroll_protocol(
         Resize::Fit(None),
     )
     .map_err(|error| error.to_string());
-    scroll_debug(&format!(
-        "build end {} {:?} ok={}",
-        page.name,
-        started.elapsed(),
-        result.is_ok()
-    ));
+    if std::env::var_os("TSUIYOMI_DEBUG_SCROLL").is_some() {
+        scroll_debug(&format!(
+            "block {} y={} h={} {:?} ok={}",
+            name,
+            layout.source_y,
+            layout.source_height,
+            started.elapsed(),
+            result.is_ok()
+        ));
+    }
     result
 }
 
@@ -4771,6 +4814,67 @@ mod tests {
 
         app.back();
         assert_eq!(app.view, LibraryView::Chapters);
+    }
+
+    #[test]
+    fn splits_tall_webtoon_pages_into_small_blocks() {
+        let root = tempfile::tempdir().unwrap();
+        let image = image::RgbImage::from_pixel(100, 12_000, image::Rgb([30, 40, 50]));
+        image.save(root.path().join("1.png")).unwrap();
+
+        let series = Series {
+            path: root.path().to_path_buf(),
+            remote: None,
+            title: "Strip".to_owned(),
+            author: None,
+            artist: None,
+            description: String::new(),
+            tags: Vec::new(),
+            status: None,
+            cover: None,
+            categories: vec!["Default".to_owned()],
+            chapters: vec![Chapter {
+                path: root.path().to_path_buf(),
+                title: "Chapter 1".to_owned(),
+                number: Some(1.0),
+                kind: tsuiyomi_core::ChapterKind::Directory,
+                scanlator: None,
+                date: None,
+            }],
+            warnings: Vec::new(),
+        };
+        let library = Library {
+            root: root.path().to_path_buf(),
+            series: vec![series],
+            categories: vec!["Default".to_owned()],
+            errors: Vec::new(),
+        };
+
+        let mut app = AppState::new(library, None);
+        app.set_image_picker(Picker::halfblocks());
+        app.open();
+        app.open();
+        app.toggle_reader_mode();
+
+        let scroll = app.reader.as_ref().unwrap().scroll.as_ref().unwrap();
+        assert!(scroll.layout.len() > 1, "tall page must be split");
+        assert!(scroll.layout.iter().all(|block| block.page == 0));
+        assert!(scroll.layout.iter().all(|block| block.rows <= 256));
+        for pair in scroll.layout.windows(2) {
+            assert_eq!(
+                pair[0].start + u32::from(pair[0].rows),
+                pair[1].start,
+                "blocks must tile without gaps"
+            );
+            assert_eq!(
+                pair[0].source_y + pair[0].source_height,
+                pair[1].source_y,
+                "source crops must tile without gaps"
+            );
+        }
+        let last = scroll.layout.last().unwrap();
+        assert_eq!(last.source_y + last.source_height, 12_000);
+        assert_eq!(page_at_offset(scroll), 0);
     }
 
     #[test]

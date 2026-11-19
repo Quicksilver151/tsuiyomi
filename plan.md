@@ -114,7 +114,8 @@ database rows. tsuiyomi owns reading progress.
 - [x] Global search across pinned sources, grouped with horizontal result rows.
 - [x] Scroll mode: remote chapters now build scroll state at all, page sizes are measured
       in the background, the first page is visible while waiting, and long webtoon pages
-      are split into bounded segments instead of one giant protocol.
+      are split into small bounded blocks (with a decoded-page cache) instead of one giant
+      protocol. `Default` stays leftmost in the category bar.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.
 

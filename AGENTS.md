@@ -146,9 +146,12 @@ Rules:
   vs continuous scroll (`SlicedProtocol`); left/right align page tops, space/page keys
   scroll a screen, and
   `+`/`-` adjust zoom (no upscaling at 100%). Scroll mode reads page dimensions once,
-  lazily decodes only visible/nearby pages, caches their protocols, and uses Kitty shared
-  memory when available. Page decode/resize/encode runs on a background worker; the UI
-  polls and redraws without blocking. `ScrollCacheConfig` in the TUI holds prefetch
+  lazily decodes only visible/nearby blocks, caches their protocols, and uses Kitty shared
+  memory when available. Long webtoon strips are split into small blocks (bounded pixel
+  height and at most 256 rows, because ratatui-image's Kitty backend only addresses 297
+  rows); the worker caches the last two decoded pages so a strip's blocks share one
+  download/decode. Page decode/resize/encode runs on a background worker; the UI polls and
+  redraws without blocking. `ScrollCacheConfig` in the TUI holds prefetch
   behind/ahead and cache-margin values (currently defaults: 2 behind, 2 ahead, 4 margin);
   expose it in config/settings later. Progress is stored in
   `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction, fit modes, and

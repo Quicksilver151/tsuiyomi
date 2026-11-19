@@ -8,10 +8,11 @@ use std::{
     thread,
 };
 
+use image::DynamicImage;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
-use tsuiyomi_core::{page_dimensions, Page};
+use tsuiyomi_core::{page_dimensions, read_page, Page, PageSource};
 
-use crate::app::{build_scroll_protocol, ScrollPageLayout};
+use crate::app::{build_scroll_block, ScrollPageLayout};
 
 pub(crate) struct BuildRequest {
     pub generation: u64,
@@ -25,6 +26,57 @@ pub(crate) struct BuildResult {
     pub generation: u64,
     pub index: usize,
     pub result: Result<SlicedProtocol, String>,
+}
+
+/// Keeps recently decoded pages around.
+///
+/// A long webtoon strip becomes many scroll blocks that all belong to the same source
+/// image. Without this cache every block downloads and decodes the whole strip again,
+/// which is both slow and memory-hungry. Requests arrive in reading order, so a couple
+/// of entries cover the overlapping page at a block boundary and a quick scroll back.
+struct PageCache {
+    capacity: usize,
+    entries: Vec<(String, Arc<DynamicImage>)>,
+}
+
+impl PageCache {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            entries: Vec::new(),
+        }
+    }
+
+    fn get(&mut self, page: &Page) -> Result<Arc<DynamicImage>, String> {
+        let key = page_cache_key(page);
+        if let Some(position) = self.entries.iter().position(|(entry, _)| entry == &key) {
+            // Refresh the entry's position so it is the last one evicted.
+            let entry = self.entries.remove(position);
+            let image = Arc::clone(&entry.1);
+            self.entries.push(entry);
+            return Ok(image);
+        }
+
+        let bytes = read_page(page).map_err(|error| error.to_string())?;
+        let image = Arc::new(
+            image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?,
+        );
+        if self.entries.len() >= self.capacity {
+            self.entries.remove(0);
+        }
+        self.entries.push((key, Arc::clone(&image)));
+        Ok(image)
+    }
+}
+
+fn page_cache_key(page: &Page) -> String {
+    match &page.source {
+        PageSource::File(path) => format!("file:{}", path.display()),
+        PageSource::Archive { path, name, kind } => {
+            format!("archive:{}:{name}:{kind:?}", path.display())
+        }
+        PageSource::Remote { url } => format!("remote:{url}"),
+    }
 }
 
 pub(crate) struct ScrollWorker {
@@ -41,11 +93,14 @@ impl ScrollWorker {
         let worker_generation = Arc::clone(&generation);
 
         thread::spawn(move || {
+            let mut cache = PageCache::new(2);
             for request in request_rx {
                 if request.generation != worker_generation.load(Ordering::Relaxed) {
                     continue;
                 }
-                let result = build_scroll_protocol(&request.picker, &request.page, request.layout);
+                let result = cache.get(&request.page).and_then(|image| {
+                    build_scroll_block(&request.picker, &image, &request.page.name, request.layout)
+                });
                 if request.generation == worker_generation.load(Ordering::Relaxed) {
                     let _ = result_tx.send(BuildResult {
                         generation: request.generation,
