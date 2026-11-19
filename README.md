@@ -98,7 +98,9 @@ border or tile background. `↑↓` moves by grid row, `←→` by one tile, and
 the chapter list. Saved manga from sources open the same details screen as Browse: cover,
 source, author/artist, status, tags, description, and chapters. Their covers are cached
 in `$XDG_CACHE_HOME/tsuiyomi/covers`, so they survive a restart without the extension
-host. `[`/`]` switch categories and `r` rescans. Tile width is adjustable in
+host. `[`/`]` switch categories, `r` rescans, and `b` bookmarks the selected chapter.
+Chapter rows start with fixed bookmark and download columns (`★`/`☆`, `⬇`/`↓`); local
+chapters use `·` in the download column. Tile width is adjustable in
 **More → Settings → Appearance** (`thumbnail_width`, 8–28 columns).
 
 ## Browse
@@ -124,6 +126,7 @@ Controls:
 - `e` jumps to the Extensions tab; `d` removes a store from the store list.
 - `F` adds or removes the open manga from the library.
 - `D` downloads the selected remote chapter (also available in the reader).
+- `b` bookmarks or unbookmarks the selected chapter (also available in the reader).
 - `/` on the Sources tab searches every pinned source and groups the hits by source.
 
 The Library is one grid: local series and manga saved from sources share it, categories,
@@ -270,7 +273,7 @@ Page-turn modes open single pages; `webtoon` and `continuous_vertical` open in s
 mode. `m` switches between page and scroll for the current session. Scroll mode fits
 pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom from 50%
 to 300%. Only pages near the viewport are decoded and cached, and page preparation runs
-off the UI thread.
+off the UI thread. `D` downloads the current chapter and `b` toggles its bookmark.
 
 - `↑↓` selects sections/settings; `Enter` enters the selected More section, opens a
   settings page, or activates a setting; `Esc` backs out one level; `←→` adjusts the

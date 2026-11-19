@@ -53,9 +53,15 @@ impl ProgressStore {
         self.entries.get(&key(chapter)).copied()
     }
 
-    pub fn record(&mut self, chapter: &Path, page: usize, pages: usize) -> io::Result<()> {
+    /// Update in memory without touching the disk. Used while scrolling; the TUI
+    /// flushes periodically instead of writing on every page change.
+    pub fn update(&mut self, chapter: &Path, page: usize, pages: usize) {
         self.entries
             .insert(key(chapter), ProgressEntry { page, pages });
+    }
+
+    pub fn record(&mut self, chapter: &Path, page: usize, pages: usize) -> io::Result<()> {
+        self.update(chapter, page, pages);
         self.save()
     }
 

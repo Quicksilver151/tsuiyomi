@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use crossterm::terminal;
@@ -8,11 +9,12 @@ use ratatui::{layout::Size, widgets::ListState};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    chapter::natural_cmp, chapter_dir, chapter_pages, downloads_dir, ensure_runtime, fetch_bytes,
-    host_data_dir, is_downloaded, page_dimensions, read_cover, read_page, remote_cover_path,
-    save_config, scan_library, Chapter, ChapterKind, Config, ExtensionInfo, HostClient,
-    HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
+    chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
+    ensure_runtime, fetch_bytes, host_data_dir, is_downloaded, page_dimensions, read_cover,
+    read_page, remote_cover_path, save_config, scan_library, series_dir_name, source_dir_name,
+    BookmarkStore, Chapter, ChapterKind, Config, ExtensionInfo, HostClient, HostProcess, Library,
+    LibrarySort, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -24,6 +26,14 @@ use crate::{
 
 /// Lines moved per arrow/wheel step in continuous scroll mode.
 const SCROLL_LINES: i32 = 5;
+
+/// Maximum size of one scroll block. Keeping blocks around one screen bounds the
+/// terminal write each time a new image is transmitted.
+const SCROLL_BLOCK_PIXELS: u32 = 1024;
+const SCROLL_BLOCK_ROWS_MAX: u32 = 128;
+/// Older builds used 2048px blocks; scale prefetch counts so the lookahead distance
+/// in rows stays the same after shrinking blocks.
+const SCROLL_PREFETCH_SCALE: usize = 2;
 
 /// Upper bound on decoded library tile covers kept in memory.
 const TILE_COVER_CACHE: usize = 64;
@@ -43,6 +53,8 @@ pub struct LibraryRemoteState {
     pub chapters: Vec<RemoteChapter>,
     pub chapter_index: usize,
     pub list_state: ListState,
+    /// Per-chapter download flags, recomputed once per open/download.
+    pub downloaded: Vec<bool>,
 }
 
 /// Where the reader was opened from, so closing it returns to the right place.
@@ -159,6 +171,8 @@ pub struct RemoteState {
     pub manga: Option<RemoteManga>,
     pub chapters: Vec<RemoteChapter>,
     pub chapter_index: usize,
+    /// Per-chapter download flags, recomputed once per open/download.
+    pub downloaded: Vec<bool>,
     pub reader: bool,
     pub status: Option<String>,
     pub error: bool,
@@ -194,6 +208,7 @@ impl Default for RemoteState {
             manga: None,
             chapters: Vec::new(),
             chapter_index: 0,
+            downloaded: Vec::new(),
             reader: false,
             status: None,
             error: false,
@@ -469,6 +484,11 @@ pub struct ScrollState {
     pub layout: Vec<ScrollPageLayout>,
     pub protocols: Vec<Option<SlicedProtocol>>,
     pub requested: Vec<bool>,
+    /// Protocols built but not yet rendered. Rendering a Kitty block copies its
+    /// transmission string into the frame buffer, so reveal fresh blocks gradually.
+    pub fresh: Vec<bool>,
+    /// A fresh visible block was held back this frame; draw again immediately.
+    pub deferred_transmits: bool,
     pub errors: Vec<Option<String>>,
     /// First visible row.
     pub offset: u32,
@@ -500,6 +520,9 @@ pub struct AppState {
     pub reader_mode: ReaderMode,
     pub library: Library,
     pub library_remote: LibraryRemoteState,
+    /// Chapters fetched for saved manga, keyed by source+URL. Reopening a story is
+    /// then instant; `r` refreshes it.
+    remote_chapter_cache: HashMap<String, (RemoteManga, Vec<RemoteChapter>)>,
     pub category_index: usize,
     pub selected: usize,
     pub chapter_index: usize,
@@ -507,8 +530,10 @@ pub struct AppState {
     pub reader: Option<ReaderState>,
     pub reader_origin: ReaderOrigin,
     pub image_picker: Option<Picker>,
-    /// Decoded custom cover for the selected series.
     pub progress: ProgressStore,
+    pub bookmarks: BookmarkStore,
+    progress_dirty: bool,
+    progress_changed_at: Option<Instant>,
     /// Worker that decodes/resizes/encodes scroll pages off the UI thread.
     pub(crate) scroll_worker: Option<ScrollWorker>,
     pub(crate) size_worker: Option<SizeWorker>,
@@ -568,6 +593,7 @@ impl AppState {
             reader_mode: ReaderMode::Page,
             library,
             library_remote: LibraryRemoteState::default(),
+            remote_chapter_cache: HashMap::new(),
             category_index: 0,
             selected: 0,
             chapter_index: 0,
@@ -576,6 +602,9 @@ impl AppState {
             reader_origin: ReaderOrigin::Library,
             image_picker: None,
             progress: ProgressStore::default(),
+            bookmarks: BookmarkStore::default(),
+            progress_dirty: false,
+            progress_changed_at: None,
             scroll_worker: None,
             size_worker: None,
             download_worker: None,
@@ -728,6 +757,17 @@ impl AppState {
                 let Some(manga) = self.remote.results.get(self.browse_selection).cloned() else {
                     return;
                 };
+                let key = remote_story_key(&manga.source_id, &manga.url);
+                if let Some((cached, chapters)) = self.remote_chapter_cache.get(&key).cloned() {
+                    self.remote.manga = Some(cached);
+                    self.remote.chapters = chapters;
+                    self.remote.remote_details_origin = BrowseView::RemoteResults;
+                    self.refresh_download_marks();
+                    self.browse_view = BrowseView::RemoteDetails;
+                    self.browse_selection = 0;
+                    self.select_browse_entry(0);
+                    return;
+                }
                 self.remote.manga = Some(manga);
                 self.remote.remote_details_origin = BrowseView::RemoteResults;
                 self.load_remote_details();
@@ -1583,6 +1623,13 @@ impl AppState {
                 self.remote.chapters = chapters;
                 self.remote.status = None;
                 self.remote.error = false;
+                if let Some(manga) = &self.remote.manga {
+                    self.remote_chapter_cache.insert(
+                        remote_story_key(&manga.source_id, &manga.url),
+                        (manga.clone(), self.remote.chapters.clone()),
+                    );
+                }
+                self.refresh_download_marks();
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -1595,6 +1642,12 @@ impl AppState {
         let Some(chapter) = self.remote.chapters.get(index).cloned() else {
             return;
         };
+        if self.downloaded_chapter_dir(&manga, &chapter).is_none()
+            && self.host_client.is_none()
+            && !self.ensure_host()
+        {
+            return;
+        }
         let pages = match self.remote_chapter_pages(&manga, &chapter) {
             Ok(pages) => pages,
             Err(error) => {
@@ -2213,6 +2266,14 @@ impl AppState {
         changed
     }
 
+    /// Whether the scroll view still has a freshly built block to reveal.
+    pub fn needs_scroll_redraw(&self) -> bool {
+        self.reader
+            .as_ref()
+            .and_then(|reader| reader.scroll.as_ref())
+            .is_some_and(|scroll| scroll.deferred_transmits)
+    }
+
     /// Whether the current screen has a remote chapter that can be downloaded.
     pub fn has_downloadable_chapter(&self) -> bool {
         self.active_remote_chapter().is_some()
@@ -2483,6 +2544,80 @@ impl AppState {
         self.progress = progress;
     }
 
+    pub fn set_bookmarks(&mut self, bookmarks: BookmarkStore) {
+        self.bookmarks = bookmarks;
+    }
+
+    /// Whether the current screen has a chapter that can be bookmarked.
+    pub fn has_bookmarkable_chapter(&self) -> bool {
+        self.active_chapter_key().is_some()
+    }
+
+    pub fn toggle_bookmark(&mut self) {
+        let Some(key) = self.active_chapter_key() else {
+            self.status = Some("Open a chapter to bookmark it.".to_owned());
+            return;
+        };
+        self.status = Some(match self.bookmarks.toggle(&key) {
+            Ok(true) => "Chapter bookmarked".to_owned(),
+            Ok(false) => "Bookmark removed".to_owned(),
+            Err(error) => format!("Could not save bookmark: {error}"),
+        });
+        if self.tab == 3 {
+            self.remote.status = self.status.clone();
+            self.remote.error = false;
+        }
+    }
+
+    /// Stable key for the chapter under the cursor in the reader or a story screen.
+    fn active_chapter_key(&self) -> Option<PathBuf> {
+        if let Some(reader) = &self.reader {
+            return Some(reader.chapter_path.clone());
+        }
+
+        if self.tab == 0 {
+            match self.view {
+                LibraryView::Chapters => {
+                    return self.selected_chapter().map(|chapter| chapter.path.clone());
+                }
+                LibraryView::RemoteDetails => {
+                    let manga = self.library_remote.manga.as_ref()?;
+                    let chapter = self
+                        .library_remote
+                        .chapters
+                        .get(self.library_remote.chapter_index)?;
+                    return Some(remote_progress_key(
+                        &manga.source_id,
+                        &manga.url,
+                        &chapter.url,
+                    ));
+                }
+                LibraryView::Series => {}
+            }
+        }
+
+        if self.tab == 3 {
+            match self.browse_view {
+                BrowseView::Chapters => {
+                    let series = self.selected_browse_local_series()?;
+                    let chapter = series.chapters.get(self.browse_local_chapter)?;
+                    return Some(chapter.path.clone());
+                }
+                BrowseView::RemoteDetails => {
+                    let manga = self.remote.manga.as_ref()?;
+                    let chapter = self.remote.chapters.get(self.browse_selection)?;
+                    return Some(remote_progress_key(
+                        &manga.source_id,
+                        &manga.url,
+                        &chapter.url,
+                    ));
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     pub fn protocol_name(&self) -> &'static str {
         match self.image_picker.as_ref().map(Picker::protocol_type) {
             Some(ratatui_image::picker::ProtocolType::Kitty) => "Kitty",
@@ -2577,6 +2712,7 @@ impl AppState {
         if self.reader.is_none() {
             return;
         }
+        self.flush_progress();
         self.reader = None;
         self.status = None;
         match self.reader_origin {
@@ -2821,7 +2957,26 @@ impl AppState {
         if self.config.incognito {
             return;
         }
-        let _ = self.progress.record(chapter, page, pages);
+        self.progress.update(chapter, page, pages);
+        self.progress_dirty = true;
+        self.progress_changed_at = Some(Instant::now());
+    }
+
+    /// Whether the in-memory progress has been idle long enough to write.
+    pub fn progress_save_due(&self) -> bool {
+        self.progress_dirty
+            && self
+                .progress_changed_at
+                .is_some_and(|changed| changed.elapsed() >= Duration::from_millis(500))
+    }
+
+    /// Write pending progress immediately. Safe to call when nothing is dirty.
+    pub fn flush_progress(&mut self) {
+        if self.progress_dirty {
+            let _ = self.progress.save();
+            self.progress_dirty = false;
+            self.progress_changed_at = None;
+        }
     }
 
     /// Save current reader and appearance settings back to the config file.
@@ -3649,11 +3804,10 @@ impl AppState {
         // Scroll mode is drawn as a stack of bounded blocks. Block size matters:
         // ratatui-image's kitty backend can only address 297 rows (its diacritic
         // table), so a taller block scrolled past by more than that draws the wrong
-        // scanline; very tall protocols also hit terminal texture limits. The worker
-        // caches the decoded page, so splitting into blocks costs only crop+encode.
-        const MAX_BLOCK_PIXELS: u32 = 2048;
-        const MAX_BLOCK_ROWS: u32 = 256;
-        let block_rows = (MAX_BLOCK_PIXELS / font_height).clamp(24, MAX_BLOCK_ROWS);
+        // scanline. Smaller blocks also cap the bytes copied and written to the
+        // terminal when a block is first shown; the worker caches the decoded page,
+        // so splitting into blocks costs only crop+encode.
+        let block_rows = (SCROLL_BLOCK_PIXELS / font_height).clamp(16, SCROLL_BLOCK_ROWS_MAX);
 
         let mut layout = Vec::with_capacity(sizes.len());
         let mut total_rows = 0u32;
@@ -3732,6 +3886,8 @@ impl AppState {
                 layout,
                 protocols: (0..page_count).map(|_| None).collect(),
                 requested: vec![false; page_count],
+                fresh: vec![false; page_count],
+                deferred_transmits: false,
                 errors: vec![None; page_count],
                 offset,
                 width: width.max(1),
@@ -3802,7 +3958,7 @@ impl AppState {
     }
 
     pub(crate) fn ensure_scroll_view(&mut self, viewport_height: u16) {
-        let (load_start, load_end, first, last, page, pending) = {
+        let (load_start, load_end, first, last, page, pending, generation) = {
             let Some(reader) = self.reader.as_mut() else {
                 return;
             };
@@ -3839,18 +3995,31 @@ impl AppState {
                 .iter()
                 .rposition(|page| page.start < bottom)
                 .unwrap_or(first);
-            let load_start = first.saturating_sub(self.scroll_cache.prefetch_behind);
-            let load_end = (last + self.scroll_cache.prefetch_ahead)
-                .min(scroll.layout.len().saturating_sub(1));
+            let load_start = first.saturating_sub(
+                self.scroll_cache
+                    .prefetch_behind
+                    .saturating_mul(SCROLL_PREFETCH_SCALE),
+            );
+            let load_end = (last
+                + self
+                    .scroll_cache
+                    .prefetch_ahead
+                    .saturating_mul(SCROLL_PREFETCH_SCALE))
+            .min(scroll.layout.len().saturating_sub(1));
             let page = page_at_offset(scroll);
+            let generation = scroll.generation;
 
-            (load_start, load_end, first, last, page, pending)
+            (load_start, load_end, first, last, page, pending, generation)
         };
 
         if !pending {
             if let Some(reader) = self.reader.as_mut() {
                 reader.page_index = page;
             }
+        }
+
+        if let Some(worker) = self.scroll_worker.as_ref() {
+            worker.set_window(generation, load_start, load_end);
         }
 
         let mut to_request = Vec::new();
@@ -3862,6 +4031,13 @@ impl AppState {
                     reader.scroll.as_mut()
                 };
                 if let Some(scroll) = scroll {
+                    // A request outside the window is dropped by the worker; clear its
+                    // flag so scrolling back can request it again.
+                    for (index, requested) in scroll.requested.iter_mut().enumerate() {
+                        if (index < load_start || index > load_end) && *requested {
+                            *requested = false;
+                        }
+                    }
                     for index in load_start..=load_end {
                         if scroll.protocols.get(index).is_some_and(Option::is_some)
                             || scroll.requested.get(index).is_some_and(|value| *value)
@@ -3933,11 +4109,18 @@ impl AppState {
                 reader.scroll.as_mut()
             };
             if let Some(scroll) = scroll {
-                let keep_start = first.saturating_sub(self.scroll_cache.cache_margin);
-                let keep_end = last + self.scroll_cache.cache_margin;
+                let margin = self
+                    .scroll_cache
+                    .cache_margin
+                    .saturating_mul(SCROLL_PREFETCH_SCALE);
+                let keep_start = first.saturating_sub(margin);
+                let keep_end = last + margin;
                 for (index, protocol) in scroll.protocols.iter_mut().enumerate() {
                     if index < keep_start || index > keep_end {
                         *protocol = None;
+                        if let Some(fresh) = scroll.fresh.get_mut(index) {
+                            *fresh = false;
+                        }
                         if let Some(requested) = scroll.requested.get_mut(index) {
                             *requested = false;
                         }
@@ -3988,6 +4171,9 @@ impl AppState {
                     Ok(protocol) => {
                         if let Some(slot) = scroll.protocols.get_mut(index) {
                             *slot = Some(protocol);
+                        }
+                        if let Some(fresh) = scroll.fresh.get_mut(index) {
+                            *fresh = true;
                         }
                         if let Some(error) = scroll.errors.get_mut(index) {
                             *error = None;
@@ -4130,6 +4316,78 @@ impl AppState {
 
     /// Open a favorite from the Remote library grid.
     pub fn open_library_remote_series(&mut self, remote: RemoteSeries, title: String) {
+        let same_open =
+            self.library_remote.manga.as_ref().is_some_and(|manga| {
+                manga.source_id == remote.source_id && manga.url == remote.url
+            });
+        if !same_open {
+            self.library_remote.chapter_index = 0;
+        }
+        let key = remote_story_key(&remote.source_id, &remote.url);
+        if let Some((manga, chapters)) = self.remote_chapter_cache.get(&key).cloned() {
+            let mut manga = manga;
+            if remote.thumbnail_url.is_some() {
+                manga.thumbnail_url = remote.thumbnail_url;
+            }
+            self.show_library_remote_story(manga, chapters);
+            return;
+        }
+        let already_loaded =
+            self.library_remote.manga.as_ref().is_some_and(|manga| {
+                manga.source_id == remote.source_id && manga.url == remote.url
+            }) && !self.library_remote.chapters.is_empty();
+        if already_loaded {
+            self.goto_library_remote_story();
+            return;
+        }
+        self.fetch_library_remote_series(remote, title);
+    }
+
+    fn goto_library_remote_story(&mut self) {
+        self.view = LibraryView::RemoteDetails;
+        self.status = None;
+        let selected = self
+            .library_remote
+            .chapter_index
+            .min(self.library_remote.chapters.len().saturating_sub(1));
+        self.library_remote.list_state.select(Some(selected));
+    }
+
+    fn show_library_remote_story(&mut self, manga: RemoteManga, chapters: Vec<RemoteChapter>) {
+        let selected = self
+            .library_remote
+            .chapter_index
+            .min(chapters.len().saturating_sub(1));
+        self.library_remote.manga = Some(manga);
+        self.library_remote.chapters = chapters;
+        self.library_remote.chapter_index = selected;
+        self.library_remote.list_state = ListState::default();
+        self.library_remote.list_state.select(Some(selected));
+        self.library_remote.downloaded = self
+            .library_remote
+            .manga
+            .as_ref()
+            .map(|manga| self.mark_downloaded(manga, &self.library_remote.chapters))
+            .unwrap_or_default();
+        self.view = LibraryView::RemoteDetails;
+        self.status = None;
+    }
+
+    /// Reload metadata and chapters for the saved manga that is already open.
+    pub fn reload_library_remote_chapters(&mut self) {
+        let Some(manga) = self.library_remote.manga.clone() else {
+            return;
+        };
+        let remote = RemoteSeries {
+            source_id: manga.source_id.clone(),
+            url: manga.url.clone(),
+            thumbnail_url: manga.thumbnail_url.clone(),
+            memo: manga.memo.clone(),
+        };
+        self.fetch_library_remote_series(remote, manga.title.clone());
+    }
+
+    fn fetch_library_remote_series(&mut self, remote: RemoteSeries, title: String) {
         if self.host_client.is_none() && !self.ensure_host() {
             return;
         }
@@ -4182,13 +4440,61 @@ impl AppState {
             self.status = Some(format!("{} has no chapters", manga.title));
             return;
         }
-        self.library_remote.manga = Some(manga);
-        self.library_remote.chapters = chapters;
-        self.library_remote.chapter_index = 0;
-        self.library_remote.list_state = ListState::default();
-        self.library_remote.list_state.select(Some(0));
-        self.view = LibraryView::RemoteDetails;
-        self.status = None;
+        let key = remote_story_key(&manga.source_id, &manga.url);
+        if self.remote_chapter_cache.len() >= 24 {
+            self.remote_chapter_cache.clear();
+        }
+        self.remote_chapter_cache
+            .insert(key, (manga.clone(), chapters.clone()));
+        self.show_library_remote_story(manga, chapters);
+    }
+
+    /// Whether each chapter of a remote manga has a completed download directory.
+    fn mark_downloaded(&self, manga: &RemoteManga, chapters: &[RemoteChapter]) -> Vec<bool> {
+        let Some(root) = downloads_dir(&self.config) else {
+            return vec![false; chapters.len()];
+        };
+        let source = self.remote_source_name(&manga.source_id);
+        let series_dir = root
+            .join(source_dir_name(&source))
+            .join(series_dir_name(&manga.title));
+        let mut names = HashSet::new();
+        if let Ok(entries) = std::fs::read_dir(&series_dir) {
+            for entry in entries.flatten() {
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    names.insert(entry.file_name().to_string_lossy().into_owned());
+                }
+            }
+        }
+        chapters
+            .iter()
+            .map(|chapter| {
+                names.contains(&chapter_dir_name(
+                    &chapter.name,
+                    chapter.scanlator.as_deref(),
+                ))
+            })
+            .collect()
+    }
+
+    /// Recompute download markers for the open Library and Browse manga.
+    pub fn refresh_download_marks(&mut self) {
+        if let Some(marks) = self
+            .library_remote
+            .manga
+            .as_ref()
+            .map(|manga| self.mark_downloaded(manga, &self.library_remote.chapters))
+        {
+            self.library_remote.downloaded = marks;
+        }
+        if let Some(marks) = self
+            .remote
+            .manga
+            .as_ref()
+            .map(|manga| self.mark_downloaded(manga, &self.remote.chapters))
+        {
+            self.remote.downloaded = marks;
+        }
     }
 
     /// Fold saved remote manga into the one library grid, under the default category.
@@ -4255,6 +4561,12 @@ impl AppState {
         let Some(manga) = self.library_remote.manga.clone() else {
             return;
         };
+        if self.downloaded_chapter_dir(&manga, &chapter).is_none()
+            && self.host_client.is_none()
+            && !self.ensure_host()
+        {
+            return;
+        }
         let pages = match self.remote_chapter_pages(&manga, &chapter) {
             Ok(pages) => pages,
             Err(error) => {
@@ -4458,6 +4770,9 @@ fn apply_scroll_result(scroll: &mut ScrollState, result: BuildResult) -> bool {
             if let Some(slot) = scroll.protocols.get_mut(result.index) {
                 *slot = Some(protocol);
             }
+            if let Some(fresh) = scroll.fresh.get_mut(result.index) {
+                *fresh = true;
+            }
             if let Some(error) = scroll.errors.get_mut(result.index) {
                 *error = None;
             }
@@ -4472,7 +4787,7 @@ fn apply_scroll_result(scroll: &mut ScrollState, result: BuildResult) -> bool {
     }
 }
 
-fn scroll_debug(message: &str) {
+pub(crate) fn scroll_debug(message: &str) {
     if std::env::var_os("TSUIYOMI_DEBUG_SCROLL").is_none() {
         return;
     }
@@ -4603,6 +4918,10 @@ pub(crate) fn build_scroll_block(
         ));
     }
     result
+}
+
+fn remote_story_key(source_id: &str, url: &str) -> String {
+    format!("{source_id}\n{url}")
 }
 
 fn in_category(series: &Series, category: Option<&str>) -> bool {
@@ -4859,6 +5178,19 @@ mod tests {
 
         app.back();
         assert_eq!(app.view, LibraryView::Series);
+    }
+
+    #[test]
+    fn toggles_a_bookmark_for_the_selected_chapter() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.open();
+
+        let key = app.active_chapter_key().expect("chapter selected");
+        app.toggle_bookmark();
+        assert!(app.bookmarks.is_bookmarked(&key));
+        app.toggle_bookmark();
+        assert!(!app.bookmarks.is_bookmarked(&key));
     }
 
     #[test]

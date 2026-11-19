@@ -5,6 +5,7 @@
 //! types in this crate.
 
 mod archive;
+pub mod bookmarks;
 pub mod chapter;
 pub mod comic_info;
 pub mod config;
@@ -17,6 +18,7 @@ pub mod pages;
 pub mod progress;
 pub mod runtime;
 
+pub use bookmarks::BookmarkStore;
 pub use chapter::parse_chapter_number;
 pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
 pub use config::{load_config, save_config, Config, LibrarySort, ReadingMode, Theme};

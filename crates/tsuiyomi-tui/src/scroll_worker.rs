@@ -1,7 +1,7 @@
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender},
         Arc,
     },
@@ -79,10 +79,18 @@ fn page_cache_key(page: &Page) -> String {
     }
 }
 
+/// The block range the UI currently cares about. The worker drops queued work
+/// outside it so fast scrolling does not build content that is already off-screen.
+struct ScrollWindow {
+    first: AtomicUsize,
+    last: AtomicUsize,
+}
+
 pub(crate) struct ScrollWorker {
     requests: Sender<BuildRequest>,
     results: Receiver<BuildResult>,
     generation: Arc<AtomicU64>,
+    window: Arc<ScrollWindow>,
 }
 
 impl ScrollWorker {
@@ -90,17 +98,37 @@ impl ScrollWorker {
         let (request_tx, request_rx) = mpsc::channel::<BuildRequest>();
         let (result_tx, result_rx) = mpsc::channel::<BuildResult>();
         let generation = Arc::new(AtomicU64::new(0));
+        let window = Arc::new(ScrollWindow {
+            first: AtomicUsize::new(0),
+            last: AtomicUsize::new(usize::MAX),
+        });
         let worker_generation = Arc::clone(&generation);
+        let worker_window = Arc::clone(&window);
 
         thread::spawn(move || {
             let mut cache = PageCache::new(2);
             for request in request_rx {
-                if request.generation != worker_generation.load(Ordering::Relaxed) {
+                if !in_window(&request, &worker_generation, &worker_window) {
                     continue;
                 }
-                let result = cache.get(&request.page).and_then(|image| {
-                    build_scroll_block(&request.picker, &image, &request.page.name, request.layout)
-                });
+                let Ok(image) = cache.get(&request.page) else {
+                    // Report the failure only if the request is still relevant.
+                    if in_window(&request, &worker_generation, &worker_window) {
+                        let _ = result_tx.send(BuildResult {
+                            generation: request.generation,
+                            index: request.index,
+                            result: Err("could not load page".to_owned()),
+                        });
+                    }
+                    continue;
+                };
+                // The page download above can take seconds; the viewport may have moved
+                // on while it ran.
+                if !in_window(&request, &worker_generation, &worker_window) {
+                    continue;
+                }
+                let result =
+                    build_scroll_block(&request.picker, &image, &request.page.name, request.layout);
                 if request.generation == worker_generation.load(Ordering::Relaxed) {
                     let _ = result_tx.send(BuildResult {
                         generation: request.generation,
@@ -115,11 +143,19 @@ impl ScrollWorker {
             requests: request_tx,
             results: result_rx,
             generation,
+            window,
         }
     }
 
     pub fn set_generation(&self, generation: u64) {
         self.generation.store(generation, Ordering::Relaxed);
+    }
+
+    /// Publish the block window the UI is currently interested in.
+    pub fn set_window(&self, generation: u64, first: usize, last: usize) {
+        self.generation.store(generation, Ordering::Relaxed);
+        self.window.first.store(first, Ordering::Relaxed);
+        self.window.last.store(last, Ordering::Relaxed);
     }
 
     pub fn request(&self, request: BuildRequest) {
@@ -129,6 +165,12 @@ impl ScrollWorker {
     pub fn try_result(&self) -> Option<BuildResult> {
         self.results.try_recv().ok()
     }
+}
+
+fn in_window(request: &BuildRequest, generation: &AtomicU64, window: &ScrollWindow) -> bool {
+    request.generation == generation.load(Ordering::Relaxed)
+        && request.index >= window.first.load(Ordering::Relaxed)
+        && request.index <= window.last.load(Ordering::Relaxed)
 }
 
 pub(crate) struct SizeRequest {
@@ -158,7 +200,7 @@ impl SizeWorker {
         thread::spawn(move || {
             for request in request_rx {
                 let mut sizes = Vec::with_capacity(request.pages.len());
-                for chunk in request.pages.chunks(8) {
+                for chunk in request.pages.chunks(2) {
                     let batch: Vec<Option<(u32, u32)>> = std::thread::scope(|scope| {
                         let handles: Vec<_> = chunk
                             .iter()

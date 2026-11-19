@@ -147,15 +147,20 @@ Rules:
   scroll a screen, and
   `+`/`-` adjust zoom (no upscaling at 100%). Scroll mode reads page dimensions once,
   lazily decodes only visible/nearby blocks, caches their protocols, and uses Kitty shared
-  memory when available. Long webtoon strips are split into small blocks (bounded pixel
-  height and at most 256 rows, because ratatui-image's Kitty backend only addresses 297
-  rows); the worker caches the last two decoded pages so a strip's blocks share one
-  download/decode. Page decode/resize/encode runs on a background worker; the UI polls and
-  redraws without blocking. `ScrollCacheConfig` in the TUI holds prefetch
-  behind/ahead and cache-margin values (currently defaults: 2 behind, 2 ahead, 4 margin);
-  expose it in config/settings later. Progress is stored in
-  `$XDG_DATA_HOME/tsuiyomi/progress.json`. Reading direction, fit modes, and
-  retransmit-free Kitty placement zoom are not implemented yet.
+  memory when available. Long webtoon strips are split into small blocks (1024 px / at
+  most 128 rows) to bound what one Kitty transmission has to copy and write; the worker
+  caches the last two decoded pages so a strip's blocks share one download/decode. Kitty
+  zlib compression is enabled as the fallback when shared memory is unavailable. The
+  worker drops queued blocks outside the current viewport window, and the UI reveals at
+  most one freshly built block per frame so scrolling cannot stall input on a multi-MB
+  terminal write. Page decode/resize/encode runs on a background worker; the UI polls and
+  redraws without blocking. `ScrollCacheConfig` in the TUI holds prefetch behind/ahead
+  and cache-margin values; they are scaled by block size so the lookahead distance in rows
+  stays stable. Progress is stored in `$XDG_DATA_HOME/tsuiyomi/progress.json` and written
+  after a short idle period instead of on every page change. Chapter bookmarks are stored
+  in `$XDG_DATA_HOME/tsuiyomi/bookmarks.json`; `b` toggles them from a story screen or the
+  reader. Chapter rows use fixed bookmark/download columns. Reading direction, fit modes,
+  and retransmit-free Kitty placement zoom are not implemented yet.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
@@ -197,6 +202,9 @@ Rules:
   (runtime-only and never persisted), `downloads_path`, a sibling `downloads/` when the
   library lives in `local/`, or the app data directory. There is no series-level queue or
   delete UI yet.
+- Opened saved-source stories keep their chapter lists in memory, so reopening a
+  story is instant and works while the host is stopped; `r` reloads from the source.
+  Chapter download markers are cached per story instead of statting every row each frame.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,

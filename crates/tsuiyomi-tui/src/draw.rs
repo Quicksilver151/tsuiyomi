@@ -14,7 +14,7 @@ use ratatui_image::{
 };
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    downloads_dir, is_downloaded, Chapter, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
+    downloads_dir, BookmarkStore, Chapter, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
     RemoteManga, RemoteSource, Series, Theme,
 };
 
@@ -489,6 +489,10 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         let at = items.len().saturating_sub(1);
         items.insert(at, ("D", "download"));
     }
+    if app.has_bookmarkable_chapter() && !items.iter().any(|(key, _)| *key == "b") {
+        let at = items.len().saturating_sub(1);
+        items.insert(at, ("b", "bookmark"));
+    }
 
     let mut spans = Vec::new();
     for (position, (key, label)) in items.iter().enumerate() {
@@ -549,7 +553,7 @@ fn draw_library_chapters(
         draw_browse_empty(frame, list_area, "Series not found. Rescan the library.");
         return;
     };
-    let items = local_chapter_items(&series.chapters, &app.progress);
+    let items = local_chapter_items(&series.chapters, &app.progress, &app.bookmarks);
     draw_story_chapters(
         frame,
         list_area,
@@ -588,25 +592,13 @@ fn draw_library_remote_detail(
     };
     let chapters = app.library_remote.chapters.clone();
     let source = source_display_name(app, &manga.source_id);
-    let download_source = source.clone().unwrap_or_else(|| manga.source_id.clone());
-    let download_root = downloads_dir(&app.config);
-    let series_title = manga.title.clone();
     let items = remote_chapter_items(
         &manga.source_id,
         &manga.url,
         &chapters,
         &app.progress,
-        |chapter| {
-            download_root.as_deref().is_some_and(|root| {
-                is_downloaded(
-                    root,
-                    &download_source,
-                    &series_title,
-                    &chapter.name,
-                    chapter.scanlator.as_deref(),
-                )
-            })
-        },
+        &app.bookmarks,
+        &app.library_remote.downloaded,
     );
     draw_story_chapters(
         frame,
@@ -1291,25 +1283,13 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
     };
     let chapters = app.remote.chapters.clone();
     let source = source_display_name(app, &manga.source_id);
-    let download_source = source.clone().unwrap_or_else(|| manga.source_id.clone());
-    let download_root = downloads_dir(&app.config);
-    let series_title = manga.title.clone();
     let items = remote_chapter_items(
         &manga.source_id,
         &manga.url,
         &chapters,
         &app.progress,
-        |chapter| {
-            download_root.as_deref().is_some_and(|root| {
-                is_downloaded(
-                    root,
-                    &download_source,
-                    &series_title,
-                    &chapter.name,
-                    chapter.scanlator.as_deref(),
-                )
-            })
-        },
+        &app.bookmarks,
+        &app.remote.downloaded,
     );
     draw_story_chapters(
         frame,
@@ -1563,7 +1543,7 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
         draw_browse_empty(frame, layout.list, "Series not found. Rescan the library.");
         return;
     };
-    let items = local_chapter_items(&series.chapters, &app.progress);
+    let items = local_chapter_items(&series.chapters, &app.progress, &app.bookmarks);
     draw_story_chapters(
         frame,
         layout.list,
@@ -1658,10 +1638,16 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
             }
         }
         ReaderMode::Scroll => {
-            if let Some(scroll) = reader.scroll.as_ref() {
+            if let Some(scroll) = reader.scroll.as_mut() {
                 let area = chunks[1];
                 let offset = scroll.offset;
-                for (index, page) in scroll.layout.iter().enumerate() {
+                // Rendering a fresh kitty block copies a multi-megabyte transmission
+                // string into the frame buffer. Show one new block per frame so a
+                // scroll step cannot stall input for seconds.
+                let mut budget = 1usize;
+                let mut deferred = false;
+                for index in 0..scroll.layout.len() {
+                    let page = scroll.layout[index];
                     let top = i64::from(page.start) - i64::from(offset);
                     if top >= i64::from(area.height) {
                         break;
@@ -1669,23 +1655,35 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     if top + i64::from(page.rows) <= 0 {
                         continue;
                     }
-
-                    let Some(protocol) = scroll.protocols.get(index).and_then(Option::as_ref)
-                    else {
+                    if !scroll.protocols.get(index).is_some_and(Option::is_some) {
                         continue;
-                    };
+                    }
+                    if scroll.fresh.get(index).copied().unwrap_or(false) {
+                        if budget == 0 {
+                            deferred = true;
+                            continue;
+                        }
+                        budget -= 1;
+                        if let Some(fresh) = scroll.fresh.get_mut(index) {
+                            *fresh = false;
+                        }
+                    }
+
                     let x = area.width.saturating_sub(page.cell_width) / 2;
-                    frame.render_widget(
-                        SlicedImage::new(
-                            protocol,
-                            SignedPosition {
-                                x: x as i16,
-                                y: top as i16,
-                            },
-                        ),
-                        area,
-                    );
+                    if let Some(protocol) = scroll.protocols.get(index).and_then(Option::as_ref) {
+                        frame.render_widget(
+                            SlicedImage::new(
+                                protocol,
+                                SignedPosition {
+                                    x: x as i16,
+                                    y: top as i16,
+                                },
+                            ),
+                            area,
+                        );
+                    }
                 }
+                scroll.deferred_transmits = deferred;
             } else if let Some(protocol) = reader.protocol.as_mut() {
                 frame.render_stateful_widget(
                     StatefulImage::new().resize(Resize::Fit(None)),
@@ -1788,17 +1786,34 @@ fn draw_story_chapters(
     frame.render_stateful_widget(list, area, list_state);
 }
 
-fn local_chapter_items(chapters: &[Chapter], progress: &ProgressStore) -> Vec<ListItem<'static>> {
+fn chapter_marker_spans(bookmarked: bool, downloaded: Option<bool>) -> Vec<Span<'static>> {
+    let bookmark = if bookmarked {
+        Span::styled("★ ", Style::default().fg(c_yellow()))
+    } else {
+        Span::styled("☆ ", Style::default().fg(c_overlay0()))
+    };
+    let download = match downloaded {
+        Some(true) => Span::styled("⬇ ", Style::default().fg(c_green())),
+        Some(false) => Span::styled("↓ ", Style::default().fg(c_overlay0())),
+        None => Span::styled("· ", Style::default().fg(c_overlay0())),
+    };
+    vec![bookmark, download]
+}
+
+fn local_chapter_items(
+    chapters: &[Chapter],
+    progress: &ProgressStore,
+    bookmarks: &BookmarkStore,
+) -> Vec<ListItem<'static>> {
     chapters
         .iter()
         .map(|chapter| {
-            let mut spans = vec![
-                Span::raw(chapter.title.clone()),
-                Span::styled(
-                    format!("  {}", chapter_number(chapter.number)),
-                    Style::default().fg(c_overlay0()),
-                ),
-            ];
+            let mut spans = chapter_marker_spans(bookmarks.is_bookmarked(&chapter.path), None);
+            spans.push(Span::raw(chapter.title.clone()));
+            spans.push(Span::styled(
+                format!("  {}", chapter_number(chapter.number)),
+                Style::default().fg(c_overlay0()),
+            ));
             if let Some(entry) = progress.entry(&chapter.path) {
                 spans.push(Span::styled(
                     format!("  {}/{}", entry.page + 1, entry.pages),
@@ -1815,12 +1830,19 @@ fn remote_chapter_items(
     manga_url: &str,
     chapters: &[RemoteChapter],
     progress: &ProgressStore,
-    downloaded: impl Fn(&RemoteChapter) -> bool,
+    bookmarks: &BookmarkStore,
+    downloaded: &[bool],
 ) -> Vec<ListItem<'static>> {
     chapters
         .iter()
-        .map(|chapter| {
-            let mut spans = vec![Span::raw(chapter.name.clone())];
+        .enumerate()
+        .map(|(index, chapter)| {
+            let key = remote_progress_key(source_id, manga_url, &chapter.url);
+            let mut spans = chapter_marker_spans(
+                bookmarks.is_bookmarked(&key),
+                Some(downloaded.get(index).copied().unwrap_or(false)),
+            );
+            spans.push(Span::raw(chapter.name.clone()));
             if let Some(scanlator) = chapter
                 .scanlator
                 .as_deref()
@@ -1831,15 +1853,11 @@ fn remote_chapter_items(
                     Style::default().fg(c_overlay1()),
                 ));
             }
-            let key = remote_progress_key(source_id, manga_url, &chapter.url);
             if let Some(entry) = progress.entry(&key) {
                 spans.push(Span::styled(
                     format!("  {}/{}", entry.page + 1, entry.pages),
                     Style::default().fg(c_teal()),
                 ));
-            }
-            if downloaded(chapter) {
-                spans.push(Span::styled("  ⬇", Style::default().fg(c_green())));
             }
             ListItem::new(Line::from(spans))
         })

@@ -120,7 +120,11 @@ database rows. tsuiyomi owns reading progress.
       protocol. `Default` stays leftmost in the category bar.
 - [x] Download remote chapters with `D` into Mihon's
       `<downloads>/<source>/<series>/<chapter>/<page>.<ext>` layout, on a worker thread,
-      and read downloaded pages from disk.
+      and read downloaded pages from disk. Chapter rows show fixed bookmark/download
+      columns and `b` toggles a persisted bookmark.
+- [x] Scroll responsiveness: 1024 px blocks, Kitty compression, one fresh block per
+      frame, viewport-aware request cancellation, debounced progress writes, and cached
+      download markers/chapter lists.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

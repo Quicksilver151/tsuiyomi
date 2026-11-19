@@ -24,7 +24,7 @@ use crossterm::{
 };
 use ratatui::{layout::Rect, DefaultTerminal};
 use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
-use tsuiyomi_core::ProgressStore;
+use tsuiyomi_core::{BookmarkStore, ProgressStore};
 
 use crate::{
     app::{
@@ -49,6 +49,9 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     // does not trigger a stray redraw/flash.
     let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
         kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
+        // Shared memory avoids the transmission entirely when available. Otherwise
+        // zlib shrinks the base64 payload that the UI thread has to copy and write.
+        kitty_compression: true,
         ..Default::default()
     })
     .unwrap_or_else(|_| Picker::halfblocks());
@@ -56,6 +59,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     let mut terminal = ratatui::init();
     app.set_image_picker(picker);
     app.set_progress(ProgressStore::load_default());
+    app.set_bookmarks(BookmarkStore::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());
@@ -74,6 +78,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     }
 
     let result = event_loop(&mut terminal, &mut app);
+    app.flush_progress();
 
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
@@ -107,6 +112,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             terminal.autoresize()?;
         }
+        if app.progress_save_due() {
+            app.flush_progress();
+        }
         if app.poll_scroll_results() {
             needs_draw = true;
         }
@@ -114,8 +122,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if needs_draw {
+            let started = Instant::now();
             terminal.draw(|frame| draw(frame, app))?;
+            let elapsed = started.elapsed();
+            if elapsed > Duration::from_millis(40) {
+                app::scroll_debug(&format!("frame {:?}", elapsed));
+            }
             needs_draw = false;
+            if app.needs_scroll_redraw() {
+                // Reveal the next fresh scroll block right away instead of waiting
+                // for another input event.
+                continue;
+            }
         }
 
         let action = if let Some(action) = pending_action.take() {
@@ -345,6 +363,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Refresh => {
                 if app.tab == 3 {
                     app.refresh_browse();
+                } else if app.tab == 0 && app.view == LibraryView::RemoteDetails {
+                    app.reload_library_remote_chapters();
                 } else {
                     app.refresh();
                 }
@@ -432,6 +452,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.download_selected_chapter();
                 }
             }
+            Action::Bookmark => app.toggle_bookmark(),
             Action::UpdateExtension => {
                 if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.update_selected_extension();
