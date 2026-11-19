@@ -147,24 +147,17 @@ fn apply_categories(library: &mut Library) {
         }
     }
 
-    let uncategorized = library
-        .series
-        .iter()
-        .any(|series| series.categories.is_empty());
-    if categories.is_empty() || uncategorized {
-        for series in &mut library.series {
-            if series.categories.is_empty() {
-                series.categories.push("Default".to_owned());
-            }
-        }
-        if !categories.iter().any(|name| name == "Default") {
-            categories.insert(0, "Default".to_owned());
+    for series in &mut library.series {
+        if series.categories.is_empty() {
+            series.categories.push("Default".to_owned());
         }
     }
 
-    if categories.is_empty() {
-        categories.push("Default".to_owned());
-    }
+    // Mihon's system `Default` category is always first in its category list. Keep that
+    // order here whatever `categories.json` says, and keep the tab present even when
+    // every series belongs to a named category.
+    categories.retain(|name| name != "Default");
+    categories.insert(0, "Default".to_owned());
 
     library.categories = categories;
 }
@@ -695,6 +688,26 @@ mod tests {
             .unwrap();
         assert_eq!(reading.categories, ["Reading"]);
         assert_eq!(loose.categories, ["Default"]);
+    }
+
+    #[test]
+    fn default_category_is_always_leftmost() {
+        let root = tempdir().unwrap();
+        touch(&root.path().join("Reading Series/Chapter 1/001.jpg"));
+        touch(&root.path().join("Other Series/Chapter 1/001.jpg"));
+        fs::write(
+            root.path().join("categories.json"),
+            r#"{"categories":[
+                {"name":"Reading","series":["Reading Series"]},
+                {"name":"Other","series":["Other Series"]},
+                {"name":"Default","series":[]}
+            ]}"#,
+        )
+        .unwrap();
+
+        let library = scan_library(root.path()).unwrap();
+
+        assert_eq!(library.categories, ["Default", "Reading", "Other"]);
     }
 
     #[test]

@@ -3948,6 +3948,9 @@ impl AppState {
         if !self.library.categories.iter().any(|name| name == &category) {
             self.library.categories.push(category.clone());
         }
+        // `Default` is the system category and sits leftmost, like Mihon.
+        self.library.categories.retain(|name| name != "Default");
+        self.library.categories.insert(0, "Default".to_owned());
 
         for favorite in self.remote.favorites.clone() {
             let path = PathBuf::from(format!("remote://{}/{}", favorite.source_id, favorite.url));
