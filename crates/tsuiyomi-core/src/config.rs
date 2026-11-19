@@ -148,8 +148,27 @@ pub fn load_config() -> Config {
 }
 
 /// Persist the config, including unknown keys preserved from the existing file.
+///
+/// Environment overrides are session-local. Never write `TSUIYOMI_LIBRARY` or
+/// `TSUIYOMI_HOST_URL` into the file: a test or temporary shell override would
+/// otherwise replace the user's real setting.
 pub fn save_config(config: &Config) {
-    if let Err(error) = confy::store("tsuiyomi", "config", config) {
+    let mut persisted = config.clone();
+    let env_library = env::var_os("TSUIYOMI_LIBRARY").is_some();
+    let env_host = env::var_os("TSUIYOMI_HOST_URL").is_some();
+    if env_library || env_host {
+        let stored = confy::load::<Config>("tsuiyomi", "config").ok();
+        if env_library {
+            persisted.library_path = stored
+                .as_ref()
+                .and_then(|stored| stored.library_path.clone())
+                .or_else(default_library_path);
+        }
+        if env_host {
+            persisted.host_url = stored.as_ref().and_then(|stored| stored.host_url.clone());
+        }
+    }
+    if let Err(error) = confy::store("tsuiyomi", "config", &persisted) {
         eprintln!("failed to save config: {error}");
     }
 }
