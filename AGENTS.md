@@ -183,7 +183,11 @@ Rules:
   an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
   source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
-  through the same remote chapter/reader path. In the Library grid, `x`/Delete opens a
+  through the same remote chapter/reader path. Panels with item actions support
+  multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
+  clears); delete, install/uninstall/update/pin, source pinning, store removal, save to
+  library, chapter download, and bookmark all operate on the selection. In the Library
+  grid, `x`/Delete opens a
   remove dialog with "Manga from library" and, for saved source manga, "Downloaded
   chapters" checkboxes, mirroring Mihon's delete dialog. Removing a local series writes
   its path to `hidden_series` and keeps the files; removing a saved manga calls the host,

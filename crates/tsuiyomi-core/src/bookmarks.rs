@@ -51,6 +51,15 @@ impl BookmarkStore {
     }
 
     /// Toggle a chapter and return its new bookmark state.
+    pub fn set(&mut self, chapter: &Path, bookmarked: bool) {
+        let key = key(chapter);
+        if bookmarked {
+            self.keys.insert(key);
+        } else {
+            self.keys.remove(&key);
+        }
+    }
+
     pub fn toggle(&mut self, chapter: &Path) -> io::Result<bool> {
         let key = key(chapter);
         let bookmarked = if self.keys.remove(&key) {

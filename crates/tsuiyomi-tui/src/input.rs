@@ -30,6 +30,7 @@ pub enum Action {
     ScrollUp,
     ScrollDown,
     Confirm,
+    Select,
     Search,
     Latest,
     Extensions,
@@ -122,7 +123,8 @@ fn key_action(code: KeyCode, text_mode: bool) -> Option<Action> {
         KeyCode::Left => Action::PreviousPage,
         KeyCode::Right => Action::NextPage,
         KeyCode::PageUp => Action::PreviousScreen,
-        KeyCode::PageDown | KeyCode::Char(' ') => Action::NextScreen,
+        KeyCode::PageDown => Action::NextScreen,
+        KeyCode::Char(' ') => Action::Select,
         KeyCode::Tab => Action::NextTab,
         KeyCode::BackTab => Action::PreviousTab,
         _ => return None,
@@ -160,10 +162,7 @@ mod tests {
             key_action(KeyCode::PageDown, false),
             Some(Action::NextScreen)
         );
-        assert_eq!(
-            key_action(KeyCode::Char(' '), false),
-            Some(Action::NextScreen)
-        );
+        assert_eq!(key_action(KeyCode::Char(' '), false), Some(Action::Select));
         assert_eq!(key_action(KeyCode::Left, false), Some(Action::PreviousPage));
         assert_eq!(key_action(KeyCode::Right, false), Some(Action::NextPage));
         assert_eq!(

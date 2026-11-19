@@ -147,6 +147,8 @@ database rows. tsuiyomi owns reading progress.
       remote manga.
 - [x] All remote thumbnails share one persistent cache (Browse and Library), details
       cannot erase a working thumbnail, and failed fetches retry after 10 seconds.
+- [x] Multi-select (`Space`, `✓` markers) across Library/Browse grids, sources,
+      extensions, stores, and chapter lists; actions apply to the whole selection.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

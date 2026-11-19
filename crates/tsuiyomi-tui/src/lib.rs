@@ -189,11 +189,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             match action {
                 Action::Previous => app.library_delete_previous(),
                 Action::Next => app.library_delete_next(),
-                Action::NextScreen => app.library_delete_toggle(),
+                Action::NextScreen | Action::Select => app.library_delete_toggle(),
                 Action::Open | Action::Confirm => app.confirm_library_delete(),
                 Action::Back => app.cancel_library_delete(),
                 _ => {}
             }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.multi_select.is_some() && matches!(action, Action::Back) {
+            app.clear_multi_select();
             needs_draw = true;
             continue;
         }
@@ -270,6 +276,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
 
         match action {
             Action::Quit => app.quit_confirm = true,
+            Action::Select => {
+                if app.reader.is_some() {
+                    app.next_screen();
+                } else {
+                    app.toggle_multi_select();
+                }
+            }
             Action::Confirm => {}
             Action::Previous => {
                 if app.tab == 3 {
@@ -448,8 +461,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Favorite => {
-                if app.tab == 3 && app.browse_view == BrowseView::RemoteDetails {
-                    app.toggle_current_favorite();
+                if app.tab == 3 {
+                    match app.browse_view {
+                        BrowseView::RemoteDetails => app.toggle_current_favorite(),
+                        BrowseView::RemoteResults | BrowseView::GlobalResults => {
+                            app.toggle_selected_favorites();
+                        }
+                        _ => {}
+                    }
                 }
             }
             Action::Latest => {

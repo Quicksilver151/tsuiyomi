@@ -532,14 +532,44 @@ pub struct ReaderState {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionScope {
+    LibrarySeries,
+    BrowseLocal,
+    RemoteResults,
+    GlobalResults,
+    Sources,
+    Extensions,
+    Stores,
+    LocalChapters,
+    RemoteChapters,
+}
+
 #[derive(Debug, Clone)]
-pub struct LibraryDeleteDialog {
+pub struct MultiSelect {
+    pub scope: SelectionScope,
+    pub keys: HashSet<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LibraryDeleteItem {
     pub path: PathBuf,
     pub title: String,
     pub remote: Option<RemoteSeries>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LibraryDeleteDialog {
+    pub items: Vec<LibraryDeleteItem>,
     pub remove_from_library: bool,
     pub delete_downloads: bool,
     pub focus: usize,
+}
+
+impl LibraryDeleteDialog {
+    fn has_remote(&self) -> bool {
+        self.items.iter().any(|item| item.remote.is_some())
+    }
 }
 
 #[derive(Default)]
@@ -624,8 +654,9 @@ pub struct AppState {
     pub picker: Option<PickerState>,
     pub quit_confirm: bool,
     /// Pending extension uninstall: package and display name.
-    pub uninstall_confirm: Option<(String, String)>,
+    pub uninstall_confirm: Option<Vec<(String, String)>>,
     pub library_delete: Option<LibraryDeleteDialog>,
+    pub multi_select: Option<MultiSelect>,
     /// Chapter download currently running, if any.
     pub downloading: Option<String>,
     pub status: Option<String>,
@@ -702,6 +733,7 @@ impl AppState {
             quit_confirm: false,
             uninstall_confirm: None,
             library_delete: None,
+            multi_select: None,
             downloading: None,
             status,
         }
@@ -829,6 +861,14 @@ impl AppState {
     }
 
     pub fn browse_open(&mut self) {
+        // Enter is an action on these panels; keep the selection for batch install
+        // and update. Other panels navigate when Enter is pressed.
+        if !matches!(
+            self.browse_view,
+            BrowseView::Extensions | BrowseView::Stores
+        ) {
+            self.multi_select = None;
+        }
         match self.browse_view {
             BrowseView::Sources => match self.selected_source_ref() {
                 Some(SourceRef::Local) => {
@@ -1044,6 +1084,7 @@ impl AppState {
         if tab == self.browse_tab {
             return;
         }
+        self.multi_select = None;
         if self.browse_tab == BrowseTab::Sources {
             self.sources_view = Some(self.browse_view);
         }
@@ -1189,41 +1230,66 @@ impl AppState {
             .any(|pinned| pin_key_matches(pinned, source))
     }
 
-    fn toggle_source_pin(&mut self, source: &RemoteSource) {
-        if let Some(position) = self
-            .config
-            .pinned_sources
-            .iter()
-            .position(|pinned| pin_key_matches(pinned, source))
-        {
-            self.config.pinned_sources.remove(position);
-            self.status = Some(format!("Unpinned {}", source.display_name()));
-        } else {
-            self.config.pinned_sources.push(source_pin_key(source));
-            self.status = Some(format!("Pinned {}", source.display_name()));
-        }
-    }
-
     /// Pin or unpin the source selected in the Sources list.
     pub fn toggle_pin_for_selection(&mut self) {
         if self.browse_view != BrowseView::Sources {
             return;
         }
-        let Some(SourceRef::Remote(index)) = self.selected_source_ref() else {
+        let mut sources: Vec<RemoteSource> = Vec::new();
+        if let Some(keys) = self.selected_keys(SelectionScope::Sources) {
+            sources = self
+                .remote
+                .sources
+                .iter()
+                .filter(|source| keys.contains(&format!("source:{}", source.id)))
+                .cloned()
+                .collect();
+        }
+        if sources.is_empty() {
+            if let Some(SourceRef::Remote(index)) = self.selected_source_ref() {
+                if let Some(source) = self.remote.sources.get(index).cloned() {
+                    sources.push(source);
+                }
+            }
+        }
+        if sources.is_empty() {
             return;
-        };
-        let Some(source) = self.remote.sources.get(index).cloned() else {
-            return;
-        };
-        self.toggle_source_pin(&source);
-        // Pinning moves the source into the Pinned group; keep it selected there.
+        }
+        let all_pinned = sources.iter().all(|source| self.is_source_pinned(source));
+        for source in &sources {
+            if all_pinned {
+                if let Some(position) = self
+                    .config
+                    .pinned_sources
+                    .iter()
+                    .position(|pinned| pin_key_matches(pinned, source))
+                {
+                    self.config.pinned_sources.remove(position);
+                }
+            } else if !self.is_source_pinned(source) {
+                self.config.pinned_sources.push(source_pin_key(source));
+            }
+        }
+        self.remote.status = Some(if all_pinned {
+            format!("Unpinned {} sources", sources.len())
+        } else {
+            format!("Pinned {} sources", sources.len())
+        });
+        self.persist_settings();
+        let anchor = sources[0].id.clone();
         self.browse_selection = self
             .source_order()
             .iter()
-            .position(|item| *item == SourceRef::Remote(index))
+            .position(|item| match item {
+                SourceRef::Remote(index) => self
+                    .remote
+                    .sources
+                    .get(*index)
+                    .is_some_and(|source| source.id == anchor),
+                SourceRef::Local => false,
+            })
             .unwrap_or(0);
         self.select_browse_entry(self.browse_selection);
-        self.persist_settings();
     }
 
     /// Sources of an extension, resolved against the loaded source list.
@@ -1250,40 +1316,6 @@ impl AppState {
     }
 
     /// Pin or unpin every source of the selected extension.
-    pub fn toggle_selected_extension_pin(&mut self) {
-        let Some(extension) = self.selected_extension().cloned() else {
-            return;
-        };
-        if extension.sources.is_empty() {
-            return;
-        }
-        let sources = self.resolved_extension_sources(&extension);
-        if sources.is_empty() {
-            return;
-        }
-        let all_pinned = sources.iter().all(|source| self.is_source_pinned(source));
-        for source in &sources {
-            if all_pinned {
-                if let Some(position) = self
-                    .config
-                    .pinned_sources
-                    .iter()
-                    .position(|pinned| pin_key_matches(pinned, source))
-                {
-                    self.config.pinned_sources.remove(position);
-                }
-            } else if !self.is_source_pinned(source) {
-                self.config.pinned_sources.push(source_pin_key(source));
-            }
-        }
-        self.status = Some(if all_pinned {
-            format!("Unpinned {} sources", extension.name)
-        } else {
-            format!("Pinned {} sources", extension.name)
-        });
-        self.persist_settings();
-    }
-
     pub fn extension_search_start(&mut self) {
         if self.browse_view == BrowseView::Extensions {
             self.extension_search = true;
@@ -1425,6 +1457,100 @@ impl AppState {
             .favorites
             .iter()
             .any(|favorite| favorite.source_id == source_id && favorite.url == url)
+    }
+
+    fn selected_browse_mangas(&self) -> Vec<RemoteManga> {
+        if let Some(keys) = self
+            .selected_keys(SelectionScope::RemoteResults)
+            .or_else(|| self.selected_keys(SelectionScope::GlobalResults))
+        {
+            let mut mangas: Vec<RemoteManga> = self
+                .remote
+                .results
+                .iter()
+                .filter(|manga| {
+                    keys.contains(&format!("remote:{}\n{}", manga.source_id, manga.url))
+                })
+                .cloned()
+                .collect();
+            for group in &self.remote.global_groups {
+                for manga in &group.mangas {
+                    if keys.contains(&format!("remote:{}\n{}", group.source.id, manga.url)) {
+                        mangas.push(manga.clone());
+                    }
+                }
+            }
+            if !mangas.is_empty() {
+                return mangas;
+            }
+        }
+        match self.browse_view {
+            BrowseView::RemoteResults => self
+                .remote
+                .results
+                .get(self.browse_selection)
+                .cloned()
+                .into_iter()
+                .collect(),
+            BrowseView::GlobalResults => self
+                .remote
+                .global_groups
+                .get(self.remote.global_group)
+                .and_then(|group| group.mangas.get(self.remote.global_item))
+                .cloned()
+                .into_iter()
+                .collect(),
+            BrowseView::RemoteDetails => self.remote.manga.clone().into_iter().collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn toggle_selected_favorites(&mut self) {
+        let mangas = self.selected_browse_mangas();
+        if mangas.is_empty() {
+            return;
+        }
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let all_saved = mangas
+            .iter()
+            .all(|manga| self.is_favorite(&manga.source_id, &manga.url));
+        let mut changed = 0usize;
+        let mut failed = 0usize;
+        for manga in &mangas {
+            let result = if all_saved {
+                client.remove_favorite(&manga.source_id, &manga.url)
+            } else if self.is_favorite(&manga.source_id, &manga.url) {
+                Ok(())
+            } else {
+                client.add_favorite(manga)
+            };
+            match result {
+                Ok(()) => {
+                    changed += 1;
+                    if !all_saved {
+                        self.removed_stories
+                            .remove(&remote_story_key(&manga.source_id, &manga.url));
+                    }
+                }
+                Err(error) => {
+                    failed += 1;
+                    self.set_remote_error(error);
+                }
+            }
+        }
+        self.load_favorites();
+        self.remote.status = Some(if all_saved {
+            format!("Removed {changed} manga from the library")
+        } else {
+            format!("Added {changed} manga to the library")
+        });
+        self.remote.error = failed > 0;
+        self.multi_select = None;
     }
 
     pub fn toggle_current_favorite(&mut self) {
@@ -1569,6 +1695,7 @@ impl AppState {
     }
 
     pub fn global_open(&mut self) {
+        self.multi_select = None;
         let Some(group) = self.remote.global_groups.get(self.remote.global_group) else {
             return;
         };
@@ -2174,84 +2301,128 @@ impl AppState {
         }
     }
 
+    fn selected_extensions(&self) -> Vec<ExtensionInfo> {
+        if let Some(keys) = self.selected_keys(SelectionScope::Extensions) {
+            let selected: Vec<_> = self
+                .remote
+                .extensions
+                .iter()
+                .filter(|extension| keys.contains(&format!("ext:{}", extension.pkg)))
+                .cloned()
+                .collect();
+            if !selected.is_empty() {
+                return selected;
+            }
+        }
+        self.selected_extension().cloned().into_iter().collect()
+    }
+
     pub fn install_selected_extension(&mut self) {
-        let Some(extension) = self.selected_extension().cloned() else {
+        let extensions: Vec<ExtensionInfo> = self
+            .selected_extensions()
+            .into_iter()
+            .filter(|extension| !extension.installed)
+            .collect();
+        if extensions.is_empty() {
+            self.remote.status = Some("Selected extensions are already installed".to_owned());
+            self.remote.error = false;
             return;
-        };
+        }
+        self.install_extensions(extensions, "Installed");
+    }
+
+    fn install_extensions(&mut self, extensions: Vec<ExtensionInfo>, verb: &str) {
         let Some(client) = self.host_client.clone() else {
             return;
         };
-
-        if extension.installed {
-            self.remote.status = Some(format!(
-                "{} is already installed · x uninstalls",
-                extension.name
-            ));
-            self.remote.error = false;
-            return;
-        }
-
-        if extension.repo_url.is_empty() || extension.apk.is_empty() {
-            self.set_remote_error("Add an extension store first (a).");
-            return;
-        }
-        match client.install_extension(&extension.repo_url, &extension.apk) {
-            Ok(_) => {
-                let name = extension.name;
-                let pkg = extension.pkg.clone();
-                // The APK often loads zero sources until the published desktop jar is in
-                // place and the host restarts. Report what is actually loaded afterwards.
-                let swapped = self.install_desktop_jar(&extension.apk);
-                if swapped {
-                    self.restart_bundled_host();
-                }
-                self.load_extensions();
-                self.load_remote_sources();
-                let sources = self.loaded_source_count(&pkg);
-                self.remote.status = Some(if sources == 0 {
-                    format!("Installed {name} but it exposed no sources")
-                } else {
-                    format!("Installed {name} ({sources} sources)")
-                });
-                self.remote.error = sources == 0;
+        let mut installed = 0usize;
+        let mut failed = 0usize;
+        let mut swapped = false;
+        for extension in &extensions {
+            if extension.repo_url.is_empty() || extension.apk.is_empty() {
+                failed += 1;
+                continue;
             }
-            Err(error) => self.set_remote_error(error),
+            match client.install_extension(&extension.repo_url, &extension.apk) {
+                Ok(_) => {
+                    installed += 1;
+                    if self.install_desktop_jar(&extension.apk) {
+                        swapped = true;
+                    }
+                }
+                Err(_) => failed += 1,
+            }
         }
+        if swapped {
+            self.restart_bundled_host();
+        }
+        self.load_extensions();
+        self.load_remote_sources();
+        let sources: usize = extensions
+            .iter()
+            .map(|extension| self.loaded_source_count(&extension.pkg))
+            .sum();
+        self.remote.status = Some(if failed == 0 {
+            format!("{verb} {installed} extensions ({sources} sources)")
+        } else {
+            format!("{verb} {installed} extensions · {failed} failed")
+        });
+        self.remote.error = failed > 0 || installed == 0;
+        self.multi_select = None;
     }
 
     pub fn uninstall_selected_extension(&mut self) {
-        let Some(extension) = self.selected_extension().cloned() else {
-            return;
-        };
-        if !extension.installed {
-            self.remote.status = Some(format!("{} is not installed", extension.name));
+        let extensions: Vec<ExtensionInfo> = self
+            .selected_extensions()
+            .into_iter()
+            .filter(|extension| extension.installed)
+            .collect();
+        if extensions.is_empty() {
+            self.remote.status = Some("Selected extensions are not installed".to_owned());
             self.remote.error = false;
             return;
         }
-        self.uninstall_confirm = Some((extension.pkg.clone(), extension.name.clone()));
-        self.remote.status = Some(format!(
-            "Press y to uninstall {}, Esc cancels",
-            extension.name
-        ));
+        let items: Vec<_> = extensions
+            .iter()
+            .map(|extension| (extension.pkg.clone(), extension.name.clone()))
+            .collect();
+        let count = items.len();
+        self.uninstall_confirm = Some(items);
+        self.remote.status = Some(if count == 1 {
+            format!("Press y to uninstall {}, Esc cancels", extensions[0].name)
+        } else {
+            format!("Press y to uninstall {count} extensions, Esc cancels")
+        });
         self.remote.error = false;
     }
 
     pub fn confirm_uninstall_extension(&mut self) {
-        let Some((pkg, name)) = self.uninstall_confirm.take() else {
+        let Some(items) = self.uninstall_confirm.take() else {
             return;
         };
         let Some(client) = self.host_client.clone() else {
             return;
         };
-        match client.uninstall_extension(&pkg) {
-            Ok(()) => {
-                self.load_extensions();
-                self.load_remote_sources();
-                self.remote.status = Some(format!("Uninstalled {name}"));
-                self.remote.error = false;
+        let mut removed = 0usize;
+        let mut failed = 0usize;
+        for (pkg, _) in &items {
+            match client.uninstall_extension(pkg) {
+                Ok(()) => removed += 1,
+                Err(_) => {
+                    failed += 1;
+                    break;
+                }
             }
-            Err(error) => self.set_remote_error(error),
         }
+        self.load_extensions();
+        self.load_remote_sources();
+        self.remote.status = Some(if failed == 0 {
+            format!("Uninstalled {removed} extensions")
+        } else {
+            format!("Uninstalled {removed} extensions · {failed} failed")
+        });
+        self.remote.error = failed > 0;
+        self.multi_select = None;
     }
 
     pub fn cancel_uninstall_extension(&mut self) {
@@ -2261,41 +2432,60 @@ impl AppState {
         }
     }
 
+    pub fn update_selected_extension(&mut self) {
+        let extensions: Vec<ExtensionInfo> = self
+            .selected_extensions()
+            .into_iter()
+            .filter(|extension| {
+                extension.installed && !extension.repo_url.is_empty() && !extension.apk.is_empty()
+            })
+            .collect();
+        if extensions.is_empty() {
+            self.remote.status = Some("Select an installed extension with a store".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        self.install_extensions(extensions, "Updated");
+    }
+
+    pub fn toggle_selected_extension_pin(&mut self) {
+        let extensions = self.selected_extensions();
+        let sources: Vec<_> = extensions
+            .iter()
+            .flat_map(|extension| self.resolved_extension_sources(extension))
+            .collect();
+        if sources.is_empty() {
+            return;
+        }
+        let all_pinned = sources.iter().all(|source| self.is_source_pinned(source));
+        for source in &sources {
+            if all_pinned {
+                if let Some(position) = self
+                    .config
+                    .pinned_sources
+                    .iter()
+                    .position(|pinned| pin_key_matches(pinned, source))
+                {
+                    self.config.pinned_sources.remove(position);
+                }
+            } else if !self.is_source_pinned(source) {
+                self.config.pinned_sources.push(source_pin_key(source));
+            }
+        }
+        self.remote.status = Some(if all_pinned {
+            format!("Unpinned {} sources", sources.len())
+        } else {
+            format!("Pinned {} sources", sources.len())
+        });
+        self.persist_settings();
+    }
+
     fn loaded_source_count(&self, pkg: &str) -> usize {
         self.remote
             .sources
             .iter()
             .filter(|source| source.pkg.as_deref() == Some(pkg))
             .count()
-    }
-
-    /// Reinstall the selected extension from its repository, which also updates it.
-    pub fn update_selected_extension(&mut self) {
-        let Some(extension) = self.selected_extension().cloned() else {
-            return;
-        };
-        if !extension.installed || extension.repo_url.is_empty() || extension.apk.is_empty() {
-            return;
-        }
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
-        match client.install_extension(&extension.repo_url, &extension.apk) {
-            Ok(_) => {
-                let name = extension.name;
-                let pkg = extension.pkg.clone();
-                let swapped = self.install_desktop_jar(&extension.apk);
-                if swapped {
-                    self.restart_bundled_host();
-                }
-                self.load_extensions();
-                self.load_remote_sources();
-                let sources = self.loaded_source_count(&pkg);
-                self.remote.status = Some(format!("Reinstalled {name} ({sources} sources)"));
-                self.remote.error = sources == 0;
-            }
-            Err(error) => self.set_remote_error(error),
-        }
     }
 
     /// Keiyoushi publishes a desktop JVM jar next to every APK.
@@ -2361,9 +2551,21 @@ impl AppState {
     }
 
     pub fn remove_selected_store(&mut self) {
-        let Some(store) = self.selected_store().cloned() else {
+        let mut stores: Vec<String> = Vec::new();
+        if let Some(keys) = self.selected_keys(SelectionScope::Stores) {
+            stores = keys
+                .iter()
+                .filter_map(|key| key.strip_prefix("store:").map(str::to_owned))
+                .collect();
+        }
+        if stores.is_empty() {
+            if let Some(store) = self.selected_store().cloned() {
+                stores.push(store);
+            }
+        }
+        if stores.is_empty() {
             return;
-        };
+        }
         let Some(client) = self.host_client.clone() else {
             return;
         };
@@ -2371,7 +2573,7 @@ impl AppState {
             .remote
             .repos
             .iter()
-            .filter(|repo| **repo != store)
+            .filter(|repo| !stores.contains(repo))
             .cloned()
             .collect();
         match client.set_repos(&repos) {
@@ -2380,8 +2582,13 @@ impl AppState {
                 self.load_remote_sources();
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
-                self.remote.status = Some("Extension store removed".to_owned());
+                self.remote.status = Some(format!(
+                    "Removed {} extension {}",
+                    stores.len(),
+                    if stores.len() == 1 { "store" } else { "stores" }
+                ));
                 self.remote.error = false;
+                self.multi_select = None;
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -2839,10 +3046,14 @@ impl AppState {
 
     /// Download the selected remote chapter to the Mihon-style downloads tree.
     pub fn download_selected_chapter(&mut self) {
-        let Some((manga, chapter)) = self.active_remote_chapter() else {
+        let Some((manga, chapters)) = self.selected_remote_chapters() else {
             self.status = Some("Open a remote chapter to download it.".to_owned());
             return;
         };
+        if chapters.is_empty() {
+            self.status = Some("No remote chapters selected.".to_owned());
+            return;
+        }
         if self.host_client.is_none() && !self.ensure_host() {
             return;
         }
@@ -2854,84 +3065,124 @@ impl AppState {
             return;
         };
         let source = self.remote_source_name(&manga.source_id);
-        if is_downloaded(
-            &root,
-            &source,
-            &manga.title,
-            &chapter.name,
-            chapter.scanlator.as_deref(),
-        ) {
-            self.status = Some(format!("{} is already downloaded", chapter.name));
-            return;
+        let mut queued = 0usize;
+        let mut already = 0usize;
+        let mut failed = 0usize;
+        for chapter in &chapters {
+            if is_downloaded(
+                &root,
+                &source,
+                &manga.title,
+                &chapter.name,
+                chapter.scanlator.as_deref(),
+            ) {
+                already += 1;
+                continue;
+            }
+            let pages = match self.remote_chapter_pages(&manga, chapter) {
+                Ok(pages) => pages,
+                Err(_) => {
+                    failed += 1;
+                    continue;
+                }
+            };
+            let Some(worker) = self.download_worker.as_ref() else {
+                self.status = Some("The download worker is unavailable.".to_owned());
+                return;
+            };
+            worker.request(DownloadRequest {
+                label: format!("{} · {}", manga.title, chapter.name),
+                root: root.clone(),
+                source_name: source.clone(),
+                series_title: manga.title.clone(),
+                chapter_name: chapter.name.clone(),
+                scanlator: chapter.scanlator.clone(),
+                pages,
+            });
+            queued += 1;
         }
 
-        let pages = match self.remote_chapter_pages(&manga, &chapter) {
-            Ok(pages) => pages,
-            Err(error) => {
-                self.set_remote_error(error);
-                return;
-            }
-        };
-        let label = format!("{} · {}", manga.title, chapter.name);
-        let Some(worker) = self.download_worker.as_ref() else {
-            self.status = Some("The download worker is unavailable.".to_owned());
+        if queued == 0 {
+            self.status = Some(if failed > 0 {
+                format!("Could not download {failed} chapters")
+            } else if already > 0 {
+                "Selected chapters are already downloaded".to_owned()
+            } else {
+                "Nothing to download".to_owned()
+            });
             return;
-        };
-        worker.request(DownloadRequest {
-            label: label.clone(),
-            root,
-            source_name: source,
-            series_title: manga.title,
-            chapter_name: chapter.name,
-            scanlator: chapter.scanlator,
-            pages,
-        });
-        self.downloading = Some(label.clone());
-        let message = format!("Downloading {label}…");
+        }
+        let message = format!(
+            "Downloading {queued} {}…",
+            if queued == 1 { "chapter" } else { "chapters" }
+        );
+        self.downloading = Some(message.clone());
         self.status = Some(message.clone());
         if self.tab == 3 {
             self.remote.status = Some(message);
             self.remote.error = false;
         }
+        self.multi_select = None;
     }
 
-    /// The remote chapter under the cursor in the reader, Library, or Browse.
-    fn active_remote_chapter(&self) -> Option<(RemoteManga, RemoteChapter)> {
+    /// The remote story and chapter list under the cursor.
+    fn active_remote_story(&self) -> Option<(RemoteManga, Vec<RemoteChapter>, usize)> {
         if self.reader.is_some() {
             return match self.reader_origin {
-                ReaderOrigin::Remote => {
-                    let manga = self.remote.manga.clone()?;
-                    let chapter = self.remote.chapters.get(self.remote.chapter_index)?.clone();
-                    Some((manga, chapter))
-                }
-                ReaderOrigin::LibraryRemote => {
-                    let manga = self.library_remote.manga.clone()?;
-                    let chapter = self
-                        .library_remote
-                        .chapters
-                        .get(self.library_remote.chapter_index)?
-                        .clone();
-                    Some((manga, chapter))
-                }
+                ReaderOrigin::Remote => Some((
+                    self.remote.manga.clone()?,
+                    self.remote.chapters.clone(),
+                    self.remote.chapter_index,
+                )),
+                ReaderOrigin::LibraryRemote => Some((
+                    self.library_remote.manga.clone()?,
+                    self.library_remote.chapters.clone(),
+                    self.library_remote.chapter_index,
+                )),
                 ReaderOrigin::Library | ReaderOrigin::BrowseLocal => None,
             };
         }
-
         if self.tab == 3 && self.browse_view == BrowseView::RemoteDetails {
-            let manga = self.remote.manga.clone()?;
-            let chapter = self.remote.chapters.get(self.browse_selection)?.clone();
-            return Some((manga, chapter));
+            return Some((
+                self.remote.manga.clone()?,
+                self.remote.chapters.clone(),
+                self.browse_selection,
+            ));
         }
         if self.tab == 0 && self.view == LibraryView::RemoteDetails {
-            let manga = self.library_remote.manga.clone()?;
-            let chapter = self
-                .library_remote
-                .chapters
-                .get(self.library_remote.chapter_index)?
-                .clone();
-            return Some((manga, chapter));
+            return Some((
+                self.library_remote.manga.clone()?,
+                self.library_remote.chapters.clone(),
+                self.library_remote.chapter_index,
+            ));
         }
         None
+    }
+
+    fn active_remote_chapter(&self) -> Option<(RemoteManga, RemoteChapter)> {
+        let (manga, chapters, index) = self.active_remote_story()?;
+        let chapter = chapters.get(index)?.clone();
+        Some((manga, chapter))
+    }
+
+    fn selected_remote_chapters(&self) -> Option<(RemoteManga, Vec<RemoteChapter>)> {
+        let (manga, chapters, index) = self.active_remote_story()?;
+        if let Some(keys) = self.selected_keys(SelectionScope::RemoteChapters) {
+            let selected: Vec<_> = chapters
+                .iter()
+                .filter(|chapter| {
+                    keys.contains(&format!(
+                        "rchap:{}\n{}\n{}",
+                        manga.source_id, manga.url, chapter.url
+                    ))
+                })
+                .cloned()
+                .collect();
+            if !selected.is_empty() {
+                return Some((manga, selected));
+            }
+        }
+        Some((manga, chapters.get(index).cloned().into_iter().collect()))
     }
 
     fn remote_source_name(&self, source_id: &str) -> String {
@@ -3116,22 +3367,97 @@ impl AppState {
     }
 
     pub fn toggle_bookmark(&mut self) {
-        let Some(key) = self.active_chapter_key() else {
+        let mut keys: Vec<PathBuf> = Vec::new();
+        if self.reader.is_none() {
+            if let Some(selected) = self.selected_bookmark_keys() {
+                keys = selected;
+            }
+        }
+        if keys.is_empty() {
+            if let Some(key) = self.active_chapter_key() {
+                keys.push(key);
+            }
+        }
+        if keys.is_empty() {
             self.status = Some("Open a chapter to bookmark it.".to_owned());
             return;
-        };
-        self.status = Some(match self.bookmarks.toggle(&key) {
-            Ok(true) => "Chapter bookmarked".to_owned(),
-            Ok(false) => "Bookmark removed".to_owned(),
+        }
+
+        let all_bookmarked = keys.iter().all(|key| self.bookmarks.is_bookmarked(key));
+        let target = !all_bookmarked;
+        for key in &keys {
+            self.bookmarks.set(key, target);
+        }
+        self.status = Some(match self.bookmarks.save() {
+            Ok(()) if target => format!(
+                "Bookmarked {} {}",
+                keys.len(),
+                if keys.len() == 1 {
+                    "chapter"
+                } else {
+                    "chapters"
+                }
+            ),
+            Ok(()) => format!(
+                "Removed bookmarks from {} {}",
+                keys.len(),
+                if keys.len() == 1 {
+                    "chapter"
+                } else {
+                    "chapters"
+                }
+            ),
             Err(error) => format!("Could not save bookmark: {error}"),
         });
         if self.tab == 3 {
             self.remote.status = self.status.clone();
             self.remote.error = false;
         }
+        self.multi_select = None;
     }
 
-    /// Stable key for the chapter under the cursor in the reader or a story screen.
+    fn selected_bookmark_keys(&self) -> Option<Vec<PathBuf>> {
+        if let Some(keys) = self.selected_keys(SelectionScope::LocalChapters) {
+            let chapters = if self.tab == 0 && self.view == LibraryView::Chapters {
+                self.selected_series()
+                    .map(|series| series.chapters.clone())
+                    .unwrap_or_default()
+            } else if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+                self.selected_browse_local_series()
+                    .map(|series| series.chapters.clone())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let selected: Vec<PathBuf> = chapters
+                .iter()
+                .filter(|chapter| keys.contains(&format!("chapter:{}", chapter.path.display())))
+                .map(|chapter| chapter.path.clone())
+                .collect();
+            if !selected.is_empty() {
+                return Some(selected);
+            }
+        }
+        if let Some(keys) = self.selected_keys(SelectionScope::RemoteChapters) {
+            let (manga, chapters, _) = self.active_remote_story()?;
+            let selected: Vec<PathBuf> = chapters
+                .iter()
+                .filter(|chapter| {
+                    keys.contains(&format!(
+                        "rchap:{}\n{}\n{}",
+                        manga.source_id, manga.url, chapter.url
+                    ))
+                })
+                .map(|chapter| remote_progress_key(&manga.source_id, &manga.url, &chapter.url))
+                .collect();
+            if !selected.is_empty() {
+                return Some(selected);
+            }
+        }
+        None
+    }
+
+    /// Stable key for the chapter under the cursor in the reader or a story screen.    /// Stable key for the chapter under the cursor in the reader or a story screen.
     fn active_chapter_key(&self) -> Option<PathBuf> {
         if let Some(reader) = &self.reader {
             return Some(reader.chapter_path.clone());
@@ -3247,6 +3573,7 @@ impl AppState {
 
     /// Enter chapters, open a chapter, or turn the page.
     pub fn open(&mut self) {
+        self.multi_select = None;
         match self.view {
             LibraryView::Series => {
                 if let Some(series) = self.selected_series() {
@@ -3535,13 +3862,33 @@ impl AppState {
 
     /// Open the delete dialog for the selected library series.
     pub fn open_library_delete_dialog(&mut self) {
-        let Some(series) = self.selected_series() else {
-            return;
-        };
+        let mut items: Vec<LibraryDeleteItem> =
+            if let Some(keys) = self.selected_keys(SelectionScope::LibrarySeries) {
+                self.library
+                    .series
+                    .iter()
+                    .filter(|series| keys.contains(&Self::series_selection_key(series)))
+                    .map(|series| LibraryDeleteItem {
+                        path: series.path.clone(),
+                        title: series.title.clone(),
+                        remote: series.remote.clone(),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+        if items.is_empty() {
+            let Some(series) = self.selected_series() else {
+                return;
+            };
+            items.push(LibraryDeleteItem {
+                path: series.path.clone(),
+                title: series.title.clone(),
+                remote: series.remote.clone(),
+            });
+        }
         self.library_delete = Some(LibraryDeleteDialog {
-            path: series.path.clone(),
-            title: series.title.clone(),
-            remote: series.remote.clone(),
+            items,
             remove_from_library: true,
             delete_downloads: false,
             focus: 0,
@@ -3550,14 +3897,14 @@ impl AppState {
 
     pub fn library_delete_next(&mut self) {
         if let Some(dialog) = self.library_delete.as_mut() {
-            let options = if dialog.remote.is_some() { 2 } else { 1 };
+            let options = if dialog.has_remote() { 2 } else { 1 };
             dialog.focus = (dialog.focus + 1) % options;
         }
     }
 
     pub fn library_delete_previous(&mut self) {
         if let Some(dialog) = self.library_delete.as_mut() {
-            let options = if dialog.remote.is_some() { 2 } else { 1 };
+            let options = if dialog.has_remote() { 2 } else { 1 };
             dialog.focus = (dialog.focus + options - 1) % options;
         }
     }
@@ -3585,44 +3932,67 @@ impl AppState {
             return;
         }
 
-        let mut removed = false;
+        let remotes: Vec<_> = dialog
+            .items
+            .iter()
+            .filter_map(|item| {
+                item.remote
+                    .clone()
+                    .map(|remote| (remote, item.title.clone()))
+            })
+            .collect();
+        let mut removed = 0usize;
         if dialog.remove_from_library {
-            if let Some(remote) = &dialog.remote {
-                if !self.remove_remote_library_item(remote) {
+            if !remotes.is_empty() {
+                let series: Vec<_> = remotes.iter().map(|(remote, _)| remote.clone()).collect();
+                if !self.remove_remote_library_items(&series) {
                     return;
                 }
-                removed = true;
-            } else {
-                self.hide_local_series(&dialog.path);
-                removed = true;
+                removed += remotes.len();
+            }
+            let mut hid_local = false;
+            for item in &dialog.items {
+                if item.remote.is_none() {
+                    self.hide_local_path(&item.path);
+                    removed += 1;
+                    hid_local = true;
+                }
+            }
+            if hid_local {
+                self.persist_settings();
+                self.apply_hidden_series();
             }
         }
 
+        let mut downloads = 0usize;
         if dialog.delete_downloads {
-            if let Some(remote) = &dialog.remote {
-                match self.delete_series_downloads(remote, &dialog.title) {
-                    Ok(true) => {
-                        self.status = Some(format!("Deleted downloads for {}", dialog.title));
-                    }
-                    Ok(false) => {
-                        self.status = Some(format!("No downloads for {}", dialog.title));
-                    }
+            for (remote, title) in &remotes {
+                match self.delete_series_downloads(remote, title) {
+                    Ok(true) => downloads += 1,
+                    Ok(false) => {}
                     Err(error) => {
                         self.status = Some(format!("Could not delete downloads: {error}"));
                     }
                 }
-                self.refresh_download_marks();
             }
-        } else if removed {
-            self.status = Some(format!("Removed {} from the library", dialog.title));
+            self.refresh_download_marks();
         }
 
+        if downloads > 0 {
+            self.status = Some(format!("Deleted downloads for {downloads} series"));
+        } else if removed > 0 {
+            self.status = Some(format!(
+                "Removed {removed} {} from the library",
+                if removed == 1 { "item" } else { "items" }
+            ));
+        }
+        self.multi_select = None;
         self.library_delete = None;
         self.clamp_selection();
         self.clamp_browse_selection();
     }
 
-    fn hide_local_series(&mut self, path: &Path) {
+    fn hide_local_path(&mut self, path: &Path) {
         let key = path
             .strip_prefix(&self.library.root)
             .map(std::path::Path::to_path_buf)
@@ -3630,62 +4000,64 @@ impl AppState {
         if !self.config.hidden_series.iter().any(|entry| entry == &key) {
             self.config.hidden_series.push(key);
         }
-        self.persist_settings();
-        self.apply_hidden_series();
         self.library.series.retain(|series| series.path != path);
-        self.status = Some(format!(
-            "Removed {} from the library (files kept)",
-            path.file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        ));
     }
 
-    fn remove_remote_library_item(&mut self, remote: &RemoteSeries) -> bool {
+    fn remove_remote_library_items(&mut self, items: &[RemoteSeries]) -> bool {
+        if items.is_empty() {
+            return true;
+        }
         if self.host_client.is_none() && !self.ensure_host() {
             return false;
         }
         let Some(client) = self.host_client.clone() else {
             return false;
         };
-        if let Err(error) = client.remove_favorite(&remote.source_id, &remote.url) {
-            self.set_remote_error(error);
-            return false;
-        }
-
-        self.remote.favorites.retain(|favorite| {
-            !(favorite.source_id == remote.source_id && favorite.url == remote.url)
-        });
-        self.config.remote_library.retain(|favorite| {
-            !(favorite.source_id == remote.source_id && favorite.url == remote.url)
-        });
-        let key = remote_story_key(&remote.source_id, &remote.url);
-        self.remote_chapter_cache.remove(&key);
-        self.story_refreshed.remove(&key);
-        if self.story_refresh.as_deref() == Some(key.as_str()) {
-            self.story_refresh = None;
-        }
-        if let Some(path) = remote_cover_path(&remote.source_id, &remote.url) {
-            let _ = std::fs::remove_file(path);
-        }
-        if let Some(path) = story_cache_path(&remote.source_id, &remote.url) {
-            let _ = std::fs::remove_file(path);
-        }
-        if self
-            .library_remote
-            .manga
-            .as_ref()
-            .is_some_and(|manga| manga.source_id == remote.source_id && manga.url == remote.url)
-        {
-            self.library_remote = LibraryRemoteState::default();
-            if self.view == LibraryView::RemoteDetails {
-                self.view = LibraryView::Series;
+        let mut removed = Vec::new();
+        for remote in items {
+            match client.remove_favorite(&remote.source_id, &remote.url) {
+                Ok(()) => removed.push(remote.clone()),
+                Err(error) => {
+                    self.set_remote_error(error);
+                    break;
+                }
             }
         }
-        self.removed_stories.insert(key);
+        for remote in &removed {
+            self.remote.favorites.retain(|favorite| {
+                !(favorite.source_id == remote.source_id && favorite.url == remote.url)
+            });
+            self.config.remote_library.retain(|favorite| {
+                !(favorite.source_id == remote.source_id && favorite.url == remote.url)
+            });
+            let key = remote_story_key(&remote.source_id, &remote.url);
+            self.remote_chapter_cache.remove(&key);
+            self.story_refreshed.remove(&key);
+            if self.story_refresh.as_deref() == Some(key.as_str()) {
+                self.story_refresh = None;
+            }
+            if let Some(path) = remote_cover_path(&remote.source_id, &remote.url) {
+                let _ = std::fs::remove_file(path);
+            }
+            if let Some(path) = story_cache_path(&remote.source_id, &remote.url) {
+                let _ = std::fs::remove_file(path);
+            }
+            if self
+                .library_remote
+                .manga
+                .as_ref()
+                .is_some_and(|manga| manga.source_id == remote.source_id && manga.url == remote.url)
+            {
+                self.library_remote = LibraryRemoteState::default();
+                if self.view == LibraryView::RemoteDetails {
+                    self.view = LibraryView::Series;
+                }
+            }
+            self.removed_stories.insert(key);
+        }
         self.persist_settings();
         self.merge_remote_library();
-        true
+        removed.len() == items.len()
     }
 
     fn delete_series_downloads(&self, remote: &RemoteSeries, title: &str) -> Result<bool, String> {
@@ -3710,6 +4082,169 @@ impl AppState {
         }
         std::fs::remove_dir_all(&series_dir).map_err(|error| error.to_string())?;
         Ok(true)
+    }
+
+    /// Stable key for a series in multi-select.
+    pub fn series_selection_key(series: &Series) -> String {
+        match &series.remote {
+            Some(remote) => format!("remote:{}\n{}", remote.source_id, remote.url),
+            None => format!("local:{}", series.path.display()),
+        }
+    }
+
+    fn remote_selection_key(source_id: &str, url: &str) -> String {
+        format!("remote:{source_id}\n{url}")
+    }
+
+    fn local_chapter_selection_key(chapter: &Chapter) -> String {
+        format!("chapter:{}", chapter.path.display())
+    }
+
+    fn remote_chapter_selection_key(source_id: &str, manga_url: &str, chapter_url: &str) -> String {
+        format!("rchap:{source_id}\n{manga_url}\n{chapter_url}")
+    }
+
+    fn current_selection_target(&self) -> Option<(SelectionScope, String)> {
+        if self.reader.is_some() {
+            return None;
+        }
+        if self.tab == 0 {
+            return match self.view {
+                LibraryView::Series => {
+                    let series = self.selected_series()?;
+                    Some((
+                        SelectionScope::LibrarySeries,
+                        Self::series_selection_key(series),
+                    ))
+                }
+                LibraryView::Chapters => {
+                    let chapter = self.selected_chapter()?;
+                    Some((
+                        SelectionScope::LocalChapters,
+                        Self::local_chapter_selection_key(chapter),
+                    ))
+                }
+                LibraryView::RemoteDetails => {
+                    let manga = self.library_remote.manga.as_ref()?;
+                    let chapter = self
+                        .library_remote
+                        .chapters
+                        .get(self.library_remote.chapter_index)?;
+                    Some((
+                        SelectionScope::RemoteChapters,
+                        Self::remote_chapter_selection_key(
+                            &manga.source_id,
+                            &manga.url,
+                            &chapter.url,
+                        ),
+                    ))
+                }
+            };
+        }
+        if self.tab != 3 {
+            return None;
+        }
+        match self.browse_view {
+            BrowseView::Local => {
+                let series = self.selected_browse_series()?;
+                Some((
+                    SelectionScope::BrowseLocal,
+                    Self::series_selection_key(series),
+                ))
+            }
+            BrowseView::RemoteResults => {
+                let manga = self.remote.results.get(self.browse_selection)?;
+                Some((
+                    SelectionScope::RemoteResults,
+                    Self::remote_selection_key(&manga.source_id, &manga.url),
+                ))
+            }
+            BrowseView::GlobalResults => {
+                let group = self.remote.global_groups.get(self.remote.global_group)?;
+                let manga = group.mangas.get(self.remote.global_item)?;
+                Some((
+                    SelectionScope::GlobalResults,
+                    Self::remote_selection_key(&group.source.id, &manga.url),
+                ))
+            }
+            BrowseView::RemoteDetails => {
+                let manga = self.remote.manga.as_ref()?;
+                let chapter = self.remote.chapters.get(self.browse_selection)?;
+                Some((
+                    SelectionScope::RemoteChapters,
+                    Self::remote_chapter_selection_key(&manga.source_id, &manga.url, &chapter.url),
+                ))
+            }
+            BrowseView::Chapters => {
+                let chapter = self
+                    .selected_browse_local_series()?
+                    .chapters
+                    .get(self.browse_local_chapter)?;
+                Some((
+                    SelectionScope::LocalChapters,
+                    Self::local_chapter_selection_key(chapter),
+                ))
+            }
+            BrowseView::Sources => match self.selected_source_ref()? {
+                SourceRef::Local => Some((SelectionScope::Sources, "source:local".to_owned())),
+                SourceRef::Remote(index) => {
+                    let source = self.remote.sources.get(index)?;
+                    Some((SelectionScope::Sources, format!("source:{}", source.id)))
+                }
+            },
+            BrowseView::Extensions => {
+                let extension = self.selected_extension()?;
+                Some((SelectionScope::Extensions, format!("ext:{}", extension.pkg)))
+            }
+            BrowseView::Stores => {
+                let store = self.selected_store()?;
+                Some((SelectionScope::Stores, format!("store:{store}")))
+            }
+            BrowseView::Migrate => None,
+        }
+    }
+
+    pub fn supports_multi_select(&self) -> bool {
+        self.current_selection_target().is_some()
+    }
+
+    pub fn toggle_multi_select(&mut self) {
+        let Some((scope, key)) = self.current_selection_target() else {
+            return;
+        };
+        match self.multi_select.as_mut() {
+            Some(selection) if selection.scope == scope => {
+                if !selection.keys.remove(&key) {
+                    selection.keys.insert(key);
+                }
+                if selection.keys.is_empty() {
+                    self.multi_select = None;
+                }
+            }
+            _ => {
+                self.multi_select = Some(MultiSelect {
+                    scope,
+                    keys: std::iter::once(key).collect(),
+                });
+            }
+        }
+    }
+
+    pub fn clear_multi_select(&mut self) {
+        self.multi_select = None;
+    }
+
+    pub fn is_multi_selected(&self, scope: SelectionScope, key: &str) -> bool {
+        self.multi_select
+            .as_ref()
+            .is_some_and(|selection| selection.scope == scope && selection.keys.contains(key))
+    }
+
+    pub fn selected_keys(&self, scope: SelectionScope) -> Option<&HashSet<String>> {
+        self.multi_select
+            .as_ref()
+            .filter(|selection| selection.scope == scope)
+            .map(|selection| &selection.keys)
     }
 
     /// Persist reading progress unless Incognito mode is on.
@@ -5082,6 +5617,9 @@ impl AppState {
 
     pub fn select_tab(&mut self, index: usize) {
         let index = index.min(TAB_COUNT - 1);
+        if index != self.tab {
+            self.multi_select = None;
+        }
         // Each tab keeps its own navigation state. Only refresh the remote source list
         // the first time Browse is opened with a host configured.
         if index == 3 && self.tab != 3 && self.host_autostart && self.remote.sources.is_empty() {
@@ -6771,10 +7309,56 @@ mod tests {
 
         assert_eq!(
             app.uninstall_confirm,
-            Some(("pkg.asura".to_owned(), "Asura Scans".to_owned()))
+            Some(vec![("pkg.asura".to_owned(), "Asura Scans".to_owned())])
         );
         app.cancel_uninstall_extension();
         assert!(app.uninstall_confirm.is_none());
+    }
+
+    #[test]
+    fn multi_select_bookmarks_chapters() {
+        let mut app = AppState::new(library(), None);
+        app.set_config(Config::default());
+        app.select_index(1);
+        app.open();
+
+        app.chapter_index = 0;
+        app.toggle_multi_select();
+        app.chapter_index = 1;
+        app.toggle_multi_select();
+        assert_eq!(app.multi_select.as_ref().map(|s| s.keys.len()), Some(2));
+
+        app.toggle_bookmark();
+
+        let chapters = app
+            .selected_series()
+            .map(|series| series.chapters.clone())
+            .unwrap_or_default();
+        assert_eq!(chapters.len(), 2);
+        assert!(chapters
+            .iter()
+            .all(|chapter| app.bookmarks.is_bookmarked(&chapter.path)));
+        assert!(app.multi_select.is_none());
+    }
+
+    #[test]
+    fn multi_select_batches_library_delete() {
+        let mut app = AppState::new(library(), None);
+        app.set_config(Config::default());
+        app.select_index(0);
+        app.toggle_multi_select();
+        app.select_index(1);
+        app.toggle_multi_select();
+
+        assert_eq!(app.multi_select.as_ref().map(|s| s.keys.len()), Some(2));
+
+        app.open_library_delete_dialog();
+        assert_eq!(
+            app.library_delete.as_ref().map(|dialog| dialog.items.len()),
+            Some(2)
+        );
+        app.cancel_library_delete();
+        app.clear_multi_select();
     }
 
     #[test]

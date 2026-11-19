@@ -92,6 +92,12 @@ library entries.
 
 ## Library
 
+Panels with item actions support multi-select: press `Space` on the focused item,
+move with the normal keys, and press `Space` again to add or remove items. Selected items
+show `✓` and the commands bar shows the count. `Esc` clears the selection before backing
+out. Actions such as delete, install/uninstall, pin, update, save to library, download,
+and bookmark apply to the whole selection.
+
 The Library tab opens as a cover tile grid, like Mihon. Each tile shows the series cover
 (or an initial placeholder), title, and chapter count. Covers are centered without a
 border or tile background. `↑↓` moves by grid row, `←→` by one tile, and `Enter` opens
@@ -125,9 +131,10 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   Local lists only series folders from the configured library root, never saved remote
   manga or downloads.
 - **Extensions** — installed and available extensions. `/` searches by name or package,
-  `i` or `Enter` installs an available extension, `x` or `Delete` uninstalls an installed
-  one after a `y` confirmation, `u` updates, `P` pins all sources of the selected
-  extension, `a` adds a store URL, and `t` opens the store list.
+  `i` or `Enter` installs available extensions, `x` or `Delete` uninstalls installed
+  ones after a `y` confirmation, `u` updates, `P` pins all sources of the selected
+  extensions, `a` adds a store URL, and `t` opens the store list. All of these apply to
+  a multi-selection.
 - **Migrate** — placeholder; source migration is not implemented.
 
 Controls:

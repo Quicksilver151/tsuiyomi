@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect, Size},
     style::{Color, Modifier, Style},
@@ -19,7 +21,8 @@ use tsuiyomi_core::{
 use crate::{
     app::{
         AppState, BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind,
-        PickerState, ReaderMode, SettingId, SettingsPage, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
+        PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage, SourceRow, MORE_SECTIONS,
+        SETTINGS_PAGES,
     },
     layout::{
         app_layout, grid_columns, grid_margin, grid_row_offset, grid_tile_rect, grid_tile_width,
@@ -164,7 +167,7 @@ fn draw_quit_confirm(frame: &mut Frame, app: &AppState) {
 }
 
 fn draw_uninstall_confirm(frame: &mut Frame, app: &AppState) {
-    let Some((_, name)) = &app.uninstall_confirm else {
+    let Some(items) = &app.uninstall_confirm else {
         return;
     };
     let area = frame.area();
@@ -173,6 +176,11 @@ fn draw_uninstall_confirm(frame: &mut Frame, app: &AppState) {
     if width < 20 || height < 4 {
         return;
     }
+    let label = if items.len() == 1 {
+        format!("Uninstall {}?", items[0].1)
+    } else {
+        format!("Uninstall {} extensions?", items.len())
+    };
     let popup = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
@@ -192,7 +200,7 @@ fn draw_uninstall_confirm(frame: &mut Frame, app: &AppState) {
 
     let lines = vec![
         Line::from(Span::styled(
-            format!("Uninstall {name}?"),
+            label,
             Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
@@ -214,7 +222,7 @@ fn draw_library_delete(frame: &mut Frame, app: &AppState) {
         return;
     };
     let area = frame.area();
-    let remote = dialog.remote.is_some();
+    let remote = dialog.items.iter().any(|item| item.remote.is_some());
     let width = 66.min(area.width);
     let height = if remote { 9 } else { 8 }.min(area.height);
     if width < 28 || height < 5 {
@@ -247,12 +255,14 @@ fn draw_library_delete(frame: &mut Frame, app: &AppState) {
         Line::from(Span::styled(format!("{marker} {label}"), style))
     };
 
+    let title = if dialog.items.len() == 1 {
+        format!("Remove {}?", dialog.items[0].title)
+    } else {
+        format!("Remove {} items?", dialog.items.len())
+    };
     let mut lines = vec![
         Line::from(Span::styled(
-            format!(
-                "Remove {}?",
-                truncate_text(&dialog.title, width.saturating_sub(12))
-            ),
+            truncate_text(&title, width.saturating_sub(2)),
             Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
@@ -484,6 +494,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓←→", "move"),
                 ("s", "search"),
                 ("l", "latest"),
+                ("F", "library"),
                 ("↵", "open"),
                 ("r", "refresh"),
                 ("[ ]", "tabs"),
@@ -504,6 +515,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "source"),
                 ("←→", "result"),
+                ("F", "library"),
                 ("↵", "open"),
                 ("Esc", "back"),
             ],
@@ -620,7 +632,19 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         items.insert(at, ("b", "bookmark"));
     }
 
+    if app.supports_multi_select() && !items.iter().any(|(key, _)| *key == "Space") {
+        let at = items.len().saturating_sub(1);
+        items.insert(at, ("Space", "select"));
+    }
+
     let mut spans = Vec::new();
+    if let Some(selection) = &app.multi_select {
+        spans.push(Span::styled(
+            format!("{} selected", selection.keys.len()),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(" · ", Style::default().fg(c_overlay0())));
+    }
     for (position, (key, label)) in items.iter().enumerate() {
         if position > 0 {
             spans.push(Span::styled(" · ", Style::default().fg(c_overlay0())));
@@ -654,6 +678,7 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 &indices,
                 app.selected,
                 app.library_grid_offset,
+                SelectionScope::LibrarySeries,
             );
             app.library_columns = columns;
             app.library_grid_offset = offset;
@@ -679,7 +704,12 @@ fn draw_library_chapters(
         draw_browse_empty(frame, list_area, "Series not found. Rescan the library.");
         return;
     };
-    let items = local_chapter_items(&series.chapters, &app.progress, &app.bookmarks);
+    let items = local_chapter_items(
+        &series.chapters,
+        &app.progress,
+        &app.bookmarks,
+        app.selected_keys(SelectionScope::LocalChapters),
+    );
     draw_story_chapters(
         frame,
         list_area,
@@ -729,6 +759,7 @@ fn draw_library_remote_detail(
         &app.progress,
         &app.bookmarks,
         &app.library_remote.downloaded,
+        app.selected_keys(SelectionScope::RemoteChapters),
     );
     draw_story_chapters(
         frame,
@@ -756,6 +787,7 @@ fn draw_series_grid(
     indices: &[usize],
     selected: usize,
     current_offset: usize,
+    scope: SelectionScope,
 ) -> (usize, usize) {
     let columns = grid_columns(area, app.config.thumbnail_width);
     let cover_height = tile_cover_height(app.config.thumbnail_width, area.height);
@@ -796,14 +828,20 @@ fn draw_series_grid(
 
     for (position, series_index) in indices[start..end].iter().enumerate() {
         let index = start + position;
-        let (title, remote, chapter_count) = {
+        let (title, remote, chapter_count, series_path) = {
             let series = &app.library.series[*series_index];
             (
                 series.title.clone(),
                 series.remote.clone(),
                 series.chapters.len(),
+                series.path.clone(),
             )
         };
+        let selection_key = match &remote {
+            Some(remote) => format!("remote:{}\n{}", remote.source_id, remote.url),
+            None => format!("local:{}", series_path.display()),
+        };
+        let multi_selected = app.is_multi_selected(scope, &selection_key);
         // Load the cover immediately before rendering this tile. Loading all covers
         // first could evict early tiles from `tile_covers` before they are drawn on
         // large grids.
@@ -844,6 +882,13 @@ fn draw_series_grid(
             frame.render_widget(
                 Block::default().style(Style::default().bg(c_surface0())),
                 tile,
+            );
+        }
+        if multi_selected {
+            frame.render_widget(
+                Paragraph::new("✓")
+                    .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                Rect::new(tile.x, tile.y, 1, 1),
             );
         }
         let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
@@ -979,6 +1024,7 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
                         &indices,
                         app.browse_selection,
                         app.browse_grid_offset,
+                        SelectionScope::BrowseLocal,
                     );
                     app.browse_columns = columns;
                     app.browse_grid_offset = offset;
@@ -1126,6 +1172,16 @@ fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 frame.render_widget(
                     Block::default().style(Style::default().bg(c_surface0())),
                     tile,
+                );
+            }
+            if app.is_multi_selected(
+                SelectionScope::GlobalResults,
+                &format!("remote:{}\n{}", group.source.id, manga.url),
+            ) {
+                frame.render_widget(
+                    Paragraph::new("✓")
+                        .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                    Rect::new(tile.x, tile.y, 1, 1),
                 );
             }
             let cover_path = app.ensure_remote_cover(
@@ -1286,7 +1342,13 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     .add_modifier(Modifier::BOLD),
             )))),
             SourceRow::Local => {
+                let marker = if app.is_multi_selected(SelectionScope::Sources, "source:local") {
+                    "✓ "
+                } else {
+                    ""
+                };
                 items.push(ListItem::new(Line::from(vec![
+                    Span::styled(marker, Style::default().fg(c_accent())),
                     Span::styled("Local source", Style::default().fg(c_text())),
                     Span::styled(
                         format!("  {} series", app.local_series_count()),
@@ -1297,6 +1359,10 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
             SourceRow::Remote(index) => {
                 let source = &app.remote.sources[*index];
                 let mut spans = Vec::new();
+                if app.is_multi_selected(SelectionScope::Sources, &format!("source:{}", source.id))
+                {
+                    spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
+                }
                 if app.is_source_pinned(source) {
                     spans.push(Span::styled("★ ", Style::default().fg(c_accent())));
                 }
@@ -1372,6 +1438,16 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 tile,
             );
         }
+        if app.is_multi_selected(
+            SelectionScope::RemoteResults,
+            &format!("remote:{}\n{}", source_id, result.url),
+        ) {
+            frame.render_widget(
+                Paragraph::new("✓")
+                    .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                Rect::new(tile.x, tile.y, 1, 1),
+            );
+        }
         let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
         let cover_path =
             app.ensure_remote_cover(&source_id, &result.url, result.thumbnail_url.as_deref());
@@ -1441,6 +1517,7 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         &app.progress,
         &app.bookmarks,
         &app.remote.downloaded,
+        app.selected_keys(SelectionScope::RemoteChapters),
     );
     draw_story_chapters(
         frame,
@@ -1568,6 +1645,12 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
             };
             let nsfw = if extension.nsfw { " · 18+" } else { "" };
             let mut spans = Vec::new();
+            if app.is_multi_selected(
+                SelectionScope::Extensions,
+                &format!("ext:{}", extension.pkg),
+            ) {
+                spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
+            }
             if app.is_extension_pinned(extension) {
                 spans.push(Span::styled("★ ", Style::default().fg(c_accent())));
             }
@@ -1654,10 +1737,16 @@ fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let items: Vec<ListItem> = stores
         .iter()
         .map(|store| {
-            ListItem::new(Line::from(vec![Span::styled(
-                store.clone(),
-                Style::default().fg(c_text()),
-            )]))
+            let marker = if app.is_multi_selected(SelectionScope::Stores, &format!("store:{store}"))
+            {
+                "✓ "
+            } else {
+                ""
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, Style::default().fg(c_accent())),
+                Span::styled(store.clone(), Style::default().fg(c_text())),
+            ]))
         })
         .collect();
     app.browse_list_state
@@ -1695,7 +1784,12 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
         draw_browse_empty(frame, layout.list, "Series not found. Rescan the library.");
         return;
     };
-    let items = local_chapter_items(&series.chapters, &app.progress, &app.bookmarks);
+    let items = local_chapter_items(
+        &series.chapters,
+        &app.progress,
+        &app.bookmarks,
+        app.selected_keys(SelectionScope::LocalChapters),
+    );
     draw_story_chapters(
         frame,
         layout.list,
@@ -1956,11 +2050,17 @@ fn local_chapter_items(
     chapters: &[Chapter],
     progress: &ProgressStore,
     bookmarks: &BookmarkStore,
+    selected: Option<&HashSet<String>>,
 ) -> Vec<ListItem<'static>> {
     chapters
         .iter()
         .map(|chapter| {
             let mut spans = chapter_marker_spans(bookmarks.is_bookmarked(&chapter.path), None);
+            if selected
+                .is_some_and(|keys| keys.contains(&format!("chapter:{}", chapter.path.display())))
+            {
+                spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
+            }
             spans.push(Span::raw(chapter.title.clone()));
             spans.push(Span::styled(
                 format!("  {}", chapter_number(chapter.number)),
@@ -1984,6 +2084,7 @@ fn remote_chapter_items(
     progress: &ProgressStore,
     bookmarks: &BookmarkStore,
     downloaded: &[bool],
+    selected: Option<&HashSet<String>>,
 ) -> Vec<ListItem<'static>> {
     chapters
         .iter()
@@ -1994,6 +2095,10 @@ fn remote_chapter_items(
                 bookmarks.is_bookmarked(&key),
                 Some(downloaded.get(index).copied().unwrap_or(false)),
             );
+            let selection_key = format!("rchap:{source_id}\n{manga_url}\n{}", chapter.url);
+            if selected.is_some_and(|keys| keys.contains(&selection_key)) {
+                spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
+            }
             spans.push(Span::raw(chapter.name.clone()));
             if let Some(scanlator) = chapter
                 .scanlator
@@ -3283,14 +3388,16 @@ mod tests {
     fn library_delete_dialog_renders_the_options() {
         let mut app = test_app();
         app.library_delete = Some(crate::app::LibraryDeleteDialog {
-            path: PathBuf::from("/tmp/library/Test Series"),
-            title: "Test Series".to_owned(),
-            remote: Some(tsuiyomi_core::RemoteSeries {
-                source_id: "7".to_owned(),
-                url: "/manga/test".to_owned(),
-                thumbnail_url: None,
-                memo: None,
-            }),
+            items: vec![crate::app::LibraryDeleteItem {
+                path: PathBuf::from("/tmp/library/Test Series"),
+                title: "Test Series".to_owned(),
+                remote: Some(tsuiyomi_core::RemoteSeries {
+                    source_id: "7".to_owned(),
+                    url: "/manga/test".to_owned(),
+                    thumbnail_url: None,
+                    memo: None,
+                }),
+            }],
             remove_from_library: true,
             delete_downloads: false,
             focus: 0,
@@ -3306,7 +3413,7 @@ mod tests {
     #[test]
     fn uninstall_confirmation_renders_the_extension_name() {
         let mut app = test_app();
-        app.uninstall_confirm = Some(("pkg.asura".to_owned(), "Asura Scans".to_owned()));
+        app.uninstall_confirm = Some(vec![("pkg.asura".to_owned(), "Asura Scans".to_owned())]);
 
         let text = render(&mut app, 100, 30);
 
