@@ -5253,7 +5253,16 @@ impl AppState {
         self.library.categories.retain(|name| name != "Default");
         self.library.categories.insert(0, "Default".to_owned());
 
-        for favorite in self.remote.favorites.clone() {
+        // Before the host loads favorites, `remote.favorites` can be empty even though
+        // saved manga are mirrored in the config. Prefer the persisted list then;
+        // otherwise a delete/refresh in that window would drop every remote item from
+        // the grid until the next launch.
+        let favorites = if self.remote.favorites_loaded {
+            self.remote.favorites.clone()
+        } else {
+            self.config.remote_library.clone()
+        };
+        for favorite in favorites {
             let path = PathBuf::from(format!("remote://{}/{}", favorite.source_id, favorite.url));
             self.library.series.push(Series {
                 path,
@@ -6658,6 +6667,42 @@ mod tests {
 
         assert!(app.delete_series_downloads(&remote, "Overgeared").unwrap());
         assert!(!downloads.join("Asura Scans (EN)/Overgeared").exists());
+    }
+
+    #[test]
+    fn merging_before_favorites_load_keeps_persisted_remote_items() {
+        let mut app = AppState::new(library(), None);
+        app.remote.favorites.clear();
+        app.remote.favorites_loaded = false;
+        app.config.remote_library = vec![
+            RemoteFavorite {
+                source_id: "1".to_owned(),
+                url: "/manga/a".to_owned(),
+                title: "Alpha Remote".to_owned(),
+                thumbnail_url: None,
+                last_read_url: None,
+                last_read_name: None,
+            },
+            RemoteFavorite {
+                source_id: "2".to_owned(),
+                url: "/manga/b".to_owned(),
+                title: "Beta Remote".to_owned(),
+                thumbnail_url: None,
+                last_read_url: None,
+                last_read_name: None,
+            },
+        ];
+
+        app.merge_remote_library();
+
+        let titles: Vec<&str> = app
+            .library
+            .series
+            .iter()
+            .filter(|series| series.remote.is_some())
+            .map(|series| series.title.as_str())
+            .collect();
+        assert_eq!(titles, ["Alpha Remote", "Beta Remote"]);
     }
 
     #[test]
