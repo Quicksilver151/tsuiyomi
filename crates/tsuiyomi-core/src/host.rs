@@ -96,7 +96,7 @@ pub struct ExtensionInfo {
 }
 
 /// A manga saved in the host's library (favorites table).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteFavorite {
     pub source_id: String,
     pub url: String,

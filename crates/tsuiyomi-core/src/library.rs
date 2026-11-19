@@ -30,6 +30,8 @@ pub struct Library {
 #[derive(Debug, Clone)]
 pub struct Series {
     pub path: PathBuf,
+    /// Set for manga saved from a source; local series leave this `None`.
+    pub remote: Option<RemoteSeries>,
     /// `ComicInfo.xml` or `details.json` title, falling back to the directory name.
     pub title: String,
     pub author: Option<String>,
@@ -46,6 +48,14 @@ pub struct Series {
     pub chapters: Vec<Chapter>,
     /// Non-fatal metadata problems, e.g. malformed `details.json`.
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoteSeries {
+    pub source_id: String,
+    pub url: String,
+    pub thumbnail_url: Option<String>,
+    pub memo: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -289,6 +299,7 @@ fn scan_series(path: &Path) -> Result<Series, CoreError> {
 
     Ok(Series {
         path: path.to_path_buf(),
+        remote: None,
         title,
         author,
         artist,

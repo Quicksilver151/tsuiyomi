@@ -171,9 +171,10 @@ Rules:
   title; Esc at a tab root returns to Library. Sources are grouped
   by language and can be pinned (persisted in `pinned_sources`), and the Extensions tab has
   an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
-  source. `F` saves a remote manga to the host's favorites; Library's `v` scope shows those
-  favorites and reads them through the same remote chapter/reader path. Extensions are
-  managed through the host (repo URLs, install, uninstall).
+  source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
+  one Library grid under the default category (mirrored in `remote_library`) and read
+  through the same remote chapter/reader path. Extensions are managed through the host
+  (repo URLs, install, uninstall).
   tsuiyomi never loads APK bytecode itself; the host supplies the JVM, AndroidCompat, and
   dex2jar runtime. The bundled host is extracted from an optional archive in the binary
   into `$XDG_CACHE_HOME/tsuiyomi/host/<version>/` and supervised on loopback; `host_url`
@@ -186,8 +187,8 @@ Rules:
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
-  `incognito`, `host_url`, `host_jar`, and `pinned_sources`, and preserves unknown keys
-  from existing files.
+  `incognito`, `host_url`, `host_jar`, `pinned_sources`, and `remote_library`, and
+  preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

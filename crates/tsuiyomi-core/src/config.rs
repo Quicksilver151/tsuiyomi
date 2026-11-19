@@ -2,6 +2,8 @@ use std::{collections::BTreeMap, env, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::host::RemoteFavorite;
+
 /// Reader/viewer modes, mirroring Mihon's `ReadingMode` enum.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -78,6 +80,8 @@ pub struct Config {
     pub incognito: bool,
     /// Sources pinned to the top of Browse, keyed by `pkg|name|lang`.
     pub pinned_sources: Vec<String>,
+    /// Saved remote manga, mirrored from the host so the library renders offline.
+    pub remote_library: Vec<RemoteFavorite>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -106,6 +110,7 @@ impl Default for Config {
             default_category: None,
             incognito: false,
             pinned_sources: Vec::new(),
+            remote_library: Vec::new(),
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,

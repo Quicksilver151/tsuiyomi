@@ -387,11 +387,6 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.toggle_current_favorite();
                 }
             }
-            Action::LibraryScope => {
-                if app.tab == 0 && app.view == LibraryView::Series {
-                    app.toggle_library_scope();
-                }
-            }
             Action::Latest => {
                 if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     app.load_remote_latest();

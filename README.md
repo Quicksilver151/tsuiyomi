@@ -122,9 +122,9 @@ Controls:
 - `F` adds or removes the open manga from the library.
 - `/` on the Sources tab searches every pinned source and groups the hits by source.
 
-Library has two scopes: local series and the **Remote library** with manga saved from
-sources. `v` switches between them. Saved manga load their chapters from the source and
-read like any other remote chapter.
+The Library is one grid: local series and manga saved from sources share it, categories,
+sorting, and the reader. New saved manga go to the default category. Saved entries are
+mirrored into the config so they appear before the extension host starts.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.

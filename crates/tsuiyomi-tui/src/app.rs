@@ -11,7 +11,8 @@ use tsuiyomi_core::{
     chapter::natural_cmp, chapter_pages, ensure_runtime, fetch_bytes, host_data_dir,
     page_dimensions, read_cover, read_page, save_config, scan_library, Chapter, Config,
     ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore,
-    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSource, Series, Theme,
+    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series,
+    Theme,
 };
 
 use crate::{
@@ -32,13 +33,6 @@ pub enum LibraryView {
     Series,
     Chapters,
     RemoteChapters,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum LibraryScope {
-    #[default]
-    Local,
-    Remote,
 }
 
 #[derive(Default)]
@@ -462,6 +456,11 @@ pub struct ScrollPageLayout {
     pub cell_width: u16,
     pub pixel_width: u32,
     pub pixel_height: u32,
+    /// Source page this segment belongs to.
+    pub page: usize,
+    /// Vertical crop inside the source page, in source pixels.
+    pub source_y: u32,
+    pub source_height: u32,
 }
 
 pub struct ScrollState {
@@ -499,7 +498,6 @@ pub struct AppState {
     pub view: LibraryView,
     pub reader_mode: ReaderMode,
     pub library: Library,
-    pub library_scope: LibraryScope,
     pub library_remote: LibraryRemoteState,
     pub category_index: usize,
     pub selected: usize,
@@ -566,7 +564,6 @@ impl AppState {
             view: LibraryView::Series,
             reader_mode: ReaderMode::Page,
             library,
-            library_scope: LibraryScope::Local,
             library_remote: LibraryRemoteState::default(),
             category_index: 0,
             selected: 0,
@@ -1227,6 +1224,14 @@ impl AppState {
             Ok(favorites) => {
                 self.remote.favorites = favorites;
                 self.remote.favorites_loaded = true;
+                // Persist without thumbnails: their proxy URLs contain an ephemeral port.
+                let mut persisted = self.remote.favorites.clone();
+                for favorite in &mut persisted {
+                    favorite.thumbnail_url = None;
+                }
+                self.config.remote_library = persisted;
+                self.persist_settings();
+                self.merge_remote_library();
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -2281,11 +2286,7 @@ impl AppState {
     }
 
     pub fn visible_count(&self) -> usize {
-        if self.library_scope == LibraryScope::Remote {
-            self.remote.favorites.len()
-        } else {
-            self.visible_indices().len()
-        }
+        self.visible_indices().len()
     }
 
     pub fn selected_series(&self) -> Option<&Series> {
@@ -2306,14 +2307,17 @@ impl AppState {
     pub fn open(&mut self) {
         match self.view {
             LibraryView::Series => {
-                if self.library_scope == LibraryScope::Remote {
-                    self.open_library_remote(self.selected);
-                } else if self.selected_series().is_some() {
-                    self.view = LibraryView::Chapters;
-                    self.chapter_index = 0;
-                    self.status = None;
-                    let count = self.chapter_count();
-                    self.chapter_list_state.select((count > 0).then_some(0));
+                if let Some(series) = self.selected_series() {
+                    if let Some(remote) = series.remote.clone() {
+                        let title = series.title.clone();
+                        self.open_library_remote_series(remote, title);
+                    } else {
+                        self.view = LibraryView::Chapters;
+                        self.chapter_index = 0;
+                        self.status = None;
+                        let count = self.chapter_count();
+                        self.chapter_list_state.select((count > 0).then_some(0));
+                    }
                 }
             }
             LibraryView::Chapters => self.open_chapter(),
@@ -2552,7 +2556,9 @@ impl AppState {
             prefetch_ahead: config.scroll_prefetch_ahead.min(16),
             cache_margin: config.scroll_cache_margin.min(32),
         };
+        self.remote.favorites = config.remote_library.clone();
         self.config = config;
+        self.merge_remote_library();
         if let Some(name) = self.config.default_category.as_deref() {
             if let Some(index) = self
                 .library
@@ -3395,34 +3401,51 @@ impl AppState {
             sizes.iter().take(4).collect::<Vec<_>>()
         ));
 
+        const MAX_SEGMENT_ROWS: u32 = 400;
+
         let mut layout = Vec::with_capacity(sizes.len());
         let mut total_rows = 0u32;
-        for (source_width, source_height) in sizes {
+        for (page_index, (source_width, source_height)) in sizes.into_iter().enumerate() {
             let fit_scale = (f64::from(available_pixel_width) / f64::from(source_width)).min(1.0);
-            let scale = fit_scale * zoom;
+            let scale = (fit_scale * zoom).max(f64::EPSILON);
             let pixel_width = (f64::from(source_width) * scale).round().max(1.0) as u32;
             let rows =
                 ((f64::from(source_height) * scale / f64::from(font_height)).ceil() as u32).max(1);
-            if rows > u32::from(u16::MAX) {
-                self.set_reader_error("A page is too tall for scroll mode.");
-                return;
-            }
-
-            let pixel_height = rows * font_height;
             let cell_width = pixel_width.div_ceil(font_width).max(1);
             if cell_width > u32::from(u16::MAX) {
                 self.set_reader_error("A page is too wide for scroll mode.");
                 return;
             }
 
-            layout.push(ScrollPageLayout {
-                start: total_rows,
-                rows: rows as u16,
-                cell_width: cell_width as u16,
-                pixel_width,
-                pixel_height,
-            });
-            total_rows = total_rows.saturating_add(rows);
+            // Very tall webtoon pages are split into segments. One giant protocol per
+            // page is slow to encode and often misrenders; segments stay small.
+            let mut remaining = rows;
+            let mut source_y = 0u32;
+            while remaining > 0 {
+                let segment_rows = remaining.min(MAX_SEGMENT_ROWS);
+                let segment_px_height = segment_rows * font_height;
+                let remaining_source = source_height.saturating_sub(source_y);
+                let segment_source_height = if segment_rows == remaining {
+                    remaining_source
+                } else {
+                    ((f64::from(segment_px_height) / scale).round() as u32)
+                        .clamp(1, remaining_source.max(1))
+                };
+
+                layout.push(ScrollPageLayout {
+                    start: total_rows,
+                    rows: segment_rows as u16,
+                    cell_width: cell_width as u16,
+                    pixel_width,
+                    pixel_height: segment_px_height,
+                    page: page_index,
+                    source_y,
+                    source_height: segment_source_height,
+                });
+                total_rows = total_rows.saturating_add(segment_rows);
+                source_y = source_y.saturating_add(segment_source_height);
+                remaining -= segment_rows;
+            }
         }
 
         let viewport_height = self
@@ -3432,7 +3455,10 @@ impl AppState {
             .map_or(10, |scroll| scroll.viewport_height)
             .max(1);
         let page_index = self.reader.as_ref().map_or(0, |reader| reader.page_index);
-        let start_row = layout.get(page_index).map_or(0, |page| page.start);
+        let start_row = layout
+            .iter()
+            .find(|segment| segment.page == page_index)
+            .map_or(0, |segment| segment.start);
         let total_rows = total_rows.max(1);
         let max_scroll = total_rows.saturating_sub(u32::from(viewport_height));
         let offset = start_row.min(max_scroll);
@@ -3613,10 +3639,11 @@ impl AppState {
                             Some(scroll) => to_request
                                 .iter()
                                 .filter_map(|index| {
+                                    let layout = scroll.layout.get(*index).copied()?;
                                     Some((
                                         *index,
-                                        reader.pages.get(*index)?.clone(),
-                                        scroll.layout.get(*index).copied()?,
+                                        reader.pages.get(layout.page)?.clone(),
+                                        layout,
                                         scroll.generation,
                                     ))
                                 })
@@ -3838,21 +3865,6 @@ impl AppState {
         self.fullscreen = !self.fullscreen;
     }
 
-    pub fn toggle_library_scope(&mut self) {
-        self.library_scope = match self.library_scope {
-            LibraryScope::Local => LibraryScope::Remote,
-            LibraryScope::Remote => LibraryScope::Local,
-        };
-        self.selected = 0;
-        self.library_grid_offset = 0;
-        self.chapter_index = 0;
-        self.view = LibraryView::Series;
-        self.status = None;
-        if self.library_scope == LibraryScope::Remote && !self.remote.favorites_loaded {
-            self.load_favorites();
-        }
-    }
-
     pub fn library_remote_chapter_count(&self) -> usize {
         self.library_remote.chapters.len()
     }
@@ -3864,15 +3876,7 @@ impl AppState {
     }
 
     /// Open a favorite from the Remote library grid.
-    pub fn open_library_remote(&mut self, index: usize) {
-        let count = self.remote.favorites.len();
-        if count == 0 {
-            return;
-        }
-        let index = index.min(count - 1);
-        let Some(favorite) = self.remote.favorites.get(index).cloned() else {
-            return;
-        };
+    pub fn open_library_remote_series(&mut self, remote: RemoteSeries, title: String) {
         if self.host_client.is_none() && !self.ensure_host() {
             return;
         }
@@ -3880,18 +3884,18 @@ impl AppState {
             return;
         };
         let mut manga = RemoteManga {
-            source_id: favorite.source_id.clone(),
-            url: favorite.url.clone(),
-            title: favorite.title.clone(),
+            source_id: remote.source_id.clone(),
+            url: remote.url.clone(),
+            title,
             author: None,
             artist: None,
             description: None,
             genre: Vec::new(),
             status: "unknown".to_owned(),
-            thumbnail_url: favorite.thumbnail_url.clone(),
-            memo: None,
+            thumbnail_url: remote.thumbnail_url.clone(),
+            memo: remote.memo.clone(),
         };
-        if let Ok(details) = client.details(&manga.source_id, &manga.url, None) {
+        if let Ok(details) = client.details(&manga.source_id, &manga.url, manga.memo.as_deref()) {
             manga.author = details.author;
             manga.artist = details.artist;
             manga.description = details.description;
@@ -3929,6 +3933,59 @@ impl AppState {
         self.library_remote.list_state.select(Some(0));
         self.view = LibraryView::RemoteChapters;
         self.status = None;
+    }
+
+    /// Fold saved remote manga into the one library grid, under the default category.
+    pub fn merge_remote_library(&mut self) {
+        let selected_path = self.selected_series().map(|series| series.path.clone());
+        self.library.series.retain(|series| series.remote.is_none());
+
+        let category = self
+            .config
+            .default_category
+            .clone()
+            .unwrap_or_else(|| "Default".to_owned());
+        if !self.library.categories.iter().any(|name| name == &category) {
+            self.library.categories.push(category.clone());
+        }
+
+        for favorite in self.remote.favorites.clone() {
+            let path = PathBuf::from(format!("remote://{}/{}", favorite.source_id, favorite.url));
+            self.library.series.push(Series {
+                path,
+                remote: Some(RemoteSeries {
+                    source_id: favorite.source_id,
+                    url: favorite.url,
+                    thumbnail_url: favorite.thumbnail_url,
+                    memo: None,
+                }),
+                title: favorite.title,
+                author: None,
+                artist: None,
+                description: String::new(),
+                tags: Vec::new(),
+                status: None,
+                cover: None,
+                categories: vec![category.clone()],
+                chapters: Vec::new(),
+                warnings: Vec::new(),
+            });
+        }
+
+        self.library
+            .series
+            .sort_by(|left, right| natural_cmp(&left.title, &right.title));
+        if let Some(path) = selected_path {
+            if let Some(index) = self
+                .library
+                .series
+                .iter()
+                .position(|series| series.path == path)
+            {
+                self.selected = index;
+            }
+        }
+        self.clamp_selection();
     }
 
     pub fn open_library_remote_chapter(&mut self, index: usize) {
@@ -4119,6 +4176,7 @@ impl AppState {
                     }
                 }
 
+                self.merge_remote_library();
                 self.clamp_selection();
                 self.clamp_browse_selection();
                 self.status = if self.library.errors.is_empty() {
@@ -4232,7 +4290,8 @@ fn page_at_offset(scroll: &ScrollState) -> usize {
     scroll
         .layout
         .iter()
-        .rposition(|page| page.start <= scroll.offset)
+        .rposition(|segment| segment.start <= scroll.offset)
+        .map(|index| scroll.layout[index].page)
         .unwrap_or(0)
 }
 
@@ -4247,8 +4306,15 @@ pub(crate) fn build_scroll_protocol(
         page.name, layout.pixel_width, layout.pixel_height, layout.rows
     ));
     let bytes = read_page(page).map_err(|error| error.to_string())?;
-    let image =
+    let mut image =
         image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?;
+    if layout.source_y > 0 || layout.source_height < image.height() {
+        let height = layout
+            .source_height
+            .min(image.height().saturating_sub(layout.source_y))
+            .max(1);
+        image = image.crop_imm(0, layout.source_y, image.width(), height);
+    }
     let image = image.resize_exact(
         layout.pixel_width,
         layout.pixel_height,
@@ -4358,6 +4424,7 @@ mod tests {
     fn series(title: &str, categories: &[&str]) -> Series {
         Series {
             path: title.into(),
+            remote: None,
             title: title.to_owned(),
             author: None,
             artist: None,
@@ -4550,6 +4617,7 @@ mod tests {
 
         let series = Series {
             path: root.path().to_path_buf(),
+            remote: None,
             title: "Test".to_owned(),
             author: None,
             artist: None,
