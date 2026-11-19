@@ -186,14 +186,17 @@ pub fn grid_tile_rect(
     offset_row: usize,
     index: usize,
     tile_height: u16,
+    count: usize,
 ) -> Rect {
     let columns = columns.max(1);
     let tile_width = grid_tile_width(area, columns);
     let stride = tile_width.saturating_add(TILE_GAP);
     let row = index / columns;
     let column = index % columns;
+    let row_len = count.saturating_sub(row * columns).min(columns).max(1);
+    let row_offset = (columns - row_len) as u16 * stride / 2;
     Rect::new(
-        area.x + grid_margin(area, columns) + column as u16 * stride,
+        area.x + grid_margin(area, columns) + row_offset + column as u16 * stride,
         area.y + (row.saturating_sub(offset_row)) as u16 * tile_height,
         tile_width,
         tile_height,
@@ -215,21 +218,27 @@ pub fn grid_index_at(
     let columns = columns.max(1);
     let tile_width = grid_tile_width(area, columns);
     let stride = tile_width.saturating_add(TILE_GAP);
-    let left = area.x + grid_margin(area, columns);
-    if column < left {
-        return None;
-    }
-    let relative_x = column - left;
     let relative_y = row - area.y;
-    let grid_column = relative_x / stride;
-    if grid_column as usize >= columns || relative_x % stride >= tile_width {
-        return None;
-    }
     let grid_row = relative_y as usize / tile_height.max(1) as usize;
     if grid_row >= grid_visible_rows(area, tile_height) {
         return None;
     }
-    let index = (offset_row + grid_row) * columns + grid_column as usize;
+    let row_start = (offset_row + grid_row) * columns;
+    let row_len = count.saturating_sub(row_start).min(columns);
+    if row_len == 0 {
+        return None;
+    }
+    let row_offset = (columns - row_len) as u16 * stride / 2;
+    let left = area.x + grid_margin(area, columns) + row_offset;
+    if column < left {
+        return None;
+    }
+    let relative_x = column - left;
+    let grid_column = relative_x / stride;
+    if grid_column as usize >= row_len || relative_x % stride >= tile_width {
+        return None;
+    }
+    let index = row_start + grid_column as usize;
     (index < count).then_some(index)
 }
 
@@ -361,10 +370,25 @@ mod tests {
         assert_eq!(width, 16);
         let margin = grid_margin(area, columns);
         assert_eq!(margin, 2);
-        let first = grid_tile_rect(area, columns, 0, 0, 12);
-        let last = grid_tile_rect(area, columns, 0, columns - 1, 12);
+        let first = grid_tile_rect(area, columns, 0, 0, 12, columns);
+        let last = grid_tile_rect(area, columns, 0, columns - 1, 12, columns);
         assert_eq!(first.x, margin);
         assert_eq!(last.x + last.width, area.width - 6);
+    }
+
+    #[test]
+    fn partial_rows_are_centered_inside_the_grid() {
+        let area = Rect::new(0, 0, 160, 40);
+        let columns = grid_columns(area, 16);
+        let margin = grid_margin(area, columns);
+        let stride = grid_tile_width(area, columns) + TILE_GAP;
+        let used = columns as u16 * stride - TILE_GAP;
+
+        let first = grid_tile_rect(area, columns, 0, 0, 12, 3);
+        let third = grid_tile_rect(area, columns, 0, 2, 12, 3);
+        let left_gap = first.x - (area.x + margin);
+        let right_gap = (area.x + margin + used) - (third.x + third.width);
+        assert!((left_gap as i32 - right_gap as i32).abs() <= 1);
     }
 
     #[test]

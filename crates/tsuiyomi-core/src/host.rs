@@ -364,7 +364,14 @@ impl HostClient {
         Ok(data
             .pages
             .into_iter()
-            .filter(|row| !row.url.trim().is_empty())
+            // Some sources (Asura Scans) leave `url` empty and only set `imageUrl`.
+            .filter(|row| {
+                !row.url.trim().is_empty()
+                    || row
+                        .image_url
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+            })
             .map(|row| self.page_image_url(source_id, &row.url, row.image_url.as_deref()))
             .collect())
     }
@@ -806,7 +813,7 @@ mod tests {
     fn lists_chapters_and_proxies_pages() {
         let (address, requests) = server(vec![
             r#"{"chapters":[{"url":"/ch/1","name":"Chapter 1","date_upload":123,"chapter_number":1.0,"scanlator":"Team","memo":"{\"mangaSlug\":\"x\"}"}]}"#,
-            r#"{"pages":[{"index":0,"number":0,"url":"/p/1","imageUrl":"https://img.example/1.jpg"},{"index":1,"number":1,"url":"https://img.example/2.jpg","imageUrl":null}]}"#,
+            r#"{"pages":[{"index":0,"number":0,"url":"/p/1","imageUrl":"https://img.example/1.jpg"},{"index":1,"number":1,"url":"https://img.example/2.jpg","imageUrl":null},{"index":2,"number":2,"url":"","imageUrl":"https://img.example/3.jpg"}]}"#,
         ]);
         let client = HostClient::new(address);
 
@@ -824,10 +831,11 @@ mod tests {
                 Some(&chapters[0].name),
             )
             .unwrap();
-        assert_eq!(pages.len(), 2);
+        assert_eq!(pages.len(), 3);
         assert!(pages[0].contains("/api/v1/image?sourceId=7"));
         assert!(pages[0].contains("imageUrl=https%3A%2F%2Fimg.example%2F1.jpg"));
         assert!(pages[1].contains("imageUrl="));
+        assert!(pages[2].contains("imageUrl=https%3A%2F%2Fimg.example%2F3.jpg"));
         let page_request = requests.recv().unwrap();
         assert!(page_request.contains("memo=%7B%22mangaSlug%22%3A%22x%22%7D"));
         assert!(page_request.contains("name=Chapter%201"));
