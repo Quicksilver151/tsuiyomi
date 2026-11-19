@@ -138,6 +138,10 @@ database rows. tsuiyomi owns reading progress.
       the old cache path, and are restored in the background when missing.
 - [x] Library delete dialog (`x`/Delete) mirrors Mihon: remove from library and,
       for saved manga, delete downloaded chapters. Local files stay on disk.
+- [x] Cover reliability: tile covers load immediately before drawing, `R` refetches
+      missing saved manga covers, details supply missing thumbnails, Browse results pick
+      up covers learned from a details page, and local generated covers regenerate on
+      demand.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

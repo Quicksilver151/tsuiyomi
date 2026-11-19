@@ -194,7 +194,13 @@ Rules:
   details screen as Browse (cover, source, author/artist, status, tags, description,
   chapters). Remote covers are fetched through the host while it runs and written to
   `$XDG_DATA_HOME/tsuiyomi/covers` (proxy URLs are process-local, so the bytes, not the
-  URL, are cached); `remote_library` itself stores no thumbnail URLs. Covers are written
+  URL, are cached); `remote_library` itself stores no thumbnail URLs. `R` in the Library
+  grid starts/uses the host to refetch missing covers, including calling details for
+  favorites whose host entry has no thumbnail URL. Details fetched after opening a
+  Browse result are copied back into the result tile. Local tiles regenerate a deleted
+  generated `cover.jpg` through `ensure_series_cover` without a full rescan. Tiles load
+  their cover immediately before drawing and the in-memory cover cache holds 256
+  entries, so large grids do not evict a cover before rendering it. Covers are written
   atomically and validated before being stored, corrupt entries are replaced, and old
   `$XDG_CACHE_HOME` covers migrate on first load. If any saved cover is missing at
   startup, the host starts in the background once to reload favorites and refill them. Extensions are

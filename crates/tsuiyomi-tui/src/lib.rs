@@ -488,6 +488,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Bookmark => app.toggle_bookmark(),
+            Action::RefreshCovers => {
+                if app.tab == 0 && app.view == LibraryView::Series {
+                    app.refresh_library_covers();
+                }
+            }
             Action::UpdateExtension => {
                 if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.update_selected_extension();

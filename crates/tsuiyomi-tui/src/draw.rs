@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect, Size},
     style::{Color, Modifier, Style},
@@ -578,6 +576,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↵", "open"),
                 ("r", "rescan"),
                 ("c", "config"),
+                ("R", "covers"),
                 ("x/Del", "delete"),
                 ("f", "full"),
                 ("Esc", "back"),
@@ -795,31 +794,33 @@ fn draw_series_grid(
         .saturating_mul(columns)
         .min(indices.len());
 
-    let mut covers: Vec<Option<PathBuf>> = Vec::with_capacity(end.saturating_sub(start));
-    for index in &indices[start..end] {
-        let remote = app.library.series[*index].remote.clone();
-        let local = app.library.series[*index].cover.clone();
-        let path = if let Some(remote) = remote {
+    for (position, series_index) in indices[start..end].iter().enumerate() {
+        let index = start + position;
+        let (title, remote, chapter_count) = {
+            let series = &app.library.series[*series_index];
+            (
+                series.title.clone(),
+                series.remote.clone(),
+                series.chapters.len(),
+            )
+        };
+        // Load the cover immediately before rendering this tile. Loading all covers
+        // first could evict early tiles from `tile_covers` before they are drawn on
+        // large grids.
+        let cover_path = if let Some(remote) = &remote {
             app.ensure_library_cover(
                 &remote.source_id,
                 &remote.url,
                 remote.thumbnail_url.as_deref(),
             )
         } else {
-            if let Some(path) = &local {
+            let path = app.ensure_local_series_cover(*series_index);
+            if let Some(path) = &path {
                 app.ensure_tile_cover(path);
             }
-            local
+            path
         };
-        covers.push(path);
-    }
-
-    for (position, series_index) in indices[start..end].iter().enumerate() {
-        let index = start + position;
-        let series = &app.library.series[*series_index];
-        let title = series.title.clone();
-        let cover_path = covers.get(position).cloned().flatten();
-        let detail = if let Some(remote) = &series.remote {
+        let detail = if let Some(remote) = &remote {
             app.remote
                 .sources
                 .iter()
@@ -827,7 +828,7 @@ fn draw_series_grid(
                 .map(|source| source.display_name())
                 .unwrap_or_else(|| "saved".to_owned())
         } else {
-            format!("{} ch", series.chapters.len())
+            format!("{chapter_count} ch")
         };
         let tile = grid_tile_rect(area, columns, offset, index, tile_height);
         let is_selected = index == selected;

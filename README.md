@@ -99,10 +99,12 @@ the chapter list. Saved manga from sources open the same details screen as Brows
 source, author/artist, status, tags, description, and chapters. Their covers are cached
 in `$XDG_DATA_HOME/tsuiyomi/covers`, so they survive restarts and normal cache cleanup
 without the extension host. If a cover file is missing or corrupt, the app starts the
-host in the background once to restore it. Details, description, and chapters are cached per story in
+host in the background once to restore it; a local series cover is regenerated on demand
+from its first page if the generated file disappears. Details, description, and chapters are cached per story in
 `$XDG_DATA_HOME/tsuiyomi/stories`, so reopening a saved story after a restart is
 immediate; the first open fetches it, and `r` refreshes it. `[`/`]` switch categories,
-`r` rescans, and `b` bookmarks the selected chapter. `x` or `Delete` opens the remove
+`r` rescans, `R` refetches missing covers for saved source manga, and `b` bookmarks the
+selected chapter. `x` or `Delete` opens the remove
 dialog for the selected series: remove it from the library and, for saved source manga,
 optionally delete its downloaded chapters. Removing a local series keeps its files and
 hides it from future scans.

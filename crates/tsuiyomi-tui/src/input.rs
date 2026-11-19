@@ -38,6 +38,7 @@ pub enum Action {
     DeleteStore,
     Download,
     Bookmark,
+    RefreshCovers,
     UpdateExtension,
     InstallExtension,
     UninstallExtension,
@@ -92,6 +93,7 @@ fn key_action(code: KeyCode, text_mode: bool) -> Option<Action> {
         KeyCode::Char('d') => Action::DeleteStore,
         KeyCode::Char('D') => Action::Download,
         KeyCode::Char('b') => Action::Bookmark,
+        KeyCode::Char('R') => Action::RefreshCovers,
         KeyCode::Char('u') => Action::UpdateExtension,
         KeyCode::Char('i') => Action::InstallExtension,
         KeyCode::Char('x') | KeyCode::Delete => Action::UninstallExtension,
@@ -178,6 +180,14 @@ mod tests {
         );
         assert_eq!(key_action(KeyCode::Char('+'), false), Some(Action::ZoomIn));
         assert_eq!(key_action(KeyCode::Char('-'), false), Some(Action::ZoomOut));
+    }
+
+    #[test]
+    fn capital_r_refreshes_covers() {
+        assert_eq!(
+            key_action(KeyCode::Char('R'), false),
+            Some(Action::RefreshCovers)
+        );
     }
 
     #[test]

@@ -33,7 +33,8 @@ pub use host::{
     RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSource,
 };
 pub use library::{
-    read_cover, scan_library, Chapter, ChapterKind, Library, RemoteSeries, ScanError, Series,
+    ensure_series_cover, read_cover, scan_library, Chapter, ChapterKind, Library, RemoteSeries,
+    ScanError, Series,
 };
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};

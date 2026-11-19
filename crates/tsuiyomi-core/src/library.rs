@@ -162,6 +162,14 @@ fn apply_categories(library: &mut Library) {
     library.categories = categories;
 }
 
+/// Find or regenerate a series cover.
+///
+/// The scanner normally fills `Series.cover`, but a generated `cover.jpg` can be
+/// removed externally. Frontends can call this to restore one without a full rescan.
+pub fn ensure_series_cover(series: &Series) -> Option<PathBuf> {
+    find_cover(&series.path).or_else(|| generate_cover(&series.path, &series.chapters))
+}
+
 /// Read a series cover image. Kept in core so frontends never touch the filesystem.
 pub fn read_cover(path: &Path) -> Result<Vec<u8>, CoreError> {
     fs::read(path).map_err(|source| CoreError::ReadFile {
@@ -946,6 +954,22 @@ mod tests {
         assert!(cover.exists());
         let image = image::open(cover).unwrap();
         assert_eq!((image.width(), image.height()), (30, 45));
+    }
+
+    #[test]
+    fn restores_a_deleted_generated_cover() {
+        let root = tempdir().unwrap();
+        write_image(&root.path().join("Series/Chapter 1/001.jpg"));
+
+        let library = scan_library(root.path()).unwrap();
+        let series = &library.series[0];
+        let cover = series.cover.clone().expect("generated cover");
+        fs::remove_file(&cover).unwrap();
+
+        let restored = ensure_series_cover(series).expect("cover regenerated");
+
+        assert_eq!(restored, cover);
+        assert!(restored.exists());
     }
 
     #[test]

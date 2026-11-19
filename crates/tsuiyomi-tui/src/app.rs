@@ -11,12 +11,13 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedPr
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
-    ensure_runtime, fetch_bytes, host_data_dir, is_downloaded, legacy_remote_cover_path,
-    load_cached_story, page_dimensions, read_cover, read_page, remote_cover_path,
-    save_cached_story, save_config, scan_library, series_dir_name, source_dir_name,
-    story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config, ExtensionInfo,
-    HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore, ReadingMode,
-    RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series, Theme,
+    ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
+    legacy_remote_cover_path, load_cached_story, page_dimensions, read_cover, read_page,
+    remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
+    source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
+    ExtensionInfo, HostClient, HostProcess, Library, LibrarySort, Page, PageSource, ProgressStore,
+    ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga, RemoteSeries, RemoteSource, Series,
+    Theme,
 };
 
 use crate::{
@@ -40,7 +41,7 @@ const SCROLL_BLOCK_ROWS_MAX: u32 = 128;
 const SCROLL_PREFETCH_SCALE: usize = 2;
 
 /// Upper bound on decoded library tile covers kept in memory.
-const TILE_COVER_CACHE: usize = 64;
+const TILE_COVER_CACHE: usize = 256;
 
 /// Unique suffix for atomic cover writes; the loader thread and UI can race.
 static COVER_TEMP_ID: AtomicU64 = AtomicU64::new(0);
@@ -719,6 +720,41 @@ impl AppState {
         self.insert_tile_cover(path.to_path_buf(), image);
     }
 
+    /// Return a usable cover path for a local series, regenerating it if the file
+    /// disappeared since the last scan. Failed attempts are remembered until refresh.
+    pub fn ensure_local_series_cover(&mut self, index: usize) -> Option<PathBuf> {
+        if let Some(path) = self
+            .library
+            .series
+            .get(index)
+            .and_then(|series| series.cover.clone())
+            .filter(|path| path.exists())
+        {
+            return Some(path);
+        }
+        let key = format!(
+            "local:{}",
+            self.library
+                .series
+                .get(index)
+                .map(|series| series.path.display().to_string())
+                .unwrap_or_default()
+        );
+        if self.failed_covers.contains(&key) {
+            return None;
+        }
+        let generated = self.library.series.get(index).and_then(ensure_series_cover);
+        if let Some(path) = generated {
+            if let Some(series) = self.library.series.get_mut(index) {
+                series.cover = Some(path.clone());
+            }
+            Some(path)
+        } else {
+            self.failed_covers.insert(key);
+            None
+        }
+    }
+
     fn insert_tile_cover(&mut self, path: PathBuf, image: image::DynamicImage) {
         let Some(picker) = self.image_picker.as_ref() else {
             return;
@@ -1301,7 +1337,11 @@ impl AppState {
     /// process-local. Keeping the bytes means the library still has covers at the next
     /// start, before the JVM is launched.
     fn cache_favorite_covers(&self) {
-        let jobs: Vec<(String, String, String)> = self
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        // Keep favorites without a stored thumbnail: the details call can supply one.
+        let jobs: Vec<(String, String, Option<String>)> = self
             .remote
             .favorites
             .iter()
@@ -1313,7 +1353,7 @@ impl AppState {
                 Some((
                     favorite.source_id.clone(),
                     favorite.url.clone(),
-                    favorite.thumbnail_url.clone()?,
+                    favorite.thumbnail_url.clone(),
                 ))
             })
             .collect();
@@ -1322,13 +1362,22 @@ impl AppState {
         }
 
         std::thread::spawn(move || {
-            for (source_id, manga_url, url) in jobs {
+            for (source_id, manga_url, thumbnail_url) in jobs {
                 let Some(path) = remote_cover_path(&source_id, &manga_url) else {
                     continue;
                 };
                 if path.exists() {
                     continue;
                 }
+                let url = thumbnail_url.or_else(|| {
+                    client
+                        .details(&source_id, &manga_url, None)
+                        .ok()
+                        .and_then(|manga| manga.thumbnail_url)
+                });
+                let Some(url) = url else {
+                    continue;
+                };
                 let Ok(bytes) = fetch_bytes(&url) else {
                     continue;
                 };
@@ -1665,6 +1714,42 @@ impl AppState {
                 url: manga.url,
                 ..details
             });
+            self.update_result_thumbnail();
+        }
+    }
+
+    /// Copy details gained from a manga page back into the result grids, so returning
+    /// to a list shows the cover instead of the placeholder.
+    fn update_result_thumbnail(&mut self) {
+        let Some(manga) = self.remote.manga.clone() else {
+            return;
+        };
+        for result in &mut self.remote.results {
+            if result.source_id == manga.source_id && result.url == manga.url {
+                result.thumbnail_url = manga.thumbnail_url.clone();
+                result.author = manga.author.clone();
+                result.artist = manga.artist.clone();
+                result.description = manga.description.clone();
+                result.genre = manga.genre.clone();
+                result.status = manga.status.clone();
+                result.memo = manga.memo.clone();
+            }
+        }
+        for group in &mut self.remote.global_groups {
+            if group.source.id != manga.source_id {
+                continue;
+            }
+            for result in &mut group.mangas {
+                if result.url == manga.url {
+                    result.thumbnail_url = manga.thumbnail_url.clone();
+                    result.author = manga.author.clone();
+                    result.artist = manga.artist.clone();
+                    result.description = manga.description.clone();
+                    result.genre = manga.genre.clone();
+                    result.status = manga.status.clone();
+                    result.memo = manga.memo.clone();
+                }
+            }
         }
     }
 
@@ -1854,6 +1939,21 @@ impl AppState {
             self.failed_covers.insert(key);
             None
         }
+    }
+
+    /// Explicitly refetch missing covers for saved source manga.
+    pub fn refresh_library_covers(&mut self) {
+        if self.config.remote_library.is_empty() && self.remote.favorites.is_empty() {
+            self.status = Some("No saved source manga.".to_owned());
+            return;
+        }
+        if self.host_client.is_none() {
+            self.status = Some("Starting the host to refresh covers…".to_owned());
+            self.begin_host_start(true);
+            return;
+        }
+        self.status = Some("Refreshing library covers…".to_owned());
+        self.load_favorites();
     }
 
     /// Restore missing library covers once per session by starting the host in the
@@ -6428,6 +6528,38 @@ mod tests {
             assert_eq!(app.tab, 3);
             assert_eq!(app.browse_view, view);
         }
+    }
+
+    #[test]
+    fn details_gained_later_update_result_thumbnails() {
+        let mut app = remote_app();
+        let mut result = RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/test".to_owned(),
+            title: "Test".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        app.remote.results = vec![result.clone()];
+        result.thumbnail_url = Some("http://127.0.0.1/cover.webp".to_owned());
+        result.description = Some("Loaded from details".to_owned());
+        app.remote.manga = Some(result);
+
+        app.update_result_thumbnail();
+
+        assert_eq!(
+            app.remote.results[0].thumbnail_url.as_deref(),
+            Some("http://127.0.0.1/cover.webp")
+        );
+        assert_eq!(
+            app.remote.results[0].description.as_deref(),
+            Some("Loaded from details")
+        );
     }
 
     #[test]
