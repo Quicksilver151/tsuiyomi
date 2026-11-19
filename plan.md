@@ -132,7 +132,8 @@ database rows. tsuiyomi owns reading progress.
       background when it is already running.
 - [x] The bundled extension host starts on a worker when Browse is first opened, so the
       tab renders immediately instead of freezing during JVM startup.
-- [x] Installed extensions expose uninstall in the commands bar and confirm it with `y`.
+- [x] Extensions use separate keys: `i`/Enter installs, `x`/Delete uninstalls after `y`
+      confirmation. The commands bar lists both.
 - [ ] Series-level download queue and download deletion UI.
 - [ ] Per-source preferences exposed by the host.
 - [ ] Migrate.

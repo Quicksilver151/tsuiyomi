@@ -39,6 +39,8 @@ pub enum Action {
     Download,
     Bookmark,
     UpdateExtension,
+    InstallExtension,
+    UninstallExtension,
     Pin,
     HostToggle,
     Favorite,
@@ -91,6 +93,8 @@ fn key_action(code: KeyCode, text_mode: bool) -> Option<Action> {
         KeyCode::Char('D') => Action::Download,
         KeyCode::Char('b') => Action::Bookmark,
         KeyCode::Char('u') => Action::UpdateExtension,
+        KeyCode::Char('i') => Action::InstallExtension,
+        KeyCode::Char('x') | KeyCode::Delete => Action::UninstallExtension,
         KeyCode::Char('P') => Action::Pin,
         KeyCode::Char('H') => Action::HostToggle,
         KeyCode::Char('F') => Action::Favorite,
@@ -174,6 +178,22 @@ mod tests {
         );
         assert_eq!(key_action(KeyCode::Char('+'), false), Some(Action::ZoomIn));
         assert_eq!(key_action(KeyCode::Char('-'), false), Some(Action::ZoomOut));
+    }
+
+    #[test]
+    fn extension_keys_are_split_between_install_and_uninstall() {
+        assert_eq!(
+            key_action(KeyCode::Char('i'), false),
+            Some(Action::InstallExtension)
+        );
+        assert_eq!(
+            key_action(KeyCode::Char('x'), false),
+            Some(Action::UninstallExtension)
+        );
+        assert_eq!(
+            key_action(KeyCode::Delete, false),
+            Some(Action::UninstallExtension)
+        );
     }
 
     #[test]

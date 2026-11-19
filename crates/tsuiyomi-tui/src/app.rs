@@ -810,7 +810,7 @@ impl AppState {
                 self.select_browse_entry(0);
             }
             BrowseView::RemoteDetails => self.open_remote_chapter(self.browse_selection),
-            BrowseView::Extensions => self.toggle_selected_extension(),
+            BrowseView::Extensions => self.install_selected_extension(),
             BrowseView::Stores | BrowseView::GlobalResults | BrowseView::Migrate => {}
         }
     }
@@ -1970,7 +1970,7 @@ impl AppState {
         }
     }
 
-    fn toggle_selected_extension(&mut self) {
+    pub fn install_selected_extension(&mut self) {
         let Some(extension) = self.selected_extension().cloned() else {
             return;
         };
@@ -1979,9 +1979,8 @@ impl AppState {
         };
 
         if extension.installed {
-            self.uninstall_confirm = Some((extension.pkg.clone(), extension.name.clone()));
             self.remote.status = Some(format!(
-                "Press y to uninstall {}, Esc cancels",
+                "{} is already installed · x uninstalls",
                 extension.name
             ));
             self.remote.error = false;
@@ -2014,6 +2013,23 @@ impl AppState {
             }
             Err(error) => self.set_remote_error(error),
         }
+    }
+
+    pub fn uninstall_selected_extension(&mut self) {
+        let Some(extension) = self.selected_extension().cloned() else {
+            return;
+        };
+        if !extension.installed {
+            self.remote.status = Some(format!("{} is not installed", extension.name));
+            self.remote.error = false;
+            return;
+        }
+        self.uninstall_confirm = Some((extension.pkg.clone(), extension.name.clone()));
+        self.remote.status = Some(format!(
+            "Press y to uninstall {}, Esc cancels",
+            extension.name
+        ));
+        self.remote.error = false;
     }
 
     pub fn confirm_uninstall_extension(&mut self) {
@@ -6143,7 +6159,15 @@ mod tests {
             repo_url: "https://example.org/index.min.json".to_owned(),
         }];
 
-        app.toggle_selected_extension();
+        app.install_selected_extension();
+        assert!(app.uninstall_confirm.is_none());
+        assert!(app
+            .remote
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("already installed")));
+
+        app.uninstall_selected_extension();
 
         assert_eq!(
             app.uninstall_confirm,

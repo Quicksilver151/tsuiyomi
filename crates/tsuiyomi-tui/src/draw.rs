@@ -443,7 +443,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             BrowseView::Extensions => vec![
                 ("q", "quit"),
                 ("↑↓", "extension"),
-                ("↵", "install"),
+                ("i/↵", "install"),
                 ("/", "search"),
                 ("P", "pin"),
                 ("u", "update"),
@@ -536,16 +536,15 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         let at = items.len().saturating_sub(1);
         items.insert(at, ("D", "download"));
     }
-    if app.tab == 3 && app.browse_view == BrowseView::Extensions {
-        if let Some(extension) = app.selected_extension() {
-            if let Some(item) = items.iter_mut().find(|(key, _)| *key == "↵") {
-                item.1 = if extension.installed {
-                    "uninstall"
-                } else {
-                    "install"
-                };
-            }
-        }
+    if app.tab == 3
+        && app.browse_view == BrowseView::Extensions
+        && app
+            .selected_extension()
+            .is_some_and(|extension| extension.installed)
+        && !items.iter().any(|(key, _)| *key == "x/Del")
+    {
+        let at = items.len().saturating_sub(1);
+        items.insert(at, ("x/Del", "uninstall"));
     }
     if app.has_bookmarkable_chapter() && !items.iter().any(|(key, _)| *key == "b") {
         let at = items.len().saturating_sub(1);

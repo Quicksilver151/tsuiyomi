@@ -479,6 +479,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.update_selected_extension();
                 }
             }
+            Action::InstallExtension => {
+                if app.tab == 3 && app.browse_view == BrowseView::Extensions {
+                    app.install_selected_extension();
+                }
+            }
+            Action::UninstallExtension => {
+                if app.tab == 3 && app.browse_view == BrowseView::Extensions {
+                    app.uninstall_selected_extension();
+                }
+            }
             Action::Open => {
                 if app.tab == 3 {
                     if app.browse_view == BrowseView::GlobalResults {

@@ -183,9 +183,9 @@ Rules:
   an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
   source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
-  through the same remote chapter/reader path. Pressing Enter on an installed extension
-  asks for `y` confirmation before uninstalling it (the commands bar says "uninstall"
-  instead of "install"). Opening a saved manga shows the same
+  through the same remote chapter/reader path. In Extensions, `i`/Enter installs and
+  `x`/Delete asks for `y` confirmation before uninstalling; the commands bar lists both.
+  Opening a saved manga shows the same
   details screen as Browse (cover, source, author/artist, status, tags, description,
   chapters). Remote covers are fetched through the host while it runs and written to
   `$XDG_CACHE_HOME/tsuiyomi/covers` (proxy URLs are process-local, so the bytes, not the
