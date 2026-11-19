@@ -758,10 +758,9 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
-            // At a tab's base view, Esc returns to the Library tab.
-            BrowseView::Extensions | BrowseView::Sources | BrowseView::Migrate => {
-                self.select_tab(0);
-            }
+            // Esc leaves Browse only from the Sources root. Extensions and Migrate stay.
+            BrowseView::Sources => self.select_tab(0),
+            BrowseView::Extensions | BrowseView::Migrate => {}
         }
     }
 
@@ -1626,23 +1625,35 @@ impl AppState {
             return;
         }
         match client.install_extension(&extension.repo_url, &extension.apk) {
-            Ok(outcome) => {
+            Ok(_) => {
                 let name = extension.name;
+                let pkg = extension.pkg.clone();
+                // The APK often loads zero sources until the published desktop jar is in
+                // place and the host restarts. Report what is actually loaded afterwards.
                 let swapped = self.install_desktop_jar(&extension.apk);
                 if swapped {
                     self.restart_bundled_host();
                 }
                 self.load_extensions();
                 self.load_remote_sources();
-                self.remote.status = Some(if outcome.sources == 0 {
+                let sources = self.loaded_source_count(&pkg);
+                self.remote.status = Some(if sources == 0 {
                     format!("Installed {name} but it exposed no sources")
                 } else {
-                    format!("Installed {name} ({} sources)", outcome.sources)
+                    format!("Installed {name} ({sources} sources)")
                 });
-                self.remote.error = outcome.sources == 0;
+                self.remote.error = sources == 0;
             }
             Err(error) => self.set_remote_error(error),
         }
+    }
+
+    fn loaded_source_count(&self, pkg: &str) -> usize {
+        self.remote
+            .sources
+            .iter()
+            .filter(|source| source.pkg.as_deref() == Some(pkg))
+            .count()
     }
 
     /// Reinstall the selected extension from its repository, which also updates it.
@@ -1657,17 +1668,18 @@ impl AppState {
             return;
         };
         match client.install_extension(&extension.repo_url, &extension.apk) {
-            Ok(outcome) => {
+            Ok(_) => {
                 let name = extension.name;
+                let pkg = extension.pkg.clone();
                 let swapped = self.install_desktop_jar(&extension.apk);
                 if swapped {
                     self.restart_bundled_host();
                 }
                 self.load_extensions();
                 self.load_remote_sources();
-                self.remote.status =
-                    Some(format!("Reinstalled {name} ({} sources)", outcome.sources));
-                self.remote.error = outcome.sources == 0;
+                let sources = self.loaded_source_count(&pkg);
+                self.remote.status = Some(format!("Reinstalled {name} ({sources} sources)"));
+                self.remote.error = sources == 0;
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -4296,6 +4308,15 @@ mod tests {
         app.browse_parent();
         assert_eq!(app.tab, 3);
         assert_eq!(app.browse_view, BrowseView::Sources);
+
+        // Extensions and Migrate keep you in Browse.
+        for view in [BrowseView::Extensions, BrowseView::Migrate] {
+            app.tab = 3;
+            app.browse_view = view;
+            app.browse_parent();
+            assert_eq!(app.tab, 3);
+            assert_eq!(app.browse_view, view);
+        }
     }
 
     #[test]
