@@ -23,6 +23,30 @@ The plan also covers the hidden data needed for later Statistics pages, backups,
 or tracker integration, but the visible deliverable is the History tab and its
 Stats mini-tab.
 
+## Implementation status
+
+Implemented:
+
+- Unbounded append-only JSONL history with legacy `history.json` import.
+- Latest-per-series History view with date headers and title search.
+- Compact 4×3 cover rows in a vertical list.
+- History / Stats mini-tabs.
+- Reading-session duration tracking and `reading_stats.json`.
+- Stats totals, 7/30-day windows, 14-day chart, top series, streak, and counts.
+- Permanent single/all-series deletion with chapter-progress clearing.
+- Multi-select deletion.
+- Clear-all with progress clearing.
+- Next-chapter resume and History-tab reselect.
+- Add-to-library, duplicate handling, and open-details actions.
+
+Remaining polish:
+
+- Mouse hit-testing for row/cover clicks.
+- Optional idle cutoff for read-time accounting.
+- Slimming persisted remote history metadata.
+- Stats scrolling on very short terminals.
+- Migration hook from history duplicates once Browse migration lands.
+
 ## 2. Mihon behavior summary
 
 Sources reviewed:
