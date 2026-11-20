@@ -28,6 +28,7 @@ Completed in the first Browse-parity slice:
 - Latest listing hidden for sources that report `supportsLatest = false`.
 - Remote result pagination with `n`, deduplicated by manga URL and preserving the
   selected tile.
+- Local source title search, recent/latest view, and persisted title ordering.
 
 Still open from M0/M1: the Browse extraction and background worker, source
 options dialog, source preferences, Local source search/latest/sort, and the

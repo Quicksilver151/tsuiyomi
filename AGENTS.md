@@ -256,8 +256,8 @@ Rules:
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
-  `enabled_languages`, `disabled_sources`, `remote_library`, `downloads_path`, and
-  `hidden_series`, and preserves unknown keys from existing files.
+  `enabled_languages`, `disabled_sources`, `local_source_order`, `remote_library`,
+  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

@@ -109,6 +109,7 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
 - [x] Source management screen (`o`) for enabling/disabling languages and individual
       sources.
 - [x] Remote result pagination with `n`, appending and deduplicating pages.
+- [x] Local source search (`s`), recent view (`l`), and title ordering (`v`).
 - [x] Inline extension search (name or package).
 - [x] Pin all sources of an extension from the Extensions tab.
 - [x] Tabs rendered inside the Browse panel; Esc at a tab root returns to Library.

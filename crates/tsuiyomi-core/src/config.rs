@@ -28,6 +28,15 @@ pub enum LibrarySort {
     TitleDesc,
 }
 
+/// Ordering of the Browse Local source grid.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalSourceOrder {
+    #[default]
+    TitleAsc,
+    TitleDesc,
+}
+
 /// Built-in color themes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +98,8 @@ pub struct Config {
     pub enabled_languages: Option<Vec<String>>,
     /// Sources hidden from Browse, keyed by `pkg|name|lang`.
     pub disabled_sources: Vec<String>,
+    /// Ordering of the Local source grid.
+    pub local_source_order: LocalSourceOrder,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// Local series removed from the library but kept on disk, relative to the
@@ -126,6 +137,7 @@ impl Default for Config {
             last_used_source: None,
             enabled_languages: None,
             disabled_sources: Vec::new(),
+            local_source_order: LocalSourceOrder::default(),
             remote_library: Vec::new(),
             hidden_series: Vec::new(),
             reader_zoom: 100,
@@ -223,6 +235,7 @@ external_mpv = ["mpv"]
 last_used_source = "pkg.a|Alpha|en"
 enabled_languages = ["en", "ja"]
 disabled_sources = ["pkg.b|Beta|en"]
+local_source_order = "title_desc"
 "#,
         )
         .unwrap();
@@ -232,11 +245,13 @@ disabled_sources = ["pkg.b|Beta|en"]
             Some(["en".to_owned(), "ja".to_owned()].as_slice())
         );
         assert_eq!(config.disabled_sources, ["pkg.b|Beta|en"]);
+        assert_eq!(config.local_source_order, LocalSourceOrder::TitleDesc);
 
         let serialized = toml::to_string(&config).unwrap();
         assert!(serialized.contains("last_used_source = \"pkg.a|Alpha|en\""));
         assert!(serialized.contains("enabled_languages"));
         assert!(serialized.contains("disabled_sources"));
+        assert!(serialized.contains("local_source_order = \"title_desc\""));
     }
 
     #[test]

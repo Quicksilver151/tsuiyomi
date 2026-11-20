@@ -15,9 +15,9 @@ use tsuiyomi_core::{
     legacy_remote_cover_path, load_cached_story, page_dimensions, read_cover, read_page,
     remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
-    ExtensionInfo, HistoryEntry, HistoryStore, HostClient, HostProcess, Library, LibrarySort, Page,
-    PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga,
-    RemoteMangaPage, RemoteSeries, RemoteSource, Series, Theme,
+    ExtensionInfo, HistoryEntry, HistoryStore, HostClient, HostProcess, Library, LibrarySort,
+    LocalSourceOrder, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -179,6 +179,7 @@ pub enum SourceRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAction {
     SearchRemote,
+    SearchLocal,
     GlobalSearch,
     AddExtensionStore,
     SetHostUrl,
@@ -660,6 +661,8 @@ pub struct AppState {
     /// Local series and chapter selected in Browse; independent of the Library tab.
     pub browse_local_series: Option<PathBuf>,
     pub browse_local_chapter: usize,
+    pub browse_local_query: String,
+    pub browse_local_latest: bool,
     pub browse_local_list_state: ListState,
     pub source_filter_list_state: ListState,
     pub host_client: Option<HostClient>,
@@ -746,6 +749,8 @@ impl AppState {
             extension_search: false,
             browse_local_series: None,
             browse_local_chapter: 0,
+            browse_local_query: String::new(),
+            browse_local_latest: false,
             browse_local_list_state: ListState::default(),
             source_filter_list_state: ListState::default(),
             host_client: None,
@@ -1033,7 +1038,7 @@ impl AppState {
         match self.browse_view {
             BrowseView::Sources => self.source_order().len(),
             BrowseView::SourceFilters => self.source_filter_item_count(),
-            BrowseView::Local => self.local_series_count(),
+            BrowseView::Local => self.browse_local_indices().len(),
             BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
             BrowseView::RemoteDetails => self.remote.chapters.len(),
@@ -1051,23 +1056,93 @@ impl AppState {
             .count()
     }
 
-    /// Indices into `library.series` for the Local source, sorted by title.
+    /// Indices into `library.series` for the Local source, after search and recent
+    /// filtering and in the configured order.
     pub fn browse_local_indices(&self) -> Vec<usize> {
-        let mut indices: Vec<usize> = self
+        let query = self.browse_local_query.trim().to_lowercase();
+        let recent_after =
+            std::time::SystemTime::now().checked_sub(Duration::from_secs(7 * 24 * 60 * 60));
+        let mut indices: Vec<(usize, Option<std::time::SystemTime>)> = self
             .library
             .series
             .iter()
             .enumerate()
             .filter(|(_, series)| series.remote.is_none())
-            .map(|(index, _)| index)
+            .filter(|(_, series)| query.is_empty() || series.title.to_lowercase().contains(&query))
+            .filter_map(|(index, series)| {
+                let modified = std::fs::metadata(&series.path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok();
+                if self.browse_local_latest {
+                    let modified = modified?;
+                    if recent_after.is_some_and(|cutoff| modified < cutoff) {
+                        return None;
+                    }
+                }
+                Some((index, modified))
+            })
             .collect();
-        indices.sort_by(|left, right| {
-            natural_cmp(
-                &self.library.series[*left].title,
-                &self.library.series[*right].title,
-            )
-        });
-        indices
+
+        let descending = self.config.local_source_order == LocalSourceOrder::TitleDesc;
+        if self.browse_local_latest {
+            indices.sort_by(|left, right| {
+                right.1.cmp(&left.1).then_with(|| {
+                    natural_cmp(
+                        &self.library.series[left.0].title,
+                        &self.library.series[right.0].title,
+                    )
+                })
+            });
+        } else {
+            indices.sort_by(|left, right| {
+                let order = natural_cmp(
+                    &self.library.series[left.0].title,
+                    &self.library.series[right.0].title,
+                );
+                if descending {
+                    order.reverse()
+                } else {
+                    order
+                }
+            });
+        }
+        indices.into_iter().map(|(index, _)| index).collect()
+    }
+
+    /// Apply a title filter to the Local source grid.
+    pub fn search_local(&mut self, query: &str) {
+        self.browse_local_query = query.trim().to_owned();
+        if !self.browse_local_query.is_empty() {
+            self.browse_local_latest = false;
+        }
+        self.browse_view = BrowseView::Local;
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(0);
+    }
+
+    /// Toggle the Local source between all series and recently modified folders.
+    pub fn toggle_local_latest(&mut self) {
+        self.browse_local_latest = !self.browse_local_latest;
+        if self.browse_local_latest {
+            self.browse_local_query.clear();
+        }
+        self.browse_view = BrowseView::Local;
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(0);
+    }
+
+    /// Toggle Local source title ordering.
+    pub fn toggle_local_order(&mut self) {
+        self.config.local_source_order = match self.config.local_source_order {
+            LocalSourceOrder::TitleAsc => LocalSourceOrder::TitleDesc,
+            LocalSourceOrder::TitleDesc => LocalSourceOrder::TitleAsc,
+        };
+        self.persist_settings();
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(0);
     }
 
     pub fn selected_browse_series(&self) -> Option<&Series> {
@@ -2529,6 +2604,7 @@ impl AppState {
         };
         match input.action {
             TextAction::SearchRemote => self.search_remote(&input.value),
+            TextAction::SearchLocal => self.search_local(&input.value),
             TextAction::GlobalSearch => self.global_search(&input.value),
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
             TextAction::SetHostUrl => self.set_host_url(&input.value),
@@ -7886,6 +7962,48 @@ mod tests {
         app.browse_selection = 3;
         app.toggle_source_filter_selection();
         assert!(app.source_enabled(&app.remote.sources[1].clone()));
+    }
+
+    #[test]
+    fn local_source_search_latest_and_order() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("Azumanga")).unwrap();
+        std::fs::create_dir_all(root.path().join("Berserk")).unwrap();
+        let mut library = library();
+        for series in &mut library.series {
+            series.path = root.path().join(&series.title);
+        }
+        let mut app = AppState::new(library, None);
+        app.browse_view = BrowseView::Local;
+
+        app.search_local("ber");
+        let titles: Vec<&str> = app
+            .browse_local_indices()
+            .into_iter()
+            .map(|index| app.library.series[index].title.as_str())
+            .collect();
+        assert_eq!(titles, ["Berserk"]);
+        assert_eq!(app.browse_item_count(), 1);
+
+        app.search_local("");
+        assert_eq!(app.browse_item_count(), 2);
+
+        app.toggle_local_order();
+        let titles: Vec<&str> = app
+            .browse_local_indices()
+            .into_iter()
+            .map(|index| app.library.series[index].title.as_str())
+            .collect();
+        assert_eq!(titles, ["Berserk", "Azumanga"]);
+        assert_eq!(
+            app.config.local_source_order,
+            tsuiyomi_core::LocalSourceOrder::TitleDesc
+        );
+
+        app.toggle_local_latest();
+        assert!(app.browse_local_latest);
+        assert!(app.browse_local_query.is_empty());
+        assert_eq!(app.browse_item_count(), 2);
     }
 
     #[test]

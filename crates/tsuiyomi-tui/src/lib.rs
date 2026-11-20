@@ -447,6 +447,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                                 &query,
                             );
                         }
+                        BrowseView::Local => {
+                            let query = app.browse_local_query.clone();
+                            app.open_text_input(
+                                app::TextAction::SearchLocal,
+                                "Search local source",
+                                &query,
+                            );
+                        }
                         BrowseView::Extensions => app.extension_search_start(),
                         BrowseView::Sources => {
                             app.open_text_input(
@@ -485,8 +493,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Latest => {
-                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
-                    app.load_remote_latest();
+                if app.tab == 3 {
+                    match app.browse_view {
+                        BrowseView::RemoteResults => app.load_remote_latest(),
+                        BrowseView::Local => app.toggle_local_latest(),
+                        _ => {}
+                    }
+                }
+            }
+            Action::LocalOrder => {
+                if app.tab == 3 && app.browse_view == BrowseView::Local {
+                    app.toggle_local_order();
                 }
             }
             Action::Extensions => {

@@ -479,6 +479,23 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓←→", "move"),
                 ("↵", "open"),
+                ("s", "search"),
+                (
+                    "l",
+                    if app.browse_local_latest {
+                        "all"
+                    } else {
+                        "latest"
+                    },
+                ),
+                (
+                    "v",
+                    if app.config.local_source_order == tsuiyomi_core::LocalSourceOrder::TitleDesc {
+                        "title ↑"
+                    } else {
+                        "title ↓"
+                    },
+                ),
                 ("[ ]", "tabs"),
                 ("e", "extensions"),
                 ("r", "rescan"),
@@ -1366,9 +1383,23 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             ),
         ),
         BrowseView::Local => (
-            "Local source".to_owned(),
+            if app.browse_local_latest {
+                "Local source · recent".to_owned()
+            } else if app.browse_local_query.trim().is_empty() {
+                "Local source".to_owned()
+            } else {
+                format!("Local source · \"{}\"", app.browse_local_query)
+            },
             display_path(&app.library.root),
-            format!("{} series", app.local_series_count()),
+            if app.browse_local_query.trim().is_empty() && !app.browse_local_latest {
+                format!("{} series", app.local_series_count())
+            } else {
+                format!(
+                    "{} of {} series",
+                    app.browse_local_indices().len(),
+                    app.local_series_count()
+                )
+            },
         ),
         BrowseView::Chapters => (
             app.selected_browse_local_series()
