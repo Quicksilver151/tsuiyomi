@@ -6110,6 +6110,9 @@ impl AppState {
     }
 
     pub fn history_next(&mut self) {
+        if self.history_section != HistorySection::History {
+            return;
+        }
         if let Some(last) = self.history_count().checked_sub(1) {
             self.history_selection = (self.history_selection + 1).min(last);
             self.history_list_state.select(Some(self.history_selection));
@@ -6117,6 +6120,9 @@ impl AppState {
     }
 
     pub fn history_previous(&mut self) {
+        if self.history_section != HistorySection::History {
+            return;
+        }
         self.history_selection = self.history_selection.saturating_sub(1);
         self.history_list_state.select(Some(self.history_selection));
     }
@@ -6133,6 +6139,9 @@ impl AppState {
     }
 
     pub fn favorite_selected_history(&mut self) {
+        if self.history_section != HistorySection::History {
+            return;
+        }
         let Some((_, entry)) = self.history_entries().get(self.history_selection).cloned() else {
             return;
         };
@@ -6148,6 +6157,9 @@ impl AppState {
     }
 
     pub fn open_history_details(&mut self) {
+        if self.history_section != HistorySection::History {
+            return;
+        }
         let Some((_, entry)) = self.history_entries().get(self.history_selection).cloned() else {
             return;
         };
@@ -6202,6 +6214,9 @@ impl AppState {
     }
 
     pub fn open_history_delete_dialog(&mut self) {
+        if self.history_section != HistorySection::History {
+            return;
+        }
         let mut keys: Vec<String> = Vec::new();
         if let Some(selected) = self.selected_keys(SelectionScope::History) {
             keys = selected
@@ -6303,7 +6318,9 @@ impl AppState {
     }
 
     pub fn open_history_clear_confirm(&mut self) {
-        self.history_clear_confirm = true;
+        if self.history_section == HistorySection::History {
+            self.history_clear_confirm = true;
+        }
     }
 
     pub fn cancel_history_clear(&mut self) {
@@ -6325,6 +6342,9 @@ impl AppState {
     }
 
     pub fn open_history_entry(&mut self) {
+        if self.history_section != HistorySection::History {
+            return;
+        }
         let Some((key, entry)) = self.history_entries().get(self.history_selection).cloned() else {
             return;
         };
