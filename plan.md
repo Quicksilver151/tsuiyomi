@@ -105,6 +105,7 @@ database rows. tsuiyomi owns reading progress.
 ## Phase 4 — Browse polish
 
 Detailed feature-parity plan: `browse-parity-plan.md`.
+History parity and reading-time stats plan: `history-parity-plan.md`.
 
 - [x] Mihon-style Sources / Extensions / Migrate tabs, switched with `[`/`]`.
 - [x] Sources grouped by last used, pinned, and language, with a persistent `Pinned`
