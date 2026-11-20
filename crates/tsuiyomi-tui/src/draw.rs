@@ -77,6 +77,8 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_quit_confirm(frame, app);
     draw_uninstall_confirm(frame, app);
     draw_library_delete(frame, app);
+    draw_duplicate_dialog(frame, app);
+    draw_remove_favorite(frame, app);
     draw_text_input(frame, app);
 }
 
@@ -282,6 +284,108 @@ fn draw_library_delete(frame: &mut Frame, app: &AppState) {
         "Space toggle · ↑↓ select · Enter apply · Esc cancel",
         Style::default().fg(c_overlay0()),
     )));
+    frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+}
+
+fn draw_duplicate_dialog(frame: &mut Frame, app: &AppState) {
+    let Some(dialog) = app.duplicate_dialog.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 72.min(area.width);
+    let height = (dialog.duplicates.len() as u16 + 8).min(area.height).max(8);
+    if width < 30 || height < 6 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Possible duplicate ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!("{} is already in the library:", dialog.manga.title),
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+    for (index, favorite) in dialog.duplicates.iter().enumerate() {
+        let selected = index == dialog.selected;
+        let source = source_display_name(app, &favorite.source_id)
+            .unwrap_or_else(|| favorite.source_id.clone());
+        lines.push(Line::from(vec![
+            Span::styled(
+                if selected { "› " } else { "  " },
+                Style::default().fg(c_accent()),
+            ),
+            Span::styled(
+                favorite.title.clone(),
+                if selected {
+                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(c_text())
+                },
+            ),
+            Span::styled(format!("  {source}"), Style::default().fg(c_overlay0())),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "↑↓ select · a add anyway · Enter open · Esc cancel",
+        Style::default().fg(c_overlay0()),
+    )));
+    frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+}
+
+fn draw_remove_favorite(frame: &mut Frame, app: &AppState) {
+    let Some(manga) = app.remove_favorite.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 66.min(area.width);
+    let height = 6.min(area.height);
+    if width < 24 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Remove from library ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let lines = vec![
+        Line::from(Span::styled(
+            truncate_text(&format!("Remove {}?", manga.title), width.saturating_sub(4)),
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "y / Enter remove · Esc cancel",
+            Style::default().fg(c_overlay0()),
+        )),
+    ];
     frame.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
@@ -3927,6 +4031,55 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_and_remove_dialogs_render() {
+        let mut app = test_app();
+        app.duplicate_dialog = Some(crate::app::DuplicateDialog {
+            manga: RemoteManga {
+                source_id: "1".to_owned(),
+                url: "/manga/alpha".to_owned(),
+                title: "Alpha".to_owned(),
+                author: None,
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "unknown".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            },
+            duplicates: vec![tsuiyomi_core::RemoteFavorite {
+                source_id: "2".to_owned(),
+                url: "/manga/alpha2".to_owned(),
+                title: "Alpha".to_owned(),
+                thumbnail_url: None,
+                last_read_url: None,
+                last_read_name: None,
+                categories: Vec::new(),
+            }],
+            selected: 0,
+        });
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Possible duplicate"));
+        assert!(text.contains("add anyway"));
+
+        app.duplicate_dialog = None;
+        app.remove_favorite = Some(RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        });
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Remove from library"));
+        assert!(text.contains("Remove Alpha?"));
+    }
+
+    #[test]
     fn remote_results_list_mode_marks_saved_manga() {
         let mut app = test_app();
         app.tab = 3;
@@ -3972,6 +4125,7 @@ mod tests {
             thumbnail_url: None,
             last_read_url: None,
             last_read_name: None,
+            categories: Vec::new(),
         }];
 
         let text = render(&mut app, 100, 30);

@@ -129,6 +129,9 @@ pub struct RemoteFavorite {
     pub thumbnail_url: Option<String>,
     pub last_read_url: Option<String>,
     pub last_read_name: Option<String>,
+    /// Library categories chosen in tsuiyomi. Empty means Default.
+    #[serde(default)]
+    pub categories: Vec<String>,
 }
 
 /// Result of installing one extension.
@@ -585,6 +588,7 @@ impl HostClient {
                         .map(|url| self.proxy_url(&source_id, &unproxy_url(&url))),
                     last_read_url: row.last_read_url,
                     last_read_name: row.last_read_name,
+                    categories: Vec::new(),
                     source_id,
                 }
             })

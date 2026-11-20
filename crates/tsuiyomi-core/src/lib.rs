@@ -6,6 +6,7 @@
 
 mod archive;
 pub mod bookmarks;
+pub mod browse;
 pub mod chapter;
 pub mod comic_info;
 pub mod config;
@@ -24,6 +25,7 @@ pub mod source_prefs;
 pub mod story_cache;
 
 pub use bookmarks::BookmarkStore;
+pub use browse::normalized_title;
 pub use chapter::parse_chapter_number;
 pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
 pub use config::{

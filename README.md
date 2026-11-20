@@ -156,7 +156,9 @@ Controls:
 - `Esc` or `Backspace` goes back one level.
 - `r` refreshes the current list.
 - `e` jumps to the Extensions tab; `d` removes a store from the store list.
-- `F` adds or removes the open manga from the library.
+- `F` adds or removes the open manga from the library. Adding a title that matches a
+  saved manga opens a duplicate dialog (`a` add anyway, `Enter` open the existing entry);
+  removing a saved result asks for confirmation. New saves use the default category.
 - `D` downloads the selected remote chapter (also available in the reader).
 - `b` bookmarks or unbookmarks the selected chapter (also available in the reader).
 - `/` on the Sources tab runs a background global search over enabled pinned sources,

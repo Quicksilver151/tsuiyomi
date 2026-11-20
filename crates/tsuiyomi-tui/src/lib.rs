@@ -205,6 +205,29 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.duplicate_dialog.is_some() {
+            match action {
+                Action::Previous => app.duplicate_previous(),
+                Action::Next => app.duplicate_next(),
+                Action::Open | Action::Confirm => app.duplicate_open(),
+                Action::AddStore => app.duplicate_add_anyway(),
+                Action::Back => app.duplicate_cancel(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.remove_favorite.is_some() {
+            match action {
+                Action::Open | Action::Confirm => app.confirm_remove_favorite(),
+                Action::Back => app.cancel_remove_favorite(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.multi_select.is_some() && matches!(action, Action::Back) {
             app.clear_multi_select();
             needs_draw = true;

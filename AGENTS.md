@@ -191,9 +191,11 @@ Rules:
   multi-select is waiting on the host array contract). `z` opens source filters for
   search: checkbox, tri-state, text, select, sort, and nested groups. `v` cycles
   comfortable/compact/list result layouts, and `h` hides saved results. `F` saves a
-  remote manga to the host's favorites; saved manga are merged into the
-  one Library grid under the default category (mirrored in `remote_library`) and read
-  through the same remote chapter/reader path. Panels with item actions support
+  remote manga to the host's favorites. Saving checks normalized titles for duplicates and
+  asks before removing an existing favorite. Saved manga keep their tsuiyomi categories in
+  `remote_library` and are merged into the one Library grid under those categories, or
+  the default category when none is recorded, and read through the same remote
+  chapter/reader path. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
   clears); delete, install/uninstall/update/pin, source pinning, store removal, save to
   library, chapter download, and bookmark all operate on the selection. In the Library
