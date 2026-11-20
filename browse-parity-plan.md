@@ -36,6 +36,7 @@ Completed in the first Browse-parity slice:
   existing preferences API.
 - Source filters (`z`) with checkbox, tri-state, text, select, sort, nested groups, reset,
   and apply. The host patch adds `GET /filters` and filtered `POST /search`.
+- Result display modes (`v`), in-library markers, and saved-result hiding (`h`).
 
 Still open from M0/M1: the Browse extraction and background worker, source
 options dialog, source preferences, Local source search/latest/sort, and the

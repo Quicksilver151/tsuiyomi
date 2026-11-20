@@ -28,7 +28,7 @@ pub use chapter::parse_chapter_number;
 pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
 pub use config::{
     load_config, save_config, Config, GlobalSearchScope, LibrarySort, LocalSourceOrder,
-    ReadingMode, Theme,
+    ReadingMode, SourceDisplayMode, Theme,
 };
 pub use downloads::{
     chapter_dir, chapter_dir_name, download_chapter, downloads_dir, is_downloaded, series_dir_name,

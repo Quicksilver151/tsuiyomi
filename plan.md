@@ -169,6 +169,7 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
       support.
 - [x] Source filters (`z`) for search, including checkbox, tri-state, text, select, sort,
       and nested groups. The host patch adds the filter tree endpoint and filtered search.
+- [x] Result layouts (`v`) and in-library ✓ markers, with `h` hiding saved results.
 - [ ] Migrate.
 
 ## Phase 5 — Later

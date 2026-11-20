@@ -547,9 +547,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     }
                 }
             }
-            Action::LocalOrder => {
-                if app.tab == 3 && app.browse_view == BrowseView::Local {
-                    app.toggle_local_order();
+            Action::DisplayMode => {
+                if app.tab == 3 {
+                    match app.browse_view {
+                        BrowseView::Local => app.toggle_local_order(),
+                        BrowseView::RemoteResults => app.cycle_source_display_mode(),
+                        _ => {}
+                    }
+                }
+            }
+            Action::HideSaved => {
+                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
+                    app.toggle_hide_saved_results();
                 }
             }
             Action::Extensions => {
@@ -830,7 +839,24 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             }
         }
         BrowseView::Local | BrowseView::RemoteResults => {
+            if app.browse_view == BrowseView::RemoteResults
+                && app.config.source_display_mode == tsuiyomi_core::SourceDisplayMode::List
+            {
+                let list = library_grid_area(area);
+                if contains(list, column, row) {
+                    let offset = app.remote.remote_list_state.offset();
+                    app.select_browse_index(offset + (row - list.y) as usize);
+                }
+                return;
+            }
             let grid_area = library_grid_area(area);
+            let text_height = if app.browse_view == BrowseView::RemoteResults
+                && app.config.source_display_mode == tsuiyomi_core::SourceDisplayMode::Compact
+            {
+                1
+            } else {
+                TILE_TEXT_HEIGHT
+            };
             if let Some(index) = grid_index_at(
                 grid_area,
                 app.browse_columns.max(1),
@@ -838,7 +864,7 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 column,
                 row,
                 app.browse_item_count(),
-                tile_cover_height(app.config.thumbnail_width, grid_area.height) + TILE_TEXT_HEIGHT,
+                tile_cover_height(app.config.thumbnail_width, grid_area.height) + text_height,
             ) {
                 app.select_browse_index(index);
             }

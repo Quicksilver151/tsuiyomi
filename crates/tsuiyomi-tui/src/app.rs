@@ -17,8 +17,9 @@ use tsuiyomi_core::{
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
     ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, Library,
     LibrarySort, LocalSourceOrder, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, SourceFilter,
-    SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series,
+    SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
+    SourcePreferences, Theme,
 };
 
 use crate::{
@@ -249,6 +250,7 @@ pub struct RemoteState {
     pub default_filters: Vec<SourceFilter>,
     pub filters_loaded: bool,
     pub filter_list_state: ListState,
+    pub remote_list_state: ListState,
     pub query: String,
     pub page: i32,
     pub has_next_page: bool,
@@ -295,6 +297,7 @@ impl Default for RemoteState {
             default_filters: Vec::new(),
             filters_loaded: false,
             filter_list_state: ListState::default(),
+            remote_list_state: ListState::default(),
             query: String::new(),
             page: 1,
             has_next_page: false,
@@ -931,7 +934,12 @@ impl AppState {
 
     pub fn browse_previous(&mut self) {
         let step = match self.browse_view {
-            BrowseView::Local | BrowseView::RemoteResults => self.browse_columns.max(1),
+            BrowseView::Local => self.browse_columns.max(1),
+            BrowseView::RemoteResults
+                if self.config.source_display_mode != SourceDisplayMode::List =>
+            {
+                self.browse_columns.max(1)
+            }
             _ => 1,
         };
         self.browse_selection = self.browse_selection.saturating_sub(step);
@@ -942,7 +950,12 @@ impl AppState {
         let count = self.browse_item_count();
         if count > 0 {
             let step = match self.browse_view {
-                BrowseView::Local | BrowseView::RemoteResults => self.browse_columns.max(1),
+                BrowseView::Local => self.browse_columns.max(1),
+                BrowseView::RemoteResults
+                    if self.config.source_display_mode != SourceDisplayMode::List =>
+                {
+                    self.browse_columns.max(1)
+                }
                 _ => 1,
             };
             self.browse_selection = (self.browse_selection + step).min(count - 1);
@@ -951,20 +964,20 @@ impl AppState {
     }
 
     pub fn browse_previous_column(&mut self) {
-        if matches!(
-            self.browse_view,
-            BrowseView::Local | BrowseView::RemoteResults
-        ) {
+        if self.browse_view == BrowseView::Local
+            || (self.browse_view == BrowseView::RemoteResults
+                && self.config.source_display_mode != SourceDisplayMode::List)
+        {
             self.browse_selection = self.browse_selection.saturating_sub(1);
             self.select_browse_entry(self.browse_selection);
         }
     }
 
     pub fn browse_next_column(&mut self) {
-        if matches!(
-            self.browse_view,
-            BrowseView::Local | BrowseView::RemoteResults
-        ) {
+        if self.browse_view == BrowseView::Local
+            || (self.browse_view == BrowseView::RemoteResults
+                && self.config.source_display_mode != SourceDisplayMode::List)
+        {
             let count = self.browse_item_count();
             if count > 0 {
                 self.browse_selection = (self.browse_selection + 1).min(count - 1);
@@ -1026,7 +1039,7 @@ impl AppState {
             }
             BrowseView::Chapters => self.open_browse_local_chapter(self.browse_selection),
             BrowseView::RemoteResults => {
-                let Some(manga) = self.remote.results.get(self.browse_selection).cloned() else {
+                let Some(manga) = self.visible_remote_result(self.browse_selection).cloned() else {
                     return;
                 };
                 let key = remote_story_key(&manga.source_id, &manga.url);
@@ -1128,7 +1141,7 @@ impl AppState {
             BrowseView::Filters => self.filter_item_count(),
             BrowseView::Local => self.browse_local_indices().len(),
             BrowseView::Chapters => self.browse_local_chapter_count(),
-            BrowseView::RemoteResults => self.remote.results.len(),
+            BrowseView::RemoteResults => self.visible_remote_count(),
             BrowseView::RemoteDetails => self.remote.chapters.len(),
             BrowseView::Extensions => self.filtered_extension_count(),
             BrowseView::Stores => self.remote.repos.len(),
@@ -1231,6 +1244,18 @@ impl AppState {
         self.browse_selection = 0;
         self.browse_grid_offset = 0;
         self.select_browse_entry(0);
+    }
+
+    /// Cycle remote result layout: comfortable grid, compact grid, list.
+    pub fn cycle_source_display_mode(&mut self) {
+        self.config.source_display_mode = match self.config.source_display_mode {
+            SourceDisplayMode::Comfortable => SourceDisplayMode::Compact,
+            SourceDisplayMode::Compact => SourceDisplayMode::List,
+            SourceDisplayMode::List => SourceDisplayMode::Comfortable,
+        };
+        self.persist_settings();
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(self.browse_selection);
     }
 
     pub fn selected_browse_series(&self) -> Option<&Series> {
@@ -2339,6 +2364,49 @@ impl AppState {
             .any(|favorite| favorite.source_id == source_id && favorite.url == url)
     }
 
+    fn remote_result_visible(&self, manga: &RemoteManga) -> bool {
+        !self.config.browse_hide_saved || !self.is_favorite(&manga.source_id, &manga.url)
+    }
+
+    pub fn visible_remote_results(&self) -> Vec<RemoteManga> {
+        self.remote
+            .results
+            .iter()
+            .filter(|manga| self.remote_result_visible(manga))
+            .cloned()
+            .collect()
+    }
+
+    fn visible_remote_count(&self) -> usize {
+        self.remote
+            .results
+            .iter()
+            .filter(|manga| self.remote_result_visible(manga))
+            .count()
+    }
+
+    fn visible_remote_result(&self, selection: usize) -> Option<&RemoteManga> {
+        self.remote
+            .results
+            .iter()
+            .filter(|manga| self.remote_result_visible(manga))
+            .nth(selection)
+    }
+
+    pub fn toggle_hide_saved_results(&mut self) {
+        self.config.browse_hide_saved = !self.config.browse_hide_saved;
+        self.persist_settings();
+        self.browse_grid_offset = 0;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+        self.remote.status = Some(if self.config.browse_hide_saved {
+            "Hiding saved manga from results".to_owned()
+        } else {
+            "Showing saved manga in results".to_owned()
+        });
+        self.remote.error = false;
+    }
+
     fn selected_browse_mangas(&self) -> Vec<RemoteManga> {
         if let Some(keys) = self
             .selected_keys(SelectionScope::RemoteResults)
@@ -2424,6 +2492,7 @@ impl AppState {
             }
         }
         self.load_favorites();
+        self.clamp_browse_selection();
         self.remote.status = Some(if all_saved {
             format!("Removed {changed} manga from the library")
         } else {
@@ -2449,6 +2518,7 @@ impl AppState {
                     self.remote.status = Some(format!("Removed {} from library", manga.title));
                     self.remote.error = false;
                     self.load_favorites();
+                    self.clamp_browse_selection();
                 }
                 Err(error) => self.set_remote_error(error),
             }
@@ -2467,6 +2537,7 @@ impl AppState {
                     self.remote.status = Some(format!("Added {} to library", manga.title));
                     self.remote.error = false;
                     self.load_favorites();
+                    self.clamp_browse_selection();
                 }
                 Err(error) => self.set_remote_error(error),
             }
@@ -3733,6 +3804,12 @@ impl AppState {
         } else if self.browse_view == BrowseView::Filters {
             self.remote
                 .filter_list_state
+                .select((count > 0).then_some(index));
+        } else if self.browse_view == BrowseView::RemoteResults
+            && self.config.source_display_mode == SourceDisplayMode::List
+        {
+            self.remote
+                .remote_list_state
                 .select((count > 0).then_some(index));
         } else {
             self.browse_list_state.select((count > 0).then_some(index));
@@ -5292,7 +5369,7 @@ impl AppState {
                 ))
             }
             BrowseView::RemoteResults => {
-                let manga = self.remote.results.get(self.browse_selection)?;
+                let manga = self.visible_remote_result(self.browse_selection)?;
                 Some((
                     SelectionScope::RemoteResults,
                     Self::remote_selection_key(&manga.source_id, &manga.url),
@@ -8690,6 +8767,55 @@ mod tests {
         assert_eq!(app.browse_view, BrowseView::RemoteResults);
         assert_eq!(app.remote.listing, RemoteListing::Search);
         assert_eq!(app.remote.page, 1);
+    }
+
+    #[test]
+    fn display_mode_cycles_and_saved_results_can_be_hidden() {
+        let mut app = remote_app();
+        let manga = |title: &str| RemoteManga {
+            source_id: "1".to_owned(),
+            url: format!("/manga/{title}"),
+            title: title.to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        app.remote.results = vec![manga("Alpha"), manga("Beta")];
+        app.remote.favorites = vec![RemoteFavorite {
+            source_id: "1".to_owned(),
+            url: "/manga/Alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+        }];
+        app.browse_view = BrowseView::RemoteResults;
+
+        assert_eq!(
+            app.config.source_display_mode,
+            SourceDisplayMode::Comfortable
+        );
+        app.cycle_source_display_mode();
+        assert_eq!(app.config.source_display_mode, SourceDisplayMode::Compact);
+        app.cycle_source_display_mode();
+        assert_eq!(app.config.source_display_mode, SourceDisplayMode::List);
+        app.cycle_source_display_mode();
+        assert_eq!(
+            app.config.source_display_mode,
+            SourceDisplayMode::Comfortable
+        );
+
+        assert_eq!(app.browse_item_count(), 2);
+        app.toggle_hide_saved_results();
+        assert!(app.config.browse_hide_saved);
+        assert_eq!(app.browse_item_count(), 1);
+        assert_eq!(app.visible_remote_results()[0].title, "Beta");
+        app.toggle_hide_saved_results();
+        assert_eq!(app.browse_item_count(), 2);
     }
 
     #[test]

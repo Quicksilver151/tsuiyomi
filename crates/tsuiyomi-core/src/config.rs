@@ -28,6 +28,16 @@ pub enum LibrarySort {
     TitleDesc,
 }
 
+/// Layout for remote source results.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceDisplayMode {
+    #[default]
+    Comfortable,
+    Compact,
+    List,
+}
+
 /// Sources included in Browse's global search.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -111,6 +121,10 @@ pub struct Config {
     pub local_source_order: LocalSourceOrder,
     /// Sources included in global search.
     pub global_search_scope: GlobalSearchScope,
+    /// Layout for remote source results.
+    pub source_display_mode: SourceDisplayMode,
+    /// Hide manga already saved in the library from source results.
+    pub browse_hide_saved: bool,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// Local series removed from the library but kept on disk, relative to the
@@ -150,6 +164,8 @@ impl Default for Config {
             disabled_sources: Vec::new(),
             local_source_order: LocalSourceOrder::default(),
             global_search_scope: GlobalSearchScope::default(),
+            source_display_mode: SourceDisplayMode::default(),
+            browse_hide_saved: false,
             remote_library: Vec::new(),
             hidden_series: Vec::new(),
             reader_zoom: 100,
@@ -249,6 +265,8 @@ enabled_languages = ["en", "ja"]
 disabled_sources = ["pkg.b|Beta|en"]
 local_source_order = "title_desc"
 global_search_scope = "all"
+source_display_mode = "list"
+browse_hide_saved = true
 "#,
         )
         .unwrap();
@@ -260,6 +278,8 @@ global_search_scope = "all"
         assert_eq!(config.disabled_sources, ["pkg.b|Beta|en"]);
         assert_eq!(config.local_source_order, LocalSourceOrder::TitleDesc);
         assert_eq!(config.global_search_scope, GlobalSearchScope::All);
+        assert_eq!(config.source_display_mode, SourceDisplayMode::List);
+        assert!(config.browse_hide_saved);
 
         let serialized = toml::to_string(&config).unwrap();
         assert!(serialized.contains("last_used_source = \"pkg.a|Alpha|en\""));
@@ -267,6 +287,8 @@ global_search_scope = "all"
         assert!(serialized.contains("disabled_sources"));
         assert!(serialized.contains("local_source_order = \"title_desc\""));
         assert!(serialized.contains("global_search_scope = \"all\""));
+        assert!(serialized.contains("source_display_mode = \"list\""));
+        assert!(serialized.contains("browse_hide_saved = true"));
     }
 
     #[test]

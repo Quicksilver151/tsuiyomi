@@ -15,7 +15,8 @@ use ratatui_image::{
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     downloads_dir, BookmarkStore, Chapter, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteManga, RemoteSource, Series, SourceFilter, SourcePreferenceKind, Theme,
+    RemoteManga, RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreferenceKind,
+    Theme,
 };
 
 use crate::{
@@ -533,6 +534,8 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓←→", "move"),
                 ("s", "search"),
                 ("z", "filters"),
+                ("v", "view"),
+                ("h", "hide saved"),
                 ("l", "latest"),
                 ("n", "more"),
                 ("F", "library"),
@@ -1483,9 +1486,9 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             match app.browse_view {
                 BrowseView::RemoteDetails => format!("{} chapters", app.remote.chapters.len()),
                 _ if app.remote.has_next_page => {
-                    format!("{} results · more available", app.remote.results.len())
+                    format!("{} results · more available", app.browse_item_count())
                 }
-                _ => format!("{} results", app.remote.results.len()),
+                _ => format!("{} results", app.browse_item_count()),
             },
         ),
         BrowseView::GlobalResults => (
@@ -2035,11 +2038,20 @@ fn draw_filter_picker(frame: &mut Frame, app: &AppState) {
 }
 
 fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let results = app.remote.results.clone();
+    let results = app.visible_remote_results();
+    if app.config.source_display_mode == SourceDisplayMode::List {
+        draw_remote_result_list(frame, area, app, &results);
+        return;
+    }
     let columns = grid_columns(area, app.config.thumbnail_width);
     if results.is_empty() {
+        let message = if !app.remote.results.is_empty() && app.config.browse_hide_saved {
+            "All results are saved. Press h to show them."
+        } else {
+            "No results."
+        };
         frame.render_widget(
-            Paragraph::new("No results.")
+            Paragraph::new(message)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(c_overlay1())),
             Rect::new(area.x, area.y, area.width, 1),
@@ -2048,7 +2060,8 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
         return;
     }
     let cover_height = tile_cover_height(app.config.thumbnail_width, area.height);
-    let tile_height = cover_height + TILE_TEXT_HEIGHT;
+    let compact = app.config.source_display_mode == SourceDisplayMode::Compact;
+    let tile_height = cover_height + if compact { 1 } else { TILE_TEXT_HEIGHT };
     let selected = app.browse_selection.min(results.len() - 1);
     let visible_rows = grid_visible_rows(area, tile_height);
     let offset = grid_row_offset(
@@ -2089,6 +2102,13 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 Paragraph::new("✓")
                     .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
                 Rect::new(tile.x, tile.y, 1, 1),
+            );
+        }
+        if app.is_favorite(&source_id, &result.url) {
+            frame.render_widget(
+                Paragraph::new("✓")
+                    .style(Style::default().fg(c_green()).add_modifier(Modifier::BOLD)),
+                Rect::new(tile.x + tile.width.saturating_sub(1), tile.y, 1, 1),
             );
         }
         let cover_area = Rect::new(tile.x, tile.y, tile.width, cover_height);
@@ -2133,16 +2153,90 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 .style(title_style),
             Rect::new(tile.x, tile.y + cover_height, tile.width, 1),
         );
-        frame.render_widget(
-            Paragraph::new(result.status.replace('_', " ").to_lowercase())
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(c_overlay0())),
-            Rect::new(tile.x, tile.y + cover_height + 1, tile.width, 1),
-        );
+        if !compact {
+            frame.render_widget(
+                Paragraph::new(result.status.replace('_', " ").to_lowercase())
+                    .alignment(Alignment::Center)
+                    .style(Style::default().fg(c_overlay0())),
+                Rect::new(tile.x, tile.y + cover_height + 1, tile.width, 1),
+            );
+        }
     }
 
     app.browse_columns = columns;
     app.browse_grid_offset = offset;
+}
+
+fn draw_remote_result_list(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut AppState,
+    results: &[RemoteManga],
+) {
+    if results.is_empty() {
+        let message = if !app.remote.results.is_empty() && app.config.browse_hide_saved {
+            "All results are saved. Press h to show them."
+        } else {
+            "No results."
+        };
+        frame.render_widget(
+            Paragraph::new(message)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        app.remote.remote_list_state.select(None);
+        return;
+    }
+    let source_id = app
+        .remote
+        .source
+        .as_ref()
+        .map(|source| source.id.clone())
+        .unwrap_or_default();
+    let selected = app.browse_selection.min(results.len() - 1);
+    let items: Vec<ListItem> = results
+        .iter()
+        .map(|manga| {
+            let saved = app.is_favorite(&source_id, &manga.url);
+            let mut meta = Vec::new();
+            if let Some(author) = manga.author.as_deref() {
+                if !author.trim().is_empty() {
+                    meta.push(author.to_owned());
+                }
+            }
+            if !manga.status.trim().is_empty() && manga.status != "unknown" {
+                meta.push(manga.status.replace('_', " "));
+            }
+            let meta = if meta.is_empty() {
+                String::new()
+            } else {
+                format!("  {}", meta.join(" · "))
+            };
+            Line::from(vec![
+                Span::styled(
+                    if saved { "✓ " } else { "  " },
+                    Style::default().fg(c_green()),
+                ),
+                Span::styled(
+                    manga.title.clone(),
+                    Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(meta, Style::default().fg(c_overlay0())),
+            ])
+            .into()
+        })
+        .collect();
+    app.remote.remote_list_state.select(Some(selected));
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, area, &mut app.remote.remote_list_state);
 }
 
 fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -3830,6 +3924,61 @@ mod tests {
         assert!(text.contains("Chapter 1"));
         assert!(text.contains("Details"));
         assert!(text.contains("Test Series"));
+    }
+
+    #[test]
+    fn remote_results_list_mode_marks_saved_manga() {
+        let mut app = test_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::RemoteResults;
+        app.config.source_display_mode = SourceDisplayMode::List;
+        app.remote.source = Some(RemoteSource {
+            id: "1".to_owned(),
+            name: "Demo".to_owned(),
+            lang: "en".to_owned(),
+            pkg: Some("pkg.demo".to_owned()),
+            supports_latest: true,
+        });
+        app.remote.results = vec![
+            RemoteManga {
+                source_id: "1".to_owned(),
+                url: "/manga/Alpha".to_owned(),
+                title: "Alpha".to_owned(),
+                author: Some("Author".to_owned()),
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "ongoing".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            },
+            RemoteManga {
+                source_id: "1".to_owned(),
+                url: "/manga/Beta".to_owned(),
+                title: "Beta".to_owned(),
+                author: None,
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "completed".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            },
+        ];
+        app.remote.favorites = vec![tsuiyomi_core::RemoteFavorite {
+            source_id: "1".to_owned(),
+            url: "/manga/Alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+        }];
+
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Alpha"));
+        assert!(text.contains("Beta"));
+        assert!(text.contains("✓"));
+        assert!(text.contains("Author"));
     }
 
     #[test]

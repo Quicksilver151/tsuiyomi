@@ -189,8 +189,9 @@ Rules:
   switches between pinned and all enabled sources. Results are grouped by source.
   `C` opens a configurable remote source's preferences (switch, text, and list values;
   multi-select is waiting on the host array contract). `z` opens source filters for
-  search: checkbox, tri-state, text, select, sort, and nested groups. `F` saves a remote
-  manga to the host's favorites; saved manga are merged into the
+  search: checkbox, tri-state, text, select, sort, and nested groups. `v` cycles
+  comfortable/compact/list result layouts, and `h` hides saved results. `F` saves a
+  remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
   through the same remote chapter/reader path. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
@@ -263,8 +264,8 @@ Rules:
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
   `enabled_languages`, `disabled_sources`, `local_source_order`, `global_search_scope`,
-  `remote_library`, `downloads_path`, and `hidden_series`, and preserves unknown keys from
-  existing files.
+  `source_display_mode`, `browse_hide_saved`, `remote_library`, `downloads_path`, and
+  `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

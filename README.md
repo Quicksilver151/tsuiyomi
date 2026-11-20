@@ -149,7 +149,8 @@ Controls:
 - Remote sources open with popular results. `s` searches, `l` loads latest updates when
   the source supports them, and `n` appends the next results page. `z` opens the source's
   filters when it exposes them: checkbox, tri-state, text, select, sort, and grouped
-  filters, with Reset and Apply rows.
+  filters, with Reset and Apply rows. `v` cycles comfortable grid, compact grid, and
+  list layouts. Saved results carry a ✓ marker; `h` hides them from the result list.
 - Opening a chapter keeps you in the Browse tab; `Esc` walks back through
   reader → detail → results → sources.
 - `Esc` or `Backspace` goes back one level.
