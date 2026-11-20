@@ -39,6 +39,8 @@ GET  /api/v1/sources                                  -> { manga: [Source], anim
 GET  /api/v1/manga/{sourceId}/popular?page=N
 GET  /api/v1/manga/{sourceId}/latest?page=N
 GET  /api/v1/manga/{sourceId}/search?query=&page=N
+GET  /api/v1/manga/{sourceId}/filters                 (patched)
+POST /api/v1/manga/{sourceId}/search                  (patched; filtered search)
 GET  /api/v1/manga/{sourceId}/details?url=
 GET  /api/v1/manga/{sourceId}/chapters?url=
 GET  /api/v1/manga/{sourceId}/pages?url=
@@ -165,6 +167,8 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
 - [x] Per-source preferences opened with `C` for switch, text, and list values through
       the host's existing preferences API. Multi-select preferences await host array
       support.
+- [x] Source filters (`z`) for search, including checkbox, tri-state, text, select, sort,
+      and nested groups. The host patch adds the filter tree endpoint and filtered search.
 - [ ] Migrate.
 
 ## Phase 5 — Later

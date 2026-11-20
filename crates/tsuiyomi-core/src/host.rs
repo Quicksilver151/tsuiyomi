@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 
 use crate::{
     error::CoreError,
+    filters::SourceFilter,
     source_prefs::{preference_body, SourcePreferenceValue, SourcePreferences},
 };
 
@@ -280,6 +281,50 @@ impl HostClient {
                 page.max(1)
             ),
         )
+    }
+
+    /// Filter tree for a source. An unsupported or throwing source returns an empty list.
+    pub fn filters(&self, source_id: &str) -> Result<Vec<SourceFilter>, CoreError> {
+        #[derive(Deserialize)]
+        struct Data {
+            #[serde(default)]
+            filters: Vec<SourceFilter>,
+        }
+        let data: Data = self.get(&format!("/api/v1/manga/{}/filters", encode(source_id)))?;
+        Ok(data.filters)
+    }
+
+    /// Search with explicit filter state. Used when the source exposes filters.
+    pub fn search_filtered(
+        &self,
+        source_id: &str,
+        query: &str,
+        page: i32,
+        filters: &[SourceFilter],
+    ) -> Result<RemoteMangaPage, CoreError> {
+        #[derive(Deserialize)]
+        struct Data {
+            #[serde(rename = "hasNextPage", default)]
+            has_next_page: bool,
+            #[serde(default)]
+            mangas: Vec<MangaRow>,
+        }
+        let data: Data = self.post(
+            &format!("/api/v1/manga/{}/search", encode(source_id)),
+            json!({
+                "page": page.max(1),
+                "query": query,
+                "filters": filters,
+            }),
+        )?;
+        Ok(RemoteMangaPage {
+            has_next_page: data.has_next_page,
+            mangas: data
+                .mangas
+                .into_iter()
+                .map(|row| row.into_manga(source_id, self))
+                .collect(),
+        })
     }
 
     fn manga_list(&self, source_id: &str, path: &str) -> Result<RemoteMangaPage, CoreError> {
@@ -1037,6 +1082,34 @@ mod tests {
         assert!(cover.starts_with(&address));
         assert!(!cover.contains("127.0.0.1:1"));
         assert!(cover.contains("url=https%3A%2F%2Fcdn.example%2Fcover.jpg"));
+    }
+
+    #[test]
+    fn reads_filters_and_searches_with_them() {
+        let (address, requests) = server(vec![
+            r#"{"filters":[{"type":"checkbox","name":"Completed","checked":true},{"type":"group","name":"More","children":[{"type":"text","name":"Author","text":""}]}]}"#,
+            r#"{"hasNextPage":false,"mangas":[{"url":"/manga/1","title":"Berserk","status":1}]}"#,
+        ]);
+        let client = HostClient::new(address);
+
+        let filters = client.filters("7").unwrap();
+        assert_eq!(filters.len(), 2);
+        assert!(matches!(
+            filters[0],
+            SourceFilter::Checkbox { checked: true, .. }
+        ));
+
+        let page = client.search_filtered("7", "", 1, &filters).unwrap();
+        assert_eq!(page.mangas.len(), 1);
+        assert_eq!(page.mangas[0].title, "Berserk");
+
+        assert!(requests
+            .recv()
+            .unwrap()
+            .ends_with("/api/v1/manga/7/filters"));
+        let request = requests.recv().unwrap();
+        assert!(request.starts_with("POST "));
+        assert!(request.ends_with("/api/v1/manga/7/search"));
     }
 
     #[test]

@@ -17,7 +17,7 @@ use tsuiyomi_core::{
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
     ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, Library,
     LibrarySort, LocalSourceOrder, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, SourceFilter,
     SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme,
 };
 
@@ -134,6 +134,7 @@ pub enum BrowseView {
     Sources,
     SourceFilters,
     SourcePrefs,
+    Filters,
     Local,
     Chapters,
     RemoteResults,
@@ -177,6 +178,20 @@ pub struct SourcePrefPicker {
     pub selected: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FilterRow {
+    Filter { path: Vec<usize>, depth: usize },
+    Reset,
+    Apply,
+}
+
+pub struct FilterPicker {
+    pub path: Vec<usize>,
+    pub title: String,
+    pub values: Vec<String>,
+    pub selected: usize,
+}
+
 /// One rendered row in the source-management screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceFilterRow {
@@ -205,6 +220,7 @@ pub enum TextAction {
     SearchLocal,
     GlobalSearch,
     SourcePreference,
+    FilterText,
     AddExtensionStore,
     SetHostUrl,
 }
@@ -229,6 +245,10 @@ pub struct RemoteState {
     pub source: Option<RemoteSource>,
     pub results: Vec<RemoteManga>,
     pub listing: RemoteListing,
+    pub filters: Vec<SourceFilter>,
+    pub default_filters: Vec<SourceFilter>,
+    pub filters_loaded: bool,
+    pub filter_list_state: ListState,
     pub query: String,
     pub page: i32,
     pub has_next_page: bool,
@@ -271,6 +291,10 @@ impl Default for RemoteState {
             source: None,
             results: Vec::new(),
             listing: RemoteListing::Popular,
+            filters: Vec::new(),
+            default_filters: Vec::new(),
+            filters_loaded: false,
+            filter_list_state: ListState::default(),
             query: String::new(),
             page: 1,
             has_next_page: false,
@@ -703,6 +727,8 @@ pub struct AppState {
     pub source_prefs: Option<SourcePrefsState>,
     pub source_pref_picker: Option<SourcePrefPicker>,
     source_pref_edit: Option<String>,
+    pub filter_picker: Option<FilterPicker>,
+    filter_edit: Option<Vec<usize>>,
     pub host_client: Option<HostClient>,
     /// Start the bundled host the first time Browse is opened.
     pub host_autostart: bool,
@@ -795,6 +821,8 @@ impl AppState {
             source_prefs: None,
             source_pref_picker: None,
             source_pref_edit: None,
+            filter_picker: None,
+            filter_edit: None,
             host_client: None,
             host_autostart: true,
             host_process: None,
@@ -970,6 +998,10 @@ impl AppState {
                     self.remote.source = Some(source);
                     self.remote.query.clear();
                     self.remote.page = 1;
+                    self.remote.filters.clear();
+                    self.remote.default_filters.clear();
+                    self.remote.filters_loaded = false;
+                    self.load_remote_filters();
                     self.load_remote_results(RemoteListing::Popular);
                     self.browse_view = BrowseView::RemoteResults;
                     self.browse_selection = 0;
@@ -980,6 +1012,7 @@ impl AppState {
             },
             BrowseView::SourceFilters => self.toggle_source_filter_selection(),
             BrowseView::SourcePrefs => self.activate_source_preference(),
+            BrowseView::Filters => self.activate_filter_selection(),
             BrowseView::Local => {
                 let Some(path) = self
                     .selected_browse_series()
@@ -1044,6 +1077,11 @@ impl AppState {
                 self.browse_list_state = ListState::default();
                 self.select_browse_entry(0);
             }
+            BrowseView::Filters => {
+                self.browse_view = BrowseView::RemoteResults;
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+            }
             BrowseView::Stores => {
                 self.browse_view = BrowseView::Extensions;
                 self.browse_selection = 0;
@@ -1066,6 +1104,7 @@ impl AppState {
             BrowseView::Sources => self.load_remote_sources(),
             BrowseView::SourceFilters => self.load_remote_sources(),
             BrowseView::SourcePrefs => self.reload_source_prefs(),
+            BrowseView::Filters => self.load_remote_filters(),
             BrowseView::Local => self.refresh(),
             BrowseView::RemoteResults => {
                 self.load_remote_results(self.remote.listing);
@@ -1086,6 +1125,7 @@ impl AppState {
                 .source_prefs
                 .as_ref()
                 .map_or(0, |state| state.preferences.prefs.len()),
+            BrowseView::Filters => self.filter_item_count(),
             BrowseView::Local => self.browse_local_indices().len(),
             BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
@@ -1804,6 +1844,242 @@ impl AppState {
 
     pub fn source_pref_picker_cancel(&mut self) {
         self.source_pref_picker = None;
+    }
+
+    /// Fetch the selected source's filter tree. Failures leave the list empty so an old
+    /// host or a broken extension cannot block browsing.
+    pub fn load_remote_filters(&mut self) {
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let Some(source) = self.remote.source.clone() else {
+            return;
+        };
+        match client.filters(&source.id) {
+            Ok(filters) => {
+                self.remote.default_filters = filters.clone();
+                self.remote.filters = filters;
+                self.remote.filters_loaded = true;
+            }
+            Err(_) => {
+                self.remote.default_filters.clear();
+                self.remote.filters.clear();
+                self.remote.filters_loaded = false;
+            }
+        }
+    }
+
+    pub fn open_filters(&mut self) {
+        if self.remote.source.is_none() {
+            return;
+        }
+        if !self.remote.filters_loaded {
+            self.load_remote_filters();
+        }
+        if self.remote.filters.is_empty() {
+            self.remote.status = Some("This source has no filters.".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        self.browse_view = BrowseView::Filters;
+        self.browse_selection = 0;
+        self.remote.filter_list_state = ListState::default();
+        self.select_browse_entry(0);
+    }
+
+    pub fn reset_filters(&mut self) {
+        self.remote.filters = self.remote.default_filters.clone();
+        self.clamp_browse_selection();
+    }
+
+    pub fn apply_filters(&mut self) {
+        self.browse_view = BrowseView::RemoteResults;
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.remote.page = 1;
+        self.remote.listing = RemoteListing::Search;
+        self.load_remote_results(RemoteListing::Search);
+        self.select_browse_entry(0);
+    }
+
+    pub fn filter_rows(&self) -> Vec<FilterRow> {
+        let mut rows = Vec::new();
+        let mut path = Vec::new();
+        collect_filter_rows(&self.remote.filters, &mut path, 0, &mut rows);
+        rows.push(FilterRow::Reset);
+        rows.push(FilterRow::Apply);
+        rows
+    }
+
+    pub fn filter_item_count(&self) -> usize {
+        self.filter_rows()
+            .iter()
+            .filter(|row| match row {
+                FilterRow::Filter { path, .. } => self
+                    .filter_at_path(path)
+                    .is_some_and(SourceFilter::is_selectable),
+                FilterRow::Reset | FilterRow::Apply => true,
+            })
+            .count()
+    }
+
+    pub(crate) fn filter_at_path(&self, path: &[usize]) -> Option<&SourceFilter> {
+        filter_at_path(&self.remote.filters, path)
+    }
+
+    fn filter_at_path_mut(&mut self, path: &[usize]) -> Option<&mut SourceFilter> {
+        filter_at_path_mut(&mut self.remote.filters, path)
+    }
+
+    pub fn selected_filter_row(&self) -> Option<usize> {
+        let mut selection = 0;
+        for (row, item) in self.filter_rows().iter().enumerate() {
+            let selectable = match item {
+                FilterRow::Filter { path, .. } => self
+                    .filter_at_path(path)
+                    .is_some_and(SourceFilter::is_selectable),
+                FilterRow::Reset | FilterRow::Apply => true,
+            };
+            if !selectable {
+                continue;
+            }
+            if selection == self.browse_selection {
+                return Some(row);
+            }
+            selection += 1;
+        }
+        None
+    }
+
+    pub fn select_filter_row(&mut self, row: usize) {
+        let offset = self.remote.filter_list_state.offset();
+        if let Some(index) = self.filter_index_for_row(offset + row) {
+            self.select_browse_index(index);
+        }
+    }
+
+    fn filter_index_for_row(&self, row: usize) -> Option<usize> {
+        let mut selection = 0;
+        for (index, item) in self.filter_rows().iter().enumerate() {
+            let selectable = match item {
+                FilterRow::Filter { path, .. } => self
+                    .filter_at_path(path)
+                    .is_some_and(SourceFilter::is_selectable),
+                FilterRow::Reset | FilterRow::Apply => true,
+            };
+            if !selectable {
+                continue;
+            }
+            if index == row {
+                return Some(selection);
+            }
+            selection += 1;
+        }
+        None
+    }
+
+    pub fn activate_filter_selection(&mut self) {
+        let Some(row) = self
+            .selected_filter_row()
+            .and_then(|row| self.filter_rows().get(row).cloned())
+        else {
+            return;
+        };
+        match row {
+            FilterRow::Reset => self.reset_filters(),
+            FilterRow::Apply => self.apply_filters(),
+            FilterRow::Filter { path, .. } => {
+                let Some(filter) = self.filter_at_path(&path).cloned() else {
+                    return;
+                };
+                match filter {
+                    SourceFilter::Checkbox { .. } | SourceFilter::Tristate { .. } => {
+                        if let Some(filter) = self.filter_at_path_mut(&path) {
+                            filter.toggle();
+                        }
+                    }
+                    SourceFilter::Text { name, text, .. } => {
+                        self.filter_edit = Some(path);
+                        self.open_text_input(TextAction::FilterText, &name, &text);
+                    }
+                    SourceFilter::Select {
+                        name,
+                        selected,
+                        values,
+                        ..
+                    } => {
+                        self.filter_picker = Some(FilterPicker {
+                            path,
+                            title: name,
+                            values,
+                            selected: selected.max(0) as usize,
+                        });
+                    }
+                    SourceFilter::Sort {
+                        name,
+                        values,
+                        index,
+                        ..
+                    } => {
+                        self.filter_picker = Some(FilterPicker {
+                            path,
+                            title: name,
+                            values,
+                            selected: index.unwrap_or(0).max(0) as usize,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Apply left/right changes to select, tri-state, and sort filters.
+    pub fn adjust_filter_selection(&mut self, delta: i32) {
+        let Some(FilterRow::Filter { path, .. }) = self
+            .selected_filter_row()
+            .and_then(|row| self.filter_rows().get(row).cloned())
+        else {
+            return;
+        };
+        if let Some(filter) = self.filter_at_path_mut(&path) {
+            filter.adjust(delta);
+        }
+    }
+
+    pub fn filter_picker_previous(&mut self) {
+        if let Some(picker) = self.filter_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn filter_picker_next(&mut self) {
+        if let Some(picker) = self.filter_picker.as_mut() {
+            if !picker.values.is_empty() {
+                picker.selected = (picker.selected + 1).min(picker.values.len() - 1);
+            }
+        }
+    }
+
+    pub fn filter_picker_confirm(&mut self) {
+        let Some(picker) = self.filter_picker.take() else {
+            return;
+        };
+        if let Some(filter) = self.filter_at_path_mut(&picker.path) {
+            match filter {
+                SourceFilter::Select { selected, .. } => {
+                    *selected = picker.selected as i32;
+                }
+                SourceFilter::Sort { index, .. } => {
+                    *index = Some(picker.selected as i32);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn filter_picker_cancel(&mut self) {
+        self.filter_picker = None;
     }
 
     /// Remember the source the user just opened.
@@ -2581,7 +2857,18 @@ impl AppState {
         match self.remote.listing {
             RemoteListing::Popular => client.popular(&source.id, page),
             RemoteListing::Latest => client.latest(&source.id, page),
-            RemoteListing::Search => client.search(&source.id, &self.remote.query, page),
+            RemoteListing::Search => {
+                if self.remote.filters.is_empty() {
+                    client.search(&source.id, &self.remote.query, page)
+                } else {
+                    client.search_filtered(
+                        &source.id,
+                        &self.remote.query,
+                        page,
+                        &self.remote.filters,
+                    )
+                }
+            }
         }
     }
 
@@ -2968,6 +3255,7 @@ impl AppState {
     pub fn input_cancel(&mut self) {
         self.text_input = None;
         self.source_pref_edit = None;
+        self.filter_edit = None;
     }
 
     pub fn input_submit(&mut self) {
@@ -2981,6 +3269,13 @@ impl AppState {
             TextAction::SourcePreference => {
                 if let Some(key) = self.source_pref_edit.take() {
                     self.save_source_preference(key, SourcePreferenceValue::Text(input.value));
+                }
+            }
+            TextAction::FilterText => {
+                if let Some(path) = self.filter_edit.take() {
+                    if let Some(SourceFilter::Text { text, .. }) = self.filter_at_path_mut(&path) {
+                        *text = input.value;
+                    }
                 }
             }
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
@@ -3435,6 +3730,10 @@ impl AppState {
             if let Some(state) = self.source_prefs.as_mut() {
                 state.list_state.select((count > 0).then_some(index));
             }
+        } else if self.browse_view == BrowseView::Filters {
+            self.remote
+                .filter_list_state
+                .select((count > 0).then_some(index));
         } else {
             self.browse_list_state.select((count > 0).then_some(index));
         }
@@ -5040,7 +5339,10 @@ impl AppState {
                 let store = self.selected_store()?;
                 Some((SelectionScope::Stores, format!("store:{store}")))
             }
-            BrowseView::Migrate | BrowseView::SourceFilters | BrowseView::SourcePrefs => None,
+            BrowseView::Migrate
+            | BrowseView::SourceFilters
+            | BrowseView::SourcePrefs
+            | BrowseView::Filters => None,
         }
     }
 
@@ -7541,6 +7843,52 @@ fn pin_key_matches(pinned: &str, source: &RemoteSource) -> bool {
         && (lang.is_empty() || lang == source.lang)
 }
 
+fn collect_filter_rows(
+    filters: &[SourceFilter],
+    path: &mut Vec<usize>,
+    depth: usize,
+    rows: &mut Vec<FilterRow>,
+) {
+    for (index, filter) in filters.iter().enumerate() {
+        path.push(index);
+        rows.push(FilterRow::Filter {
+            path: path.clone(),
+            depth,
+        });
+        if let SourceFilter::Group { children, .. } = filter {
+            collect_filter_rows(children, path, depth + 1, rows);
+        }
+        path.pop();
+    }
+}
+
+fn filter_at_path<'a>(filters: &'a [SourceFilter], path: &[usize]) -> Option<&'a SourceFilter> {
+    let (first, rest) = path.split_first()?;
+    let filter = filters.get(*first)?;
+    if rest.is_empty() {
+        Some(filter)
+    } else if let SourceFilter::Group { children, .. } = filter {
+        filter_at_path(children, rest)
+    } else {
+        None
+    }
+}
+
+fn filter_at_path_mut<'a>(
+    filters: &'a mut [SourceFilter],
+    path: &[usize],
+) -> Option<&'a mut SourceFilter> {
+    let (first, rest) = path.split_first()?;
+    let filter = filters.get_mut(*first)?;
+    if rest.is_empty() {
+        Some(filter)
+    } else if let SourceFilter::Group { children, .. } = filter {
+        filter_at_path_mut(children, rest)
+    } else {
+        None
+    }
+}
+
 fn source_pin_key(source: &RemoteSource) -> String {
     format!(
         "{}|{}|{}",
@@ -8323,6 +8671,77 @@ mod tests {
             vec![SourceRef::Local, SourceRef::Remote(0)]
         );
         assert_eq!(app.browse_item_count(), 2);
+    }
+
+    #[test]
+    fn applying_filters_returns_to_results() {
+        let mut app = remote_app();
+        app.remote.source = Some(app.remote.sources[0].clone());
+        app.remote.filters = vec![SourceFilter::Checkbox {
+            name: "Completed".to_owned(),
+            checked: true,
+        }];
+        app.remote.filters_loaded = true;
+        app.browse_view = BrowseView::Filters;
+        app.browse_selection = app.filter_item_count() - 1;
+
+        app.activate_filter_selection();
+
+        assert_eq!(app.browse_view, BrowseView::RemoteResults);
+        assert_eq!(app.remote.listing, RemoteListing::Search);
+        assert_eq!(app.remote.page, 1);
+    }
+
+    #[test]
+    fn filter_rows_toggle_and_reset_values() {
+        let mut app = remote_app();
+        app.remote.filters = vec![
+            SourceFilter::Header {
+                name: "Tags".to_owned(),
+            },
+            SourceFilter::Checkbox {
+                name: "Completed".to_owned(),
+                checked: false,
+            },
+            SourceFilter::Group {
+                name: "More".to_owned(),
+                children: vec![SourceFilter::Tristate {
+                    name: "Adult".to_owned(),
+                    tri_state: 0,
+                }],
+            },
+            SourceFilter::Select {
+                name: "Order".to_owned(),
+                selected: 0,
+                values: vec!["Popular".to_owned(), "Latest".to_owned()],
+            },
+        ];
+        app.remote.default_filters = app.remote.filters.clone();
+        app.remote.filters_loaded = true;
+        app.browse_view = BrowseView::Filters;
+
+        // Header is skipped; selection 0 is the checkbox, then Group, TriState, Select,
+        // Reset, Apply.
+        assert_eq!(app.filter_item_count(), 6);
+        app.browse_selection = 0;
+        app.activate_filter_selection();
+        assert!(matches!(
+            app.remote.filters[1],
+            SourceFilter::Checkbox { checked: true, .. }
+        ));
+
+        app.browse_selection = 3;
+        app.adjust_filter_selection(1);
+        assert!(matches!(
+            app.remote.filters[3],
+            SourceFilter::Select { selected: 1, .. }
+        ));
+
+        app.reset_filters();
+        assert!(matches!(
+            app.remote.filters[1],
+            SourceFilter::Checkbox { checked: false, .. }
+        ));
     }
 
     #[test]

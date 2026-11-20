@@ -15,14 +15,14 @@ use ratatui_image::{
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     downloads_dir, BookmarkStore, Chapter, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteManga, RemoteSource, Series, SourcePreferenceKind, Theme,
+    RemoteManga, RemoteSource, Series, SourceFilter, SourcePreferenceKind, Theme,
 };
 
 use crate::{
     app::{
-        AppState, BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind,
-        PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage, SourceFilterRow,
-        SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
+        AppState, BrowseTab, BrowseView, FilterRow, LibraryView, MoreFocus, MoreRow, MoreSection,
+        PickerKind, PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage,
+        SourceFilterRow, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout, grid_columns, grid_margin, grid_row_offset, grid_tile_rect, grid_tile_width,
@@ -72,6 +72,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
 
     draw_picker(frame, app);
     draw_source_pref_picker(frame, app);
+    draw_filter_picker(frame, app);
     draw_quit_confirm(frame, app);
     draw_uninstall_confirm(frame, app);
     draw_library_delete(frame, app);
@@ -485,6 +486,14 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("r", "reload"),
                 ("Esc", "back"),
             ],
+            BrowseView::Filters => vec![
+                ("q", "quit"),
+                ("↑↓", "filter"),
+                ("↵", "change"),
+                ("←→", "adjust"),
+                ("r", "reload"),
+                ("Esc", "back"),
+            ],
             BrowseView::Local => vec![
                 ("q", "quit"),
                 ("↑↓←→", "move"),
@@ -523,6 +532,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓←→", "move"),
                 ("s", "search"),
+                ("z", "filters"),
                 ("l", "latest"),
                 ("n", "more"),
                 ("F", "library"),
@@ -1147,6 +1157,7 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
         BrowseView::Sources => draw_browse_sources(frame, area, app),
         BrowseView::SourceFilters => draw_source_filters(frame, area, app),
         BrowseView::SourcePrefs => draw_source_prefs(frame, area, app),
+        BrowseView::Filters => draw_filters(frame, area, app),
         BrowseView::Extensions => draw_extensions(frame, area, app),
         BrowseView::Stores => draw_stores(frame, area, app),
         BrowseView::Migrate => draw_migrate(frame, area, app),
@@ -1426,6 +1437,15 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
                 .as_ref()
                 .map_or(0, |state| state.preferences.prefs.len())
                 .to_string(),
+        ),
+        BrowseView::Filters => (
+            "Filters".to_owned(),
+            app.remote
+                .source
+                .as_ref()
+                .map(|source| source.display_name())
+                .unwrap_or_else(|| "Remote source".to_owned()),
+            app.filter_item_count().to_string(),
         ),
         BrowseView::Local => (
             if app.browse_local_latest {
@@ -1824,6 +1844,182 @@ fn draw_source_pref_picker(frame: &mut Frame, app: &AppState) {
                 ),
                 Span::styled(
                     label.clone(),
+                    if index == picker.selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(picker.selected));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_filters(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height == 0 {
+        return;
+    }
+    draw_browse_path(frame, Rect::new(body.x, body.y, body.width, 1), app);
+    let list_area = Rect::new(
+        body.x,
+        body.y + 1,
+        body.width,
+        body.height.saturating_sub(1),
+    );
+
+    if app.remote.filters.is_empty() {
+        frame.render_widget(
+            Paragraph::new("This source has no filters.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
+        );
+        return;
+    }
+
+    let rows = app.filter_rows();
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|row| match row {
+            FilterRow::Filter { path, depth } => {
+                let Some(filter) = app.filter_at_path(path) else {
+                    return ListItem::new("");
+                };
+                let indent = "  ".repeat(*depth);
+                match filter {
+                    SourceFilter::Header { name } => ListItem::new(Line::from(Span::styled(
+                        format!("{indent}{name}"),
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+                    ))),
+                    SourceFilter::Separator { .. } => ListItem::new(Line::from(Span::styled(
+                        "─",
+                        Style::default().fg(c_surface1()),
+                    ))),
+                    SourceFilter::Checkbox { name, checked } => ListItem::new(Line::from(vec![
+                        Span::styled(
+                            if *checked { "[x] " } else { "[ ] " },
+                            Style::default().fg(if *checked { c_green() } else { c_overlay0() }),
+                        ),
+                        Span::styled(format!("{indent}{name}"), Style::default().fg(c_text())),
+                    ])),
+                    SourceFilter::Tristate { name, .. } => ListItem::new(Line::from(vec![
+                        Span::styled("◐ ", Style::default().fg(c_mauve())),
+                        Span::styled(
+                            format!("{indent}{name}  {}", filter.display_value()),
+                            Style::default().fg(c_text()),
+                        ),
+                    ])),
+                    SourceFilter::Text { name, .. } => ListItem::new(Line::from(vec![
+                        Span::styled("TXT ", Style::default().fg(c_blue())),
+                        Span::styled(
+                            format!("{indent}{name}  {}", filter.display_value()),
+                            Style::default().fg(c_text()),
+                        ),
+                    ])),
+                    SourceFilter::Select { name, .. } => ListItem::new(Line::from(vec![
+                        Span::styled("LIST ", Style::default().fg(c_teal())),
+                        Span::styled(
+                            format!("{indent}{name}  {}", filter.display_value()),
+                            Style::default().fg(c_text()),
+                        ),
+                    ])),
+                    SourceFilter::Sort { name, .. } => ListItem::new(Line::from(vec![
+                        Span::styled("SORT ", Style::default().fg(c_peach())),
+                        Span::styled(
+                            format!("{indent}{name}  {}", filter.display_value()),
+                            Style::default().fg(c_text()),
+                        ),
+                    ])),
+                    SourceFilter::Group { name, .. } => ListItem::new(Line::from(vec![
+                        Span::styled("▾ ", Style::default().fg(c_overlay0())),
+                        Span::styled(
+                            format!("{indent}{name}"),
+                            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                        ),
+                    ])),
+                    SourceFilter::Unknown { name } => ListItem::new(Line::from(vec![
+                        Span::styled("? ", Style::default().fg(c_overlay0())),
+                        Span::styled(
+                            format!("{indent}{name} (unsupported)"),
+                            Style::default().fg(c_overlay1()),
+                        ),
+                    ])),
+                }
+            }
+            FilterRow::Reset => ListItem::new(Line::from(Span::styled(
+                " Reset filters",
+                Style::default().fg(c_yellow()),
+            ))),
+            FilterRow::Apply => ListItem::new(Line::from(Span::styled(
+                " Apply filters",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ))),
+        })
+        .collect();
+
+    app.remote
+        .filter_list_state
+        .select(app.selected_filter_row());
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, list_area, &mut app.remote.filter_list_state);
+}
+
+fn draw_filter_picker(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.filter_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 56.min(area.width).max(20);
+    let height = (picker.values.len() as u16 + 2).min(area.height);
+    if width < 16 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            format!(" {} ", picker.title),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = picker
+        .values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if index == picker.selected {
+                        "› "
+                    } else {
+                        "  "
+                    },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    value.clone(),
                     if index == picker.selected {
                         Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
                     } else {
@@ -3634,6 +3830,38 @@ mod tests {
         assert!(text.contains("Chapter 1"));
         assert!(text.contains("Details"));
         assert!(text.contains("Test Series"));
+    }
+
+    #[test]
+    fn filter_screen_renders_filter_controls() {
+        let mut app = test_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Filters;
+        app.remote.filters = vec![
+            SourceFilter::Header {
+                name: "Tags".to_owned(),
+            },
+            SourceFilter::Checkbox {
+                name: "Completed".to_owned(),
+                checked: true,
+            },
+            SourceFilter::Sort {
+                name: "Sort".to_owned(),
+                values: vec!["Name".to_owned(), "Date".to_owned()],
+                index: Some(0),
+                ascending: Some(false),
+            },
+        ];
+        app.remote.filters_loaded = true;
+
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Filters"));
+        assert!(text.contains("Tags"));
+        assert!(text.contains("[x]"));
+        assert!(text.contains("Completed"));
+        assert!(text.contains("Name ↓"));
+        assert!(text.contains("Reset filters"));
+        assert!(text.contains("Apply filters"));
     }
 
     #[test]

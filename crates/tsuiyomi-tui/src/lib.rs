@@ -211,6 +211,19 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.filter_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.filter_picker_previous(),
+                Action::Next => app.filter_picker_next(),
+                Action::Open | Action::Confirm => app.filter_picker_confirm(),
+                Action::Back => app.filter_picker_cancel(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.source_pref_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -350,6 +363,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                             app.browse_parent()
                         }
                         BrowseView::GlobalResults => app.global_previous_item(),
+                        BrowseView::Filters => app.adjust_filter_selection(-1),
                         BrowseView::Sources
                         | BrowseView::SourceFilters
                         | BrowseView::SourcePrefs
@@ -372,6 +386,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         BrowseView::Local | BrowseView::RemoteResults => {
                             app.browse_next_column();
                         }
+                        BrowseView::Filters => app.adjust_filter_selection(1),
                         BrowseView::Sources
                         | BrowseView::SourceFilters
                         | BrowseView::SourcePrefs
@@ -554,6 +569,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::SourcePrefs => {
                 if app.tab == 3 && app.browse_view == BrowseView::Sources {
                     app.open_source_prefs();
+                }
+            }
+            Action::Filters => {
+                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
+                    app.open_filters();
                 }
             }
             Action::Stores => {
@@ -786,6 +806,13 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                     .as_ref()
                     .map_or(0, |state| state.list_state.offset());
                 app.select_browse_index(offset + (row - list.y) as usize);
+            }
+        }
+        BrowseView::Filters => {
+            let list = inside(2);
+            if contains(list, column, row) {
+                let offset = app.remote.filter_list_state.offset();
+                app.select_filter_row(offset + (row - list.y) as usize);
             }
         }
         BrowseView::Extensions => {

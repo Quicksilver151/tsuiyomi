@@ -18,6 +18,12 @@ diff --git a/server/src/main/kotlin/miwayomi/api/Dtos.kt b/server/src/main/kotli
 index 54c1a1f..8994b4d 100644
 --- a/server/src/main/kotlin/miwayomi/api/Dtos.kt
 +++ b/server/src/main/kotlin/miwayomi/api/Dtos.kt
+@@ -9,4 +9,5 @@
+     val lang: String,
+     val type: String,
+     val pkg: String? = null,
++    val supportsLatest: Boolean = true,
+ )
 @@ -22,6 +22,7 @@ data class MangaDto(
      val status: Int,
      val thumbnail_url: String?,
@@ -139,6 +145,27 @@ diff --git a/server/src/main/kotlin/miwayomi/api/Mappers.kt b/server/src/main/ko
 index 6c0c3c0..06e751e 100644
 --- a/server/src/main/kotlin/miwayomi/api/Mappers.kt
 +++ b/server/src/main/kotlin/miwayomi/api/Mappers.kt
+@@ -14,3 +14,17 @@
+-fun MangaSource.toDto(pkg: String? = null): SourceDto = SourceDto(id = id.toString(), name = name, lang = lang, type = "manga", pkg = pkg)
+-
+-fun AnimeSource.toDto(pkg: String? = null): SourceDto = SourceDto(id = id.toString(), name = name, lang = lang, type = "anime", pkg = pkg)
++fun MangaSource.toDto(pkg: String? = null): SourceDto = SourceDto(
++    id = id.toString(),
++    name = name,
++    lang = lang,
++    type = "manga",
++    pkg = pkg,
++    supportsLatest = (this as? eu.kanade.tachiyomi.source.CatalogueSource)?.supportsLatest ?: true,
++)
++
++fun AnimeSource.toDto(pkg: String? = null): SourceDto = SourceDto(
++    id = id.toString(),
++    name = name,
++    lang = lang,
++    type = "anime",
++    pkg = pkg,
++    supportsLatest = (this as? eu.kanade.tachiyomi.animesource.AnimeCatalogueSource)?.supportsLatest ?: true,
++)
 @@ -25,6 +25,7 @@ fun SManga.toDto(): MangaDto = MangaDto(
      status = status,
      thumbnail_url = thumbnail_url,
@@ -255,3 +282,145 @@ index 1fffa01..781e153 100644
  
      @Suppress("DEPRECATION")
      open suspend fun getImageUrl(page: Page): String {
+
+diff --git a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
+--- a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
++++ b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
+@@ -81,5 +81,6 @@ fun Application.registerApi() {
+ 
+     registerMangaApi()
++    registerFilterApi()
+     registerAnimeApi()
+     registerStreamingApi()
+     registerExtensionApi()
+diff --git a/server/src/main/kotlin/miwayomi/api/FilterRoutes.kt b/server/src/main/kotlin/miwayomi/api/FilterRoutes.kt
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/server/src/main/kotlin/miwayomi/api/FilterRoutes.kt
+@@ -0,0 +1,125 @@
++package miwayomi.api
++
++import eu.kanade.tachiyomi.source.model.Filter
++import eu.kanade.tachiyomi.source.model.FilterList
++import io.ktor.server.application.Application
++import io.ktor.server.application.call
++import io.ktor.server.request.receive
++import io.ktor.server.response.respond
++import io.ktor.server.routing.get
++import io.ktor.server.routing.post
++import io.ktor.server.routing.routing
++import kotlinx.serialization.Serializable
++import miwayomi.source.MangaSourceManager
++import uy.kohesive.injekt.Injekt
++import uy.kohesive.injekt.api.get
++
++@Serializable
++data class FilterDto(
++    val type: String,
++    val name: String = "",
++    val checked: Boolean? = null,
++    val triState: Int? = null,
++    val text: String? = null,
++    val selected: Int? = null,
++    val sortIndex: Int? = null,
++    val ascending: Boolean? = null,
++    val values: List<String>? = null,
++    val children: List<FilterDto>? = null,
++)
++
++@Serializable
++data class FilterListDto(
++    val filters: List<FilterDto> = emptyList(),
++    val error: String? = null,
++)
++
++@Serializable
++data class FilterSearchRequest(
++    val page: Int = 1,
++    val query: String = "",
++    val filters: List<FilterDto> = emptyList(),
++)
++
++private class HeaderFilter(name: String) : Filter.Header(name)
++private class SeparatorFilter(name: String) : Filter.Separator(name)
++private class CheckBoxFilter(name: String, state: Boolean) : Filter.CheckBox(name, state)
++private class TriStateFilter(name: String, state: Int) : Filter.TriState(name, state)
++private class TextFilter(name: String, state: String) : Filter.Text(name, state)
++private class SelectFilter(name: String, values: Array<String>, state: Int) :
++    Filter.Select<String>(name, values, state)
++private class SortFilter(name: String, values: Array<String>, state: Filter.Sort.Selection?) :
++    Filter.Sort(name, values, state)
++private class GroupFilter(name: String, state: List<Filter<*>>) :
++    Filter.Group<Filter<*>>(name, state)
++
++private fun Filter<*>.toFilterDto(): FilterDto = when (this) {
++    is Filter.Header -> FilterDto(type = "header", name = name)
++    is Filter.Separator -> FilterDto(type = "separator", name = name)
++    is Filter.CheckBox -> FilterDto(type = "checkbox", name = name, checked = state)
++    is Filter.TriState -> FilterDto(type = "tristate", name = name, triState = state)
++    is Filter.Text -> FilterDto(type = "text", name = name, text = state)
++    is Filter.Select<*> -> FilterDto(
++        type = "select",
++        name = name,
++        selected = state,
++        values = values.map { it.toString() },
++    )
++    is Filter.Sort -> FilterDto(
++        type = "sort",
++        name = name,
++        sortIndex = state?.index,
++        ascending = state?.ascending,
++        values = values.map { it.toString() },
++    )
++    is Filter.Group<*> -> FilterDto(
++        type = "group",
++        name = name,
++        children = state.filterIsInstance<Filter<*>>().map { it.toFilterDto() },
++    )
++    else -> FilterDto(type = "unknown", name = name)
++}
++
++private fun FilterDto.toFilter(): Filter<*>? = when (type) {
++    "header" -> HeaderFilter(name)
++    "separator" -> SeparatorFilter(name)
++    "checkbox" -> CheckBoxFilter(name, checked ?: false)
++    "tristate" -> TriStateFilter(name, triState ?: 0)
++    "text" -> TextFilter(name, text.orEmpty())
++    "select" -> SelectFilter(name, values.orEmpty().toTypedArray(), selected ?: 0)
++    "sort" -> SortFilter(
++        name,
++        values.orEmpty().toTypedArray(),
++        sortIndex?.let { Filter.Sort.Selection(it, ascending ?: true) },
++    )
++    "group" -> GroupFilter(
++        name,
++        children.orEmpty().mapNotNull { it.toFilter() },
++    )
++    else -> null
++}
++
++fun Application.registerFilterApi() {
++    val mangaSources = Injekt.get<MangaSourceManager>()
++
++    routing {
++        get("/api/v1/manga/{sourceId}/filters") {
++            val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
++            val dto = try {
++                FilterListDto(filters = source.getFilterList().map { it.toFilterDto() })
++            } catch (e: Throwable) {
++                println("[miwayomi] getFilterList() failed for ${source.name}: $e")
++                FilterListDto(error = e.message ?: "could not load filters")
++            }
++            call.respond(dto)
++        }
++
++        post("/api/v1/manga/{sourceId}/search") {
++            val source = call.sourceId().manga(mangaSources) ?: return@post call.respondNotFound()
++            val request = call.receive<FilterSearchRequest>()
++            val filters = FilterList(request.filters.mapNotNull { it.toFilter() })
++            val res = source.getSearchManga(request.page.coerceAtLeast(1), request.query, filters)
++            call.respond(MangasPageDto(res.hasNextPage, res.mangas.map { it.toDto() }))
++        }
++    }
++}

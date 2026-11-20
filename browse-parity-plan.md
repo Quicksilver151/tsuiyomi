@@ -34,6 +34,8 @@ Completed in the first Browse-parity slice:
   pinned/all source scope.
 - Source preferences screen (`C`) for switch, text, and list values using the host's
   existing preferences API.
+- Source filters (`z`) with checkbox, tri-state, text, select, sort, nested groups, reset,
+  and apply. The host patch adds `GET /filters` and filtered `POST /search`.
 
 Still open from M0/M1: the Browse extraction and background worker, source
 options dialog, source preferences, Local source search/latest/sort, and the
@@ -325,11 +327,10 @@ same way the current search endpoint falls back to an empty filter list.
 Add a filtered listing endpoint. A POST body avoids URL-length limits:
 
 ```http
-POST /api/v1/manga/{sourceId}/browse
+POST /api/v1/manga/{sourceId}/search
 Content-Type: application/json
 
 {
-  "listing": "popular",
   "page": 1,
   "query": "",
   "filters": [ ...same tree... ]
@@ -337,7 +338,7 @@ Content-Type: application/json
 ```
 
 Response is the existing `MangasPageDto` shape. Keep the current GET endpoints
-unchanged. `listing` is `popular | latest | search`.
+unchanged. Popular and latest ignore filters, matching Mihon's `GetRemoteManga`.
 
 The host reconstructs a `FilterList` in the same order and with the same nested
 groups, applies the states, then invokes `getPopularManga`, `getLatestUpdates`,
