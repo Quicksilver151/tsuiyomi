@@ -15,9 +15,9 @@ use tsuiyomi_core::{
     legacy_remote_cover_path, load_cached_story, merge_extensions, page_dimensions, read_cover,
     read_page, remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
-    ExtensionInfo, HistoryEntry, HistoryStore, HostClient, HostProcess, Library, LibrarySort,
-    LocalSourceOrder, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, Theme,
+    ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, Library,
+    LibrarySort, LocalSourceOrder, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -27,6 +27,7 @@ use crate::{
     layout::TAB_COUNT,
     palette,
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
+    search_worker::{GlobalSearchEvent, GlobalSearchWorker},
     story_worker::{StoryRequest, StoryWorker},
 };
 
@@ -147,6 +148,12 @@ pub struct GlobalGroup {
     pub mangas: Vec<RemoteManga>,
 }
 
+#[derive(Debug, Clone)]
+pub struct GlobalFailure {
+    pub source: RemoteSource,
+    pub message: String,
+}
+
 /// One rendered row in the Sources list. Headers are not selectable.
 pub enum SourceRow {
     Header(String),
@@ -228,6 +235,11 @@ pub struct RemoteState {
     pub favorites_loaded: bool,
     pub global_query: String,
     pub global_groups: Vec<GlobalGroup>,
+    pub global_failures: Vec<GlobalFailure>,
+    pub global_total: usize,
+    pub global_finished: usize,
+    pub global_loading: bool,
+    pub global_generation: u64,
     pub global_group: usize,
     pub global_item: usize,
     /// Where RemoteDetails returns to (regular results or global search).
@@ -262,6 +274,11 @@ impl Default for RemoteState {
             favorites_loaded: false,
             global_query: String::new(),
             global_groups: Vec::new(),
+            global_failures: Vec::new(),
+            global_total: 0,
+            global_finished: 0,
+            global_loading: false,
+            global_generation: 0,
             global_group: 0,
             global_item: 0,
             remote_details_origin: BrowseView::RemoteResults,
@@ -633,6 +650,7 @@ pub struct AppState {
     pub(crate) download_worker: Option<DownloadWorker>,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
+    pub(crate) global_search_worker: Option<GlobalSearchWorker>,
     pub(crate) cover_worker: Option<CoverWorker>,
     cover_lookups: HashSet<String>,
     host_starting: bool,
@@ -728,6 +746,7 @@ impl AppState {
             download_worker: None,
             story_worker: None,
             host_worker: None,
+            global_search_worker: None,
             cover_worker: None,
             cover_lookups: HashSet::new(),
             host_starting: false,
@@ -1982,7 +2001,40 @@ impl AppState {
             .collect()
     }
 
-    /// Search every pinned source and group the results by source.
+    /// Sources included in global search.
+    pub fn global_search_sources(&self) -> Vec<RemoteSource> {
+        match self.config.global_search_scope {
+            GlobalSearchScope::Pinned => self.pinned_sources(),
+            GlobalSearchScope::All => self
+                .remote
+                .sources
+                .iter()
+                .filter(|source| self.source_enabled(source))
+                .cloned()
+                .collect(),
+        }
+    }
+
+    /// Toggle between pinned-only and all-source global search.
+    pub fn toggle_global_search_scope(&mut self) {
+        self.config.global_search_scope = match self.config.global_search_scope {
+            GlobalSearchScope::Pinned => GlobalSearchScope::All,
+            GlobalSearchScope::All => GlobalSearchScope::Pinned,
+        };
+        self.persist_settings();
+        let label = match self.config.global_search_scope {
+            GlobalSearchScope::Pinned => "pinned",
+            GlobalSearchScope::All => "all enabled",
+        };
+        self.remote.status = Some(format!("Global search: {label} sources"));
+        self.remote.error = false;
+        if !self.remote.global_query.is_empty() && self.host_client.is_some() {
+            let query = self.remote.global_query.clone();
+            self.global_search(&query);
+        }
+    }
+
+    /// Search every selected source in the background and stream results by source.
     pub fn global_search(&mut self, query: &str) {
         let query = query.trim();
         if query.is_empty() {
@@ -1991,54 +2043,161 @@ impl AppState {
         let Some(client) = self.host_client.clone() else {
             return;
         };
-        let sources = self.pinned_sources();
+        let sources = self.global_search_sources();
         if sources.is_empty() {
-            self.remote.status =
-                Some("Pin a source first (P) to search across sources.".to_owned());
+            self.remote.status = Some(match self.config.global_search_scope {
+                GlobalSearchScope::Pinned => {
+                    "Pin a source first (P) or switch to all sources with A.".to_owned()
+                }
+                GlobalSearchScope::All => "No enabled sources to search.".to_owned(),
+            });
             self.remote.error = false;
             return;
         }
 
-        let mut groups = Vec::new();
-        let mut failures = Vec::new();
-        for source in sources {
-            match client.search(&source.id, query, 1) {
-                Ok(page) => {
-                    if !page.mangas.is_empty() {
-                        groups.push(GlobalGroup {
-                            source,
-                            mangas: page.mangas,
-                        });
-                    }
-                }
-                Err(error) => failures.push(error.to_string()),
-            }
-        }
-        groups.sort_by(|left, right| {
-            natural_cmp(&left.source.display_name(), &right.source.display_name())
-        });
-
-        let has_groups = !groups.is_empty();
+        let generation = self.remote.global_generation.wrapping_add(1);
+        self.remote.global_generation = generation;
         self.remote.global_query = query.to_owned();
-        self.remote.global_groups = groups;
+        self.remote.global_groups.clear();
+        self.remote.global_failures.clear();
+        self.remote.global_total = sources.len();
+        self.remote.global_finished = 0;
+        self.remote.global_loading = true;
         self.remote.global_group = 0;
         self.remote.global_item = 0;
         self.cover_lookups.clear();
         self.failed_covers.clear();
-        self.remote.status = if !has_groups {
-            if let Some(error) = failures.first() {
-                Some(format!("No results · {error}"))
-            } else {
-                Some("No results.".to_owned())
-            }
-        } else if failures.is_empty() {
-            None
-        } else {
-            Some(format!("{} sources failed", failures.len()))
-        };
-        self.remote.error = !has_groups && !failures.is_empty();
         self.browse_view = BrowseView::GlobalResults;
         self.browse_selection = 0;
+
+        if let Some(worker) = self.global_search_worker.as_ref() {
+            worker.request(generation, query.to_owned(), sources, client);
+        } else {
+            // Tests and headless callers do not install the worker.
+            for source in sources {
+                let event = match client.search(&source.id, query, 1) {
+                    Ok(page) => GlobalSearchEvent::Group {
+                        generation,
+                        source,
+                        mangas: page.mangas,
+                    },
+                    Err(error) => GlobalSearchEvent::Error {
+                        generation,
+                        source,
+                        message: error.to_string(),
+                    },
+                };
+                self.apply_global_search_event(event);
+            }
+            self.apply_global_search_event(GlobalSearchEvent::Finished { generation });
+        }
+        self.update_global_search_status();
+    }
+
+    /// Apply one streamed global-search event. Returns whether the UI changed.
+    fn apply_global_search_event(&mut self, event: GlobalSearchEvent) -> bool {
+        match event {
+            GlobalSearchEvent::Group {
+                generation,
+                source,
+                mangas,
+            } if generation == self.remote.global_generation => {
+                if !mangas.is_empty() {
+                    self.remote
+                        .global_groups
+                        .push(GlobalGroup { source, mangas });
+                    self.remote.global_groups.sort_by(|left, right| {
+                        natural_cmp(&left.source.display_name(), &right.source.display_name())
+                    });
+                }
+                self.remote.global_finished += 1;
+                self.update_global_search_status();
+                true
+            }
+            GlobalSearchEvent::Error {
+                generation,
+                source,
+                message,
+            } if generation == self.remote.global_generation => {
+                self.remote
+                    .global_failures
+                    .push(GlobalFailure { source, message });
+                self.remote.global_failures.sort_by(|left, right| {
+                    natural_cmp(&left.source.display_name(), &right.source.display_name())
+                });
+                self.remote.global_finished += 1;
+                self.update_global_search_status();
+                true
+            }
+            GlobalSearchEvent::Finished { generation }
+                if generation == self.remote.global_generation =>
+            {
+                self.remote.global_loading = false;
+                self.update_global_search_status();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn update_global_search_status(&mut self) {
+        let failures = self.remote.global_failures.len();
+        self.remote.status = if self.remote.global_loading {
+            let suffix = if failures > 0 {
+                format!(" · {failures} failed")
+            } else {
+                String::new()
+            };
+            self.remote.error = false;
+            Some(format!(
+                "Searching · {}/{} sources{suffix}",
+                self.remote.global_finished, self.remote.global_total
+            ))
+        } else if self.remote.global_groups.is_empty() {
+            if let Some(failure) = self.remote.global_failures.first() {
+                self.remote.error = true;
+                Some(format!("No results · {}", failure.message))
+            } else {
+                self.remote.error = false;
+                Some("No results.".to_owned())
+            }
+        } else if failures > 0 {
+            self.remote.error = false;
+            Some(format!("{failures} sources failed"))
+        } else {
+            self.remote.error = false;
+            None
+        };
+    }
+
+    /// Poll the background global search. Returns whether the UI changed.
+    pub fn poll_global_search(&mut self) -> bool {
+        let mut changed = false;
+        while let Some(event) = self
+            .global_search_worker
+            .as_ref()
+            .and_then(GlobalSearchWorker::try_event)
+        {
+            if self.apply_global_search_event(event) {
+                changed = true;
+            }
+        }
+        if changed {
+            if self.remote.global_groups.is_empty() {
+                self.remote.global_group = 0;
+                self.remote.global_item = 0;
+            } else {
+                self.remote.global_group = self
+                    .remote
+                    .global_group
+                    .min(self.remote.global_groups.len() - 1);
+                let items = self.remote.global_groups[self.remote.global_group]
+                    .mangas
+                    .len();
+                self.remote.global_item = self.remote.global_item.min(items.saturating_sub(1));
+            }
+        }
+        changed
     }
 
     pub fn global_next_group(&mut self) {
@@ -3156,6 +3315,10 @@ impl AppState {
 
     pub(crate) fn set_host_worker(&mut self, worker: HostWorker) {
         self.host_worker = Some(worker);
+    }
+
+    pub(crate) fn set_global_search_worker(&mut self, worker: GlobalSearchWorker) {
+        self.global_search_worker = Some(worker);
     }
 
     pub(crate) fn set_cover_worker(&mut self, worker: CoverWorker) {
@@ -8596,6 +8759,88 @@ mod tests {
         app.extension_search_stop(true);
         assert!(!app.extension_search);
         assert_eq!(app.filtered_extension_count(), 2);
+    }
+
+    #[test]
+    fn global_search_scope_toggles_between_pinned_and_all_enabled_sources() {
+        let mut app = remote_app();
+        app.config.pinned_sources = vec!["pkg.a|Alpha|en".to_owned()];
+        app.config.disabled_sources = vec!["pkg.c|Gamma|ja".to_owned()];
+
+        assert_eq!(app.config.global_search_scope, GlobalSearchScope::Pinned);
+        let sources = app.global_search_sources();
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "Alpha");
+
+        app.toggle_global_search_scope();
+        assert_eq!(app.config.global_search_scope, GlobalSearchScope::All);
+        let names: Vec<String> = app
+            .global_search_sources()
+            .iter()
+            .map(|source| source.name.clone())
+            .collect();
+        assert_eq!(names, ["Alpha", "Beta"]);
+        assert_eq!(
+            app.remote.status.as_deref(),
+            Some("Global search: all enabled sources")
+        );
+
+        app.toggle_global_search_scope();
+        assert_eq!(app.config.global_search_scope, GlobalSearchScope::Pinned);
+    }
+
+    #[test]
+    fn global_search_events_stream_progress_and_ignore_stale_results() {
+        let mut app = remote_app();
+        let manga = RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/Alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        app.remote.global_generation = 7;
+        app.remote.global_total = 2;
+        app.remote.global_loading = true;
+        app.remote.global_query = "alpha".to_owned();
+
+        assert!(app.apply_global_search_event(GlobalSearchEvent::Group {
+            generation: 7,
+            source: app.remote.sources[0].clone(),
+            mangas: vec![manga],
+        }));
+        assert_eq!(app.remote.global_finished, 1);
+        assert_eq!(app.remote.global_groups.len(), 1);
+        assert_eq!(
+            app.remote.status.as_deref(),
+            Some("Searching · 1/2 sources")
+        );
+
+        assert!(app.apply_global_search_event(GlobalSearchEvent::Error {
+            generation: 7,
+            source: app.remote.sources[1].clone(),
+            message: "timeout".to_owned(),
+        }));
+        assert_eq!(app.remote.global_finished, 2);
+        assert_eq!(
+            app.remote.status.as_deref(),
+            Some("Searching · 2/2 sources · 1 failed")
+        );
+
+        assert!(!app.apply_global_search_event(GlobalSearchEvent::Group {
+            generation: 6,
+            source: app.remote.sources[1].clone(),
+            mangas: Vec::new(),
+        }));
+
+        assert!(app.apply_global_search_event(GlobalSearchEvent::Finished { generation: 7 }));
+        assert!(!app.remote.global_loading);
+        assert_eq!(app.remote.status.as_deref(), Some("1 sources failed"));
     }
 
     #[test]

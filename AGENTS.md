@@ -184,9 +184,10 @@ Rules:
   in `enabled_languages` and `disabled_sources`). Remote result pages append with `n`
   (or the next remote page action) while `has_next_page` is true. The Extensions tab has an
   inline search bar, detects installed-vs-repository version differences, shows the pending
-  update count in the tab title, and offers `U` update-all. `/` on Sources runs a global
-  search over enabled pinned sources, grouped by source. `F` saves a remote manga to the
-  host's favorites; saved manga are merged into the
+  update count in the tab title, and offers `U` update-all. `/` on Sources runs a
+  background global search over enabled pinned sources with per-source progress; `A`
+  switches between pinned and all enabled sources. Results are grouped by source.
+  `F` saves a remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
   through the same remote chapter/reader path. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
@@ -258,8 +259,9 @@ Rules:
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
-  `enabled_languages`, `disabled_sources`, `local_source_order`, `remote_library`,
-  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
+  `enabled_languages`, `disabled_sources`, `local_source_order`, `global_search_scope`,
+  `remote_library`, `downloads_path`, and `hidden_series`, and preserves unknown keys from
+  existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

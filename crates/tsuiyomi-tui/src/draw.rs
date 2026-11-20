@@ -462,6 +462,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓", "source"),
                 ("↵", "open"),
                 ("P", "pin"),
+                ("A", "search all"),
                 ("o", "filters"),
                 ("[ ]", "tabs"),
                 ("e", "extensions"),
@@ -536,6 +537,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "source"),
                 ("←→", "result"),
+                ("A", "scope"),
                 ("F", "library"),
                 ("↵", "open"),
                 ("Esc", "back"),
@@ -1245,8 +1247,22 @@ fn browse_status(app: &AppState) -> Option<String> {
 fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let groups = app.remote.global_groups.clone();
     if groups.is_empty() {
+        let message = if app.remote.global_loading {
+            format!(
+                "Searching · {}/{} sources",
+                app.remote.global_finished, app.remote.global_total
+            )
+        } else if let Some(failure) = app.remote.global_failures.first() {
+            format!(
+                "No results · {}: {}",
+                failure.source.display_name(),
+                failure.message
+            )
+        } else {
+            "No results.".to_owned()
+        };
         frame.render_widget(
-            Paragraph::new("No results.")
+            Paragraph::new(message)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(c_overlay1())),
             Rect::new(area.x, area.y, area.width, 1),
@@ -1435,8 +1451,9 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             "Global search".to_owned(),
             format!("\"{}\"", app.remote.global_query),
             format!(
-                "{} sources · {} results",
-                app.remote.global_groups.len(),
+                "{}/{} sources · {} results",
+                app.remote.global_finished,
+                app.remote.global_total,
                 app.remote
                     .global_groups
                     .iter()

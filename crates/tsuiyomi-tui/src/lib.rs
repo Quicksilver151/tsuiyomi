@@ -12,6 +12,7 @@ mod input;
 mod layout;
 mod palette;
 mod scroll_worker;
+mod search_worker;
 mod story_worker;
 
 pub use app::AppState;
@@ -45,6 +46,7 @@ use crate::{
         TILE_TEXT_HEIGHT,
     },
     scroll_worker::ScrollWorker,
+    search_worker::GlobalSearchWorker,
     story_worker::StoryWorker,
 };
 
@@ -72,6 +74,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_download_worker(DownloadWorker::spawn());
     app.set_story_worker(StoryWorker::spawn());
     app.set_host_worker(HostWorker::spawn());
+    app.set_global_search_worker(GlobalSearchWorker::spawn());
     app.set_cover_worker(CoverWorker::spawn());
     app.maybe_recover_covers();
 
@@ -136,6 +139,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_host_start() {
+            needs_draw = true;
+        }
+        if app.poll_global_search() {
             needs_draw = true;
         }
         if app.poll_cover_lookups() {
@@ -474,6 +480,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         BrowseView::Extensions => app.toggle_selected_extension_pin(),
                         _ => {}
                     }
+                }
+            }
+            Action::GlobalScope => {
+                if app.tab == 3
+                    && matches!(
+                        app.browse_view,
+                        BrowseView::Sources | BrowseView::GlobalResults
+                    )
+                {
+                    app.toggle_global_search_scope();
                 }
             }
             Action::HostToggle => {

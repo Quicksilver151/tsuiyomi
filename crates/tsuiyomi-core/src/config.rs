@@ -28,6 +28,15 @@ pub enum LibrarySort {
     TitleDesc,
 }
 
+/// Sources included in Browse's global search.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GlobalSearchScope {
+    #[default]
+    Pinned,
+    All,
+}
+
 /// Ordering of the Browse Local source grid.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -100,6 +109,8 @@ pub struct Config {
     pub disabled_sources: Vec<String>,
     /// Ordering of the Local source grid.
     pub local_source_order: LocalSourceOrder,
+    /// Sources included in global search.
+    pub global_search_scope: GlobalSearchScope,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// Local series removed from the library but kept on disk, relative to the
@@ -138,6 +149,7 @@ impl Default for Config {
             enabled_languages: None,
             disabled_sources: Vec::new(),
             local_source_order: LocalSourceOrder::default(),
+            global_search_scope: GlobalSearchScope::default(),
             remote_library: Vec::new(),
             hidden_series: Vec::new(),
             reader_zoom: 100,
@@ -236,6 +248,7 @@ last_used_source = "pkg.a|Alpha|en"
 enabled_languages = ["en", "ja"]
 disabled_sources = ["pkg.b|Beta|en"]
 local_source_order = "title_desc"
+global_search_scope = "all"
 "#,
         )
         .unwrap();
@@ -246,12 +259,14 @@ local_source_order = "title_desc"
         );
         assert_eq!(config.disabled_sources, ["pkg.b|Beta|en"]);
         assert_eq!(config.local_source_order, LocalSourceOrder::TitleDesc);
+        assert_eq!(config.global_search_scope, GlobalSearchScope::All);
 
         let serialized = toml::to_string(&config).unwrap();
         assert!(serialized.contains("last_used_source = \"pkg.a|Alpha|en\""));
         assert!(serialized.contains("enabled_languages"));
         assert!(serialized.contains("disabled_sources"));
         assert!(serialized.contains("local_source_order = \"title_desc\""));
+        assert!(serialized.contains("global_search_scope = \"all\""));
     }
 
     #[test]

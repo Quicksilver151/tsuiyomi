@@ -112,6 +112,7 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
 - [x] Local source search (`s`), recent view (`l`), and title ordering (`v`).
 - [x] Extension update detection, pending count in the tab title, available-version
       display, and `U` update-all.
+- [x] Background global search with per-source progress and pinned/all scope (`A`).
 - [x] Inline extension search (name or package).
 - [x] Pin all sources of an extension from the Extensions tab.
 - [x] Tabs rendered inside the Browse panel; Esc at a tab root returns to Library.
