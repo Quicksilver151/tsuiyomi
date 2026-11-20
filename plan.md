@@ -162,7 +162,9 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
 - [x] Reading history: one entry per chapter persisted in `history.json`, History tab
       with resume/delete/multi-select, local and remote sources, Incognito suppression.
 - [ ] Series-level download queue and download deletion UI.
-- [ ] Per-source preferences exposed by the host.
+- [x] Per-source preferences opened with `C` for switch, text, and list values through
+      the host's existing preferences API. Multi-select preferences await host array
+      support.
 - [ ] Migrate.
 
 ## Phase 5 — Later

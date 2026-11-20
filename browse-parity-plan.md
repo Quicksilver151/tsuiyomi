@@ -32,6 +32,8 @@ Completed in the first Browse-parity slice:
 - Extension update detection, pending count in the Browse tab title, and `U` update-all.
 - Background global search with progressive per-source results, failure tolerance, and
   pinned/all source scope.
+- Source preferences screen (`C`) for switch, text, and list values using the host's
+  existing preferences API.
 
 Still open from M0/M1: the Browse extraction and background worker, source
 options dialog, source preferences, Local source search/latest/sort, and the

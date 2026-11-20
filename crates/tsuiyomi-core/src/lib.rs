@@ -19,6 +19,7 @@ pub mod library;
 pub mod pages;
 pub mod progress;
 pub mod runtime;
+pub mod source_prefs;
 pub mod story_cache;
 
 pub use bookmarks::BookmarkStore;
@@ -48,5 +49,9 @@ pub use progress::{ProgressEntry, ProgressStore};
 pub use runtime::{
     ensure_runtime, host_data_dir, legacy_remote_cover_path, remote_cover_path, HostProcess,
     HostRuntime, HOST_VERSION,
+};
+pub use source_prefs::{
+    preference_body, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
+    SourcePreferences,
 };
 pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};

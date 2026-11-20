@@ -15,7 +15,7 @@ use ratatui_image::{
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     downloads_dir, BookmarkStore, Chapter, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteManga, RemoteSource, Series, Theme,
+    RemoteManga, RemoteSource, Series, SourcePreferenceKind, Theme,
 };
 
 use crate::{
@@ -71,6 +71,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     }
 
     draw_picker(frame, app);
+    draw_source_pref_picker(frame, app);
     draw_quit_confirm(frame, app);
     draw_uninstall_confirm(frame, app);
     draw_library_delete(frame, app);
@@ -464,6 +465,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("P", "pin"),
                 ("A", "search all"),
                 ("o", "filters"),
+                ("C", "configure"),
                 ("[ ]", "tabs"),
                 ("e", "extensions"),
                 ("r", "refresh"),
@@ -474,6 +476,13 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓", "row"),
                 ("↵", "toggle"),
                 ("r", "refresh"),
+                ("Esc", "back"),
+            ],
+            BrowseView::SourcePrefs => vec![
+                ("q", "quit"),
+                ("↑↓", "preference"),
+                ("↵", "change"),
+                ("r", "reload"),
                 ("Esc", "back"),
             ],
             BrowseView::Local => vec![
@@ -1137,6 +1146,7 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
     match app.browse_view {
         BrowseView::Sources => draw_browse_sources(frame, area, app),
         BrowseView::SourceFilters => draw_source_filters(frame, area, app),
+        BrowseView::SourcePrefs => draw_source_prefs(frame, area, app),
         BrowseView::Extensions => draw_extensions(frame, area, app),
         BrowseView::Stores => draw_stores(frame, area, app),
         BrowseView::Migrate => draw_migrate(frame, area, app),
@@ -1406,6 +1416,17 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
                 app.source_languages().len()
             ),
         ),
+        BrowseView::SourcePrefs => (
+            "Source preferences".to_owned(),
+            app.source_prefs
+                .as_ref()
+                .map(|state| state.source.display_name())
+                .unwrap_or_else(|| "Remote source".to_owned()),
+            app.source_prefs
+                .as_ref()
+                .map_or(0, |state| state.preferences.prefs.len())
+                .to_string(),
+        ),
         BrowseView::Local => (
             if app.browse_local_latest {
                 "Local source · recent".to_owned()
@@ -1669,6 +1690,152 @@ fn draw_source_filters(frame: &mut Frame, area: Rect, app: &mut AppState) {
         )
         .highlight_symbol("› ");
     frame.render_stateful_widget(list, list_area, &mut app.source_filter_list_state);
+}
+
+fn draw_source_prefs(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height == 0 {
+        return;
+    }
+    draw_browse_path(frame, Rect::new(body.x, body.y, body.width, 1), app);
+    let list_area = Rect::new(
+        body.x,
+        body.y + 1,
+        body.width,
+        body.height.saturating_sub(1),
+    );
+
+    let Some(state) = app.source_prefs.as_ref() else {
+        frame.render_widget(
+            Paragraph::new("No source preferences loaded.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
+        );
+        return;
+    };
+    if state.preferences.prefs.is_empty() {
+        frame.render_widget(
+            Paragraph::new("This source has no configurable preferences.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
+        );
+        return;
+    }
+
+    let items: Vec<ListItem> = state
+        .preferences
+        .prefs
+        .iter()
+        .map(|preference| {
+            let (marker, marker_style) = match preference.kind {
+                SourcePreferenceKind::Switch => (
+                    if preference.switch_value() {
+                        "[x] "
+                    } else {
+                        "[ ] "
+                    },
+                    Style::default().fg(if preference.switch_value() {
+                        c_green()
+                    } else {
+                        c_overlay0()
+                    }),
+                ),
+                SourcePreferenceKind::Text => ("TXT ", Style::default().fg(c_blue())),
+                SourcePreferenceKind::List => ("LIST", Style::default().fg(c_teal())),
+                SourcePreferenceKind::Multi => ("MULTI", Style::default().fg(c_mauve())),
+                SourcePreferenceKind::Unknown => ("? ", Style::default().fg(c_overlay0())),
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(" ", Style::default()),
+                Span::styled(
+                    preference.title.clone(),
+                    Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  {}", preference.display_value()),
+                    Style::default().fg(c_accent()),
+                ),
+            ]))
+        })
+        .collect();
+
+    let mut list_state = state.list_state;
+    list_state.select((!state.preferences.prefs.is_empty()).then_some(app.browse_selection));
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, list_area, &mut list_state);
+    if let Some(state) = app.source_prefs.as_mut() {
+        state.list_state = list_state;
+    }
+}
+
+fn draw_source_pref_picker(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.source_pref_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 56.min(area.width).max(20);
+    let height = (picker.values.len() as u16 + 2).min(area.height);
+    if width < 16 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            format!(" {} ", picker.title),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = picker
+        .values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let label = picker.labels.get(index).unwrap_or(value);
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if index == picker.selected {
+                        "› "
+                    } else {
+                        "  "
+                    },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    label.clone(),
+                    if index == picker.selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(picker.selected));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
 fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -3309,10 +3476,10 @@ mod tests {
     use ratatui::{backend::TestBackend, Terminal};
     use tsuiyomi_core::{
         Chapter, ChapterKind, ExtensionInfo, Library, Page, PageSource, RemoteChapter, RemoteManga,
-        RemoteSource, Series,
+        RemoteSource, Series, SourcePreference, SourcePreferenceKind, SourcePreferences,
     };
 
-    use crate::app::ReaderState;
+    use crate::app::{ReaderState, SourcePrefsState};
 
     use super::*;
 
@@ -3467,6 +3634,56 @@ mod tests {
         assert!(text.contains("Chapter 1"));
         assert!(text.contains("Details"));
         assert!(text.contains("Test Series"));
+    }
+
+    #[test]
+    fn source_preferences_screen_renders_values() {
+        let mut app = test_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::SourcePrefs;
+        app.source_prefs = Some(SourcePrefsState {
+            source: RemoteSource {
+                id: "1".to_owned(),
+                name: "Demo".to_owned(),
+                lang: "en".to_owned(),
+                pkg: Some("pkg.demo".to_owned()),
+                supports_latest: true,
+            },
+            preferences: SourcePreferences {
+                source_id: "1".to_owned(),
+                name: "Demo".to_owned(),
+                configurable: true,
+                prefs: vec![
+                    SourcePreference {
+                        key: Some("nsfw".to_owned()),
+                        title: "Show NSFW".to_owned(),
+                        summary: None,
+                        kind: SourcePreferenceKind::Switch,
+                        value: Some("true".to_owned()),
+                        values: Vec::new(),
+                        labels: Vec::new(),
+                    },
+                    SourcePreference {
+                        key: Some("lang".to_owned()),
+                        title: "Language".to_owned(),
+                        summary: None,
+                        kind: SourcePreferenceKind::List,
+                        value: Some("en".to_owned()),
+                        values: vec!["en".to_owned(), "ja".to_owned()],
+                        labels: vec!["English".to_owned(), "Japanese".to_owned()],
+                    },
+                ],
+                error: None,
+            },
+            list_state: ListState::default(),
+        });
+
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Source preferences"));
+        assert!(text.contains("Show NSFW"));
+        assert!(text.contains("[x]"));
+        assert!(text.contains("Language"));
+        assert!(text.contains("English"));
     }
 
     #[test]

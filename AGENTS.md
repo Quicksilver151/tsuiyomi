@@ -187,7 +187,9 @@ Rules:
   update count in the tab title, and offers `U` update-all. `/` on Sources runs a
   background global search over enabled pinned sources with per-source progress; `A`
   switches between pinned and all enabled sources. Results are grouped by source.
-  `F` saves a remote manga to the host's favorites; saved manga are merged into the
+  `C` opens a configurable remote source's preferences (switch, text, and list values;
+  multi-select is waiting on the host array contract). `F` saves a remote manga to the
+  host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
   through the same remote chapter/reader path. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc

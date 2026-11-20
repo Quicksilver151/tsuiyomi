@@ -5,12 +5,15 @@
 //! exposes sources, manga, chapters, pages, and extension management over a small REST
 //! API. This module is the Rust side of that contract and contains no UI code.
 
-use std::{io::Read, path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, io::Read, path::PathBuf, time::Duration};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::error::CoreError;
+use crate::{
+    error::CoreError,
+    source_prefs::{preference_body, SourcePreferenceValue, SourcePreferences},
+};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -597,6 +600,40 @@ impl HostClient {
         }
     }
 
+    /// Preferences exposed by a `ConfigurableSource`.
+    pub fn source_preferences(&self, source_id: &str) -> Result<SourcePreferences, CoreError> {
+        self.get(&format!("/api/v1/sources/{}/prefs", encode(source_id)))
+    }
+
+    /// Save one or more source preference values.
+    pub fn set_source_preferences(
+        &self,
+        source_id: &str,
+        values: &BTreeMap<String, SourcePreferenceValue>,
+    ) -> Result<(), CoreError> {
+        #[derive(Deserialize)]
+        struct Result_ {
+            #[serde(default)]
+            ok: bool,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        let result: Result_ = self.post(
+            &format!("/api/v1/sources/{}/prefs", encode(source_id)),
+            preference_body(values),
+        )?;
+        if result.ok {
+            Ok(())
+        } else {
+            Err(CoreError::Network {
+                url: self.absolute_url(&format!("/api/v1/sources/{source_id}/prefs")),
+                message: result
+                    .error
+                    .unwrap_or_else(|| "could not save source preferences".to_owned()),
+            })
+        }
+    }
+
     pub fn repos(&self) -> Result<Vec<String>, CoreError> {
         #[derive(Deserialize)]
         struct Data {
@@ -942,6 +979,32 @@ mod tests {
         });
 
         (address, request_rx)
+    }
+
+    #[test]
+    fn reads_and_saves_source_preferences() {
+        let (address, requests) = server(vec![
+            r#"{"sourceId":"7","name":"Demo","configurable":true,"prefs":[{"key":"nsfw","title":"Show NSFW","type":"switch","value":"true"}]}"#,
+            r#"{"ok":true}"#,
+        ]);
+        let client = HostClient::new(address);
+
+        let prefs = client.source_preferences("7").unwrap();
+        assert!(prefs.configurable);
+        assert_eq!(prefs.prefs[0].title, "Show NSFW");
+        assert!(prefs.prefs[0].switch_value());
+
+        let mut values = BTreeMap::new();
+        values.insert("nsfw".to_owned(), SourcePreferenceValue::Bool(false));
+        client.set_source_preferences("7", &values).unwrap();
+
+        assert!(requests
+            .recv()
+            .unwrap()
+            .ends_with("/api/v1/sources/7/prefs"));
+        let request = requests.recv().unwrap();
+        assert!(request.starts_with("POST "));
+        assert!(request.ends_with("/api/v1/sources/7/prefs"));
     }
 
     #[test]

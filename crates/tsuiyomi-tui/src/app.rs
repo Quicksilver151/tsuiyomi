@@ -17,7 +17,8 @@ use tsuiyomi_core::{
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
     ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, Library,
     LibrarySort, LocalSourceOrder, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, Theme,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series,
+    SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme,
 };
 
 use crate::{
@@ -132,6 +133,7 @@ pub enum BrowseView {
     #[default]
     Sources,
     SourceFilters,
+    SourcePrefs,
     Local,
     Chapters,
     RemoteResults,
@@ -161,6 +163,20 @@ pub enum SourceRow {
     Remote(usize),
 }
 
+pub struct SourcePrefsState {
+    pub source: RemoteSource,
+    pub preferences: SourcePreferences,
+    pub list_state: ListState,
+}
+
+pub struct SourcePrefPicker {
+    pub key: String,
+    pub title: String,
+    pub values: Vec<String>,
+    pub labels: Vec<String>,
+    pub selected: usize,
+}
+
 /// One rendered row in the source-management screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceFilterRow {
@@ -188,6 +204,7 @@ pub enum TextAction {
     SearchRemote,
     SearchLocal,
     GlobalSearch,
+    SourcePreference,
     AddExtensionStore,
     SetHostUrl,
 }
@@ -683,6 +700,9 @@ pub struct AppState {
     pub browse_local_latest: bool,
     pub browse_local_list_state: ListState,
     pub source_filter_list_state: ListState,
+    pub source_prefs: Option<SourcePrefsState>,
+    pub source_pref_picker: Option<SourcePrefPicker>,
+    source_pref_edit: Option<String>,
     pub host_client: Option<HostClient>,
     /// Start the bundled host the first time Browse is opened.
     pub host_autostart: bool,
@@ -772,6 +792,9 @@ impl AppState {
             browse_local_latest: false,
             browse_local_list_state: ListState::default(),
             source_filter_list_state: ListState::default(),
+            source_prefs: None,
+            source_pref_picker: None,
+            source_pref_edit: None,
             host_client: None,
             host_autostart: true,
             host_process: None,
@@ -956,6 +979,7 @@ impl AppState {
                 None => {}
             },
             BrowseView::SourceFilters => self.toggle_source_filter_selection(),
+            BrowseView::SourcePrefs => self.activate_source_preference(),
             BrowseView::Local => {
                 let Some(path) = self
                     .selected_browse_series()
@@ -1014,7 +1038,7 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
-            BrowseView::SourceFilters => {
+            BrowseView::SourceFilters | BrowseView::SourcePrefs => {
                 self.browse_view = BrowseView::Sources;
                 self.browse_selection = 0;
                 self.browse_list_state = ListState::default();
@@ -1041,6 +1065,7 @@ impl AppState {
         match self.browse_view {
             BrowseView::Sources => self.load_remote_sources(),
             BrowseView::SourceFilters => self.load_remote_sources(),
+            BrowseView::SourcePrefs => self.reload_source_prefs(),
             BrowseView::Local => self.refresh(),
             BrowseView::RemoteResults => {
                 self.load_remote_results(self.remote.listing);
@@ -1057,6 +1082,10 @@ impl AppState {
         match self.browse_view {
             BrowseView::Sources => self.source_order().len(),
             BrowseView::SourceFilters => self.source_filter_item_count(),
+            BrowseView::SourcePrefs => self
+                .source_prefs
+                .as_ref()
+                .map_or(0, |state| state.preferences.prefs.len()),
             BrowseView::Local => self.browse_local_indices().len(),
             BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
@@ -1592,6 +1621,189 @@ impl AppState {
             self.browse_selection = anchor.min(count - 1);
         }
         self.select_browse_entry(self.browse_selection);
+    }
+
+    /// Load the selected remote source's configurable preferences.
+    pub fn open_source_prefs(&mut self) {
+        let Some(SourceRef::Remote(index)) = self.selected_source_ref() else {
+            self.remote.status = Some("Select a remote source to configure.".to_owned());
+            self.remote.error = false;
+            return;
+        };
+        let Some(source) = self.remote.sources.get(index).cloned() else {
+            return;
+        };
+        self.load_source_prefs(source);
+    }
+
+    pub fn reload_source_prefs(&mut self) {
+        let Some(state) = self.source_prefs.as_ref() else {
+            return;
+        };
+        let source = state.source.clone();
+        self.load_source_prefs(source);
+    }
+
+    fn load_source_prefs(&mut self, source: RemoteSource) {
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        match client.source_preferences(&source.id) {
+            Ok(preferences) => {
+                if !preferences.configurable {
+                    self.remote.status = Some(format!(
+                        "{} has no source preferences.",
+                        source.display_name()
+                    ));
+                    self.remote.error = false;
+                    return;
+                }
+                if let Some(error) = &preferences.error {
+                    self.set_remote_error(format!(
+                        "{} preferences: {error}",
+                        source.display_name()
+                    ));
+                    return;
+                }
+                let mut list_state = ListState::default();
+                list_state.select((!preferences.prefs.is_empty()).then_some(0));
+                self.source_prefs = Some(SourcePrefsState {
+                    source,
+                    preferences,
+                    list_state,
+                });
+                self.browse_view = BrowseView::SourcePrefs;
+                self.browse_selection = 0;
+                self.remote.status = None;
+                self.remote.error = false;
+                self.select_browse_entry(0);
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    fn selected_source_preference(&self) -> Option<&SourcePreference> {
+        let state = self.source_prefs.as_ref()?;
+        let index = state.list_state.selected().unwrap_or(self.browse_selection);
+        state.preferences.prefs.get(index)
+    }
+
+    pub fn activate_source_preference(&mut self) {
+        let Some(preference) = self.selected_source_preference().cloned() else {
+            return;
+        };
+        let Some(key) = preference.key.clone() else {
+            self.remote.status = Some("This preference has no key.".to_owned());
+            self.remote.error = false;
+            return;
+        };
+        match preference.kind {
+            SourcePreferenceKind::Switch => {
+                self.save_source_preference(
+                    key,
+                    SourcePreferenceValue::Bool(!preference.switch_value()),
+                );
+            }
+            SourcePreferenceKind::Text => {
+                self.source_pref_edit = Some(key);
+                self.open_text_input(
+                    TextAction::SourcePreference,
+                    &preference.title,
+                    preference.value.as_deref().unwrap_or(""),
+                );
+            }
+            SourcePreferenceKind::List => {
+                if preference.values.is_empty() {
+                    self.remote.status = Some("This list preference has no values.".to_owned());
+                    self.remote.error = false;
+                    return;
+                }
+                let selected = preference
+                    .values
+                    .iter()
+                    .position(|value| Some(value) == preference.value.as_ref())
+                    .unwrap_or(0);
+                self.source_pref_picker = Some(SourcePrefPicker {
+                    key,
+                    title: preference.title,
+                    values: preference.values,
+                    labels: preference.labels,
+                    selected,
+                });
+            }
+            SourcePreferenceKind::Multi => {
+                self.remote.status =
+                    Some("Multi-select source preferences need a newer host build.".to_owned());
+                self.remote.error = false;
+            }
+            SourcePreferenceKind::Unknown => {
+                self.remote.status = Some("Unsupported source preference type.".to_owned());
+                self.remote.error = false;
+            }
+        }
+    }
+
+    fn save_source_preference(&mut self, key: String, value: SourcePreferenceValue) {
+        let Some(state) = self.source_prefs.as_ref() else {
+            return;
+        };
+        let source_id = state.source.id.clone();
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let mut values = BTreeMap::new();
+        values.insert(key.clone(), value.clone());
+        match client.set_source_preferences(&source_id, &values) {
+            Ok(()) => {
+                if let Some(state) = self.source_prefs.as_mut() {
+                    if let Some(preference) = state
+                        .preferences
+                        .prefs
+                        .iter_mut()
+                        .find(|preference| preference.key.as_deref() == Some(key.as_str()))
+                    {
+                        preference.value = Some(match value {
+                            SourcePreferenceValue::Bool(value) => value.to_string(),
+                            SourcePreferenceValue::Text(value) => value,
+                        });
+                    }
+                }
+                self.remote.status = Some(format!("Saved {key}"));
+                self.remote.error = false;
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    pub fn source_pref_picker_previous(&mut self) {
+        if let Some(picker) = self.source_pref_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn source_pref_picker_next(&mut self) {
+        if let Some(picker) = self.source_pref_picker.as_mut() {
+            if !picker.values.is_empty() {
+                picker.selected = (picker.selected + 1).min(picker.values.len() - 1);
+            }
+        }
+    }
+
+    pub fn source_pref_picker_confirm(&mut self) {
+        let Some(picker) = self.source_pref_picker.take() else {
+            return;
+        };
+        let Some(value) = picker.values.get(picker.selected).cloned() else {
+            return;
+        };
+        self.save_source_preference(picker.key, SourcePreferenceValue::Text(value));
+    }
+
+    pub fn source_pref_picker_cancel(&mut self) {
+        self.source_pref_picker = None;
     }
 
     /// Remember the source the user just opened.
@@ -2755,6 +2967,7 @@ impl AppState {
 
     pub fn input_cancel(&mut self) {
         self.text_input = None;
+        self.source_pref_edit = None;
     }
 
     pub fn input_submit(&mut self) {
@@ -2765,6 +2978,11 @@ impl AppState {
             TextAction::SearchRemote => self.search_remote(&input.value),
             TextAction::SearchLocal => self.search_local(&input.value),
             TextAction::GlobalSearch => self.global_search(&input.value),
+            TextAction::SourcePreference => {
+                if let Some(key) = self.source_pref_edit.take() {
+                    self.save_source_preference(key, SourcePreferenceValue::Text(input.value));
+                }
+            }
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
             TextAction::SetHostUrl => self.set_host_url(&input.value),
         }
@@ -3213,6 +3431,10 @@ impl AppState {
         } else if self.browse_view == BrowseView::SourceFilters {
             self.source_filter_list_state
                 .select((count > 0).then_some(index));
+        } else if self.browse_view == BrowseView::SourcePrefs {
+            if let Some(state) = self.source_prefs.as_mut() {
+                state.list_state.select((count > 0).then_some(index));
+            }
         } else {
             self.browse_list_state.select((count > 0).then_some(index));
         }
@@ -4818,7 +5040,7 @@ impl AppState {
                 let store = self.selected_store()?;
                 Some((SelectionScope::Stores, format!("store:{store}")))
             }
-            BrowseView::Migrate | BrowseView::SourceFilters => None,
+            BrowseView::Migrate | BrowseView::SourceFilters | BrowseView::SourcePrefs => None,
         }
     }
 

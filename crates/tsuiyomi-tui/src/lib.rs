@@ -211,6 +211,19 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.source_pref_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.source_pref_picker_previous(),
+                Action::Next => app.source_pref_picker_next(),
+                Action::Open | Action::Confirm => app.source_pref_picker_confirm(),
+                Action::Back => app.source_pref_picker_cancel(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -339,6 +352,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         BrowseView::GlobalResults => app.global_previous_item(),
                         BrowseView::Sources
                         | BrowseView::SourceFilters
+                        | BrowseView::SourcePrefs
                         | BrowseView::Extensions
                         | BrowseView::Stores => {}
                     }
@@ -360,6 +374,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         }
                         BrowseView::Sources
                         | BrowseView::SourceFilters
+                        | BrowseView::SourcePrefs
                         | BrowseView::Chapters
                         | BrowseView::RemoteDetails
                         | BrowseView::Migrate => app.browse_open(),
@@ -534,6 +549,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     } else if app.browse_view == BrowseView::Sources {
                         app.open_source_filters();
                     }
+                }
+            }
+            Action::SourcePrefs => {
+                if app.tab == 3 && app.browse_view == BrowseView::Sources {
+                    app.open_source_prefs();
                 }
             }
             Action::Stores => {
@@ -756,6 +776,16 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             if contains(list, column, row) {
                 let offset = app.source_filter_list_state.offset();
                 app.select_source_filter_row(offset + (row - list.y) as usize);
+            }
+        }
+        BrowseView::SourcePrefs => {
+            let list = inside(2);
+            if contains(list, column, row) {
+                let offset = app
+                    .source_prefs
+                    .as_ref()
+                    .map_or(0, |state| state.list_state.offset());
+                app.select_browse_index(offset + (row - list.y) as usize);
             }
         }
         BrowseView::Extensions => {
