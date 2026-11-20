@@ -226,12 +226,14 @@ Rules:
   Local tiles regenerate a deleted or invalid generated `cover.jpg` through
   `ensure_series_cover` without a full rescan. Missing covers are retried when the
   Library tab is shown (15-second cooldown) and on `r`. Tiles load
-  their cover immediately before drawing and the in-memory cover cache holds 256
-  entries, so large grids do not evict a cover before rendering it. Covers are written
-  atomically and validated before being stored, corrupt entries are replaced, and old
-  `$XDG_CACHE_HOME` covers migrate on first load. If any saved cover is missing at
-  startup, the host starts in the background once to reload favorites and refill them. Extensions are
-  managed through the host (repo URLs, install, uninstall).
+  their cover immediately before drawing. The in-memory cover cache is a 256-entry,
+  128 MiB-estimated LRU with covers downscaled to a 512 px longest edge, and drawing
+  touches the visible entries. Kitty cover protocols are dropped when a reader closes so
+  the next grid draw retransmits covers that the terminal evicted under its image quota.
+  Covers are written atomically and validated before being stored, corrupt entries are
+  replaced, and old `$XDG_CACHE_HOME` covers migrate on first load. If any saved cover
+  is missing at startup, the host starts in the background once to reload favorites and
+  refill them. Extensions are managed through the host (repo URLs, install, uninstall).
   tsuiyomi never loads APK bytecode itself; the host supplies the JVM, AndroidCompat, and
   dex2jar runtime. The bundled host is extracted from an optional archive in the binary
   into `$XDG_CACHE_HOME/tsuiyomi/host/<version>/` and supervised on loopback; `host_url`

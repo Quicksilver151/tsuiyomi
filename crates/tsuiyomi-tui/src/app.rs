@@ -7,7 +7,12 @@ use std::{
 
 use crossterm::terminal;
 use ratatui::{layout::Size, widgets::ListState};
-use ratatui_image::{picker::Picker, protocol::StatefulProtocol, sliced::SlicedProtocol, Resize};
+use ratatui_image::{
+    picker::{Picker, ProtocolType},
+    protocol::StatefulProtocol,
+    sliced::SlicedProtocol,
+    Resize,
+};
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
@@ -23,6 +28,7 @@ use tsuiyomi_core::{
 };
 
 use crate::{
+    cover_cache::{fit_cover_image, image_bytes, TileCoverCache},
     cover_worker::{CoverRequest, CoverWorker},
     download_worker::{DownloadRequest, DownloadWorker},
     host_worker::{HostRequest, HostWorker},
@@ -43,9 +49,6 @@ const SCROLL_BLOCK_ROWS_MAX: u32 = 128;
 /// Older builds used 2048px blocks; scale prefetch counts so the lookahead distance
 /// in rows stays the same after shrinking blocks.
 const SCROLL_PREFETCH_SCALE: usize = 2;
-
-/// Upper bound on decoded library tile covers kept in memory.
-const TILE_COVER_CACHE: usize = 256;
 
 /// Unique suffix for atomic cover writes; the loader thread and UI can race.
 static COVER_TEMP_ID: AtomicU64 = AtomicU64::new(0);
@@ -776,7 +779,7 @@ pub struct AppState {
     pub browse_grid_offset: usize,
     pub library_columns: usize,
     pub library_grid_offset: usize,
-    pub tile_covers: HashMap<PathBuf, StatefulProtocol>,
+    pub(crate) tile_covers: TileCoverCache,
     /// Remote covers that recently failed to load, so drawing does not retry every frame.
     pub failed_covers: HashMap<String, Instant>,
     pub more_section: MoreSection,
@@ -871,7 +874,7 @@ impl AppState {
             browse_grid_offset: 0,
             library_columns: 1,
             library_grid_offset: 0,
-            tile_covers: HashMap::new(),
+            tile_covers: TileCoverCache::default(),
             failed_covers: HashMap::new(),
             more_section: MoreSection::Settings,
             more_focus: MoreFocus::Content,
@@ -960,13 +963,10 @@ impl AppState {
         let Some(picker) = self.image_picker.as_ref() else {
             return;
         };
-        if self.tile_covers.len() >= TILE_COVER_CACHE {
-            if let Some(oldest) = self.tile_covers.keys().next().cloned() {
-                self.tile_covers.remove(&oldest);
-            }
-        }
+        let image = fit_cover_image(image);
+        let bytes = image_bytes(&image);
         let protocol = picker.new_resize_protocol(image);
-        self.tile_covers.insert(path, protocol);
+        self.tile_covers.insert(path, protocol, bytes);
     }
 
     pub fn browse_previous(&mut self) {
@@ -5313,12 +5313,23 @@ impl AppState {
     }
 
     /// Close the reader and return to the list it was opened from.
+    /// Kitty keeps decoded images under a terminal memory quota and silently evicts old
+    /// ones. Cover protocols only transmit once, so after a large webtoon the terminal may
+    /// have dropped cover images while the app still thinks they are present. Rebuild the
+    /// protocols so the next grid draw transmits them again.
+    fn reset_cover_protocols(&mut self) {
+        if self.image_picker.as_ref().map(Picker::protocol_type) == Some(ProtocolType::Kitty) {
+            self.tile_covers.clear();
+        }
+    }
+
     pub fn close_reader(&mut self) {
         if self.reader.is_none() {
             return;
         }
         self.flush_progress();
         self.reader = None;
+        self.reset_cover_protocols();
         self.status = None;
         match self.reader_origin {
             ReaderOrigin::Remote => {
@@ -10065,6 +10076,28 @@ mod tests {
 
         app.toggle_pin_for_selection();
         assert!(app.config.pinned_sources.is_empty());
+    }
+
+    #[test]
+    fn kitty_reader_close_forces_cover_retransmission() {
+        let mut app = AppState::default();
+        app.set_image_picker(Picker::halfblocks());
+        let path = PathBuf::from("cover.jpg");
+        app.insert_tile_cover(
+            path.clone(),
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+                10,
+                20,
+                image::Rgb([1, 2, 3]),
+            )),
+        );
+        assert!(app.tile_covers.contains_key(&path));
+
+        if let Some(picker) = app.image_picker.as_mut() {
+            picker.set_protocol_type(ProtocolType::Kitty);
+        }
+        app.reset_cover_protocols();
+        assert!(!app.tile_covers.contains_key(&path));
     }
 
     #[test]

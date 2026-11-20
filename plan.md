@@ -155,7 +155,9 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
       missing saved manga covers, missing covers retry automatically on Library entry,
       details supply missing thumbnails, results without them trigger a background
       details lookup, Browse results pick up covers learned from a details page, and
-      local generated covers regenerate on demand.
+      local generated covers regenerate on demand. The cover cache is byte-bounded and
+      LRU, covers are downscaled, and Kitty protocols reset after the reader closes to
+      recover from terminal image-quota eviction.
 - [x] Browse's Local source lists only folders from the local library, excluding saved
       remote manga.
 - [x] All remote thumbnails share one persistent cache (Browse and Library), details

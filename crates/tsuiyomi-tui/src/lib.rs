@@ -4,6 +4,7 @@
 //! `tsuiyomi-core`.
 
 mod app;
+mod cover_cache;
 mod cover_worker;
 mod download_worker;
 mod draw;
