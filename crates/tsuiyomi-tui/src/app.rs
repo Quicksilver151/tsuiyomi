@@ -151,6 +151,7 @@ pub enum BrowseView {
 pub struct GlobalGroup {
     pub source: RemoteSource,
     pub mangas: Vec<RemoteManga>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -2900,6 +2901,21 @@ impl AppState {
         }
     }
 
+    pub fn toggle_global_search_only_results(&mut self) {
+        self.config.global_search_only_results = !self.config.global_search_only_results;
+        self.persist_settings();
+        self.remote.status = Some(if self.config.global_search_only_results {
+            "Showing only sources with results".to_owned()
+        } else {
+            "Showing empty and failed sources".to_owned()
+        });
+        self.remote.error = false;
+        if !self.remote.global_query.is_empty() && self.host_client.is_some() {
+            let query = self.remote.global_query.clone();
+            self.global_search(&query);
+        }
+    }
+
     /// Search every selected source in the background and stream results by source.
     pub fn global_search(&mut self, query: &str) {
         let query = query.trim();
@@ -2968,10 +2984,12 @@ impl AppState {
                 source,
                 mangas,
             } if generation == self.remote.global_generation => {
-                if !mangas.is_empty() {
-                    self.remote
-                        .global_groups
-                        .push(GlobalGroup { source, mangas });
+                if !mangas.is_empty() || !self.config.global_search_only_results {
+                    self.remote.global_groups.push(GlobalGroup {
+                        source,
+                        mangas,
+                        error: None,
+                    });
                     self.remote.global_groups.sort_by(|left, right| {
                         natural_cmp(&left.source.display_name(), &right.source.display_name())
                     });
@@ -2985,6 +3003,16 @@ impl AppState {
                 source,
                 message,
             } if generation == self.remote.global_generation => {
+                if !self.config.global_search_only_results {
+                    self.remote.global_groups.push(GlobalGroup {
+                        source: source.clone(),
+                        mangas: Vec::new(),
+                        error: Some(message.clone()),
+                    });
+                    self.remote.global_groups.sort_by(|left, right| {
+                        natural_cmp(&left.source.display_name(), &right.source.display_name())
+                    });
+                }
                 self.remote
                     .global_failures
                     .push(GlobalFailure { source, message });
@@ -10240,6 +10268,37 @@ mod tests {
     }
 
     #[test]
+    fn global_search_only_results_skips_empty_and_error_groups() {
+        let mut app = remote_app();
+        app.config.global_search_only_results = true;
+        app.remote.global_generation = 3;
+        app.remote.global_total = 2;
+        app.remote.global_loading = true;
+
+        assert!(app.apply_global_search_event(GlobalSearchEvent::Group {
+            generation: 3,
+            source: app.remote.sources[0].clone(),
+            mangas: Vec::new(),
+        }));
+        assert!(app.remote.global_groups.is_empty());
+
+        assert!(app.apply_global_search_event(GlobalSearchEvent::Error {
+            generation: 3,
+            source: app.remote.sources[1].clone(),
+            message: "timeout".to_owned(),
+        }));
+        assert!(app.remote.global_groups.is_empty());
+        assert_eq!(app.remote.global_failures.len(), 1);
+
+        app.toggle_global_search_only_results();
+        assert!(!app.config.global_search_only_results);
+        assert_eq!(
+            app.remote.status.as_deref(),
+            Some("Showing empty and failed sources")
+        );
+    }
+
+    #[test]
     fn global_search_scope_toggles_between_pinned_and_all_enabled_sources() {
         let mut app = remote_app();
         app.config.pinned_sources = vec!["pkg.a|Alpha|en".to_owned()];
@@ -10340,10 +10399,12 @@ mod tests {
             GlobalGroup {
                 source: app.remote.sources[0].clone(),
                 mangas: vec![manga("Alpha"), manga("Beta")],
+                error: None,
             },
             GlobalGroup {
                 source: app.remote.sources[1].clone(),
                 mangas: vec![manga("Gamma")],
+                error: None,
             },
         ];
 

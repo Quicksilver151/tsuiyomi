@@ -188,8 +188,9 @@ Rules:
   `U` update-all. `o` on Extensions opens extension details with per-source toggles,
   enable/disable-all actions, source preferences, per-extension Incognito, clear-cookies,
   and uninstall. `/` on Sources runs a background global search over enabled pinned
-  sources with per-source progress; `A` switches between pinned and all enabled sources.
-  Results are grouped by source.
+  sources with per-source progress; empty and failed sources are rows, `h` toggles
+  only-with-results, and `A` switches between pinned and all enabled sources. Results are
+  grouped by source.
   `C` opens a configurable remote source's preferences (switch, text, and list values;
   multi-select is waiting on the host array contract). `z` opens source filters for
   search: checkbox, tri-state, text, select, sort, and nested groups. `v` cycles
@@ -269,8 +270,9 @@ Rules:
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
-  `global_search_scope`, `source_display_mode`, `browse_hide_saved`, `remote_library`,
-  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
+  `global_search_scope`, `global_search_only_results`, `source_display_mode`,
+  `browse_hide_saved`, `remote_library`, `downloads_path`, and `hidden_series`, and
+  preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

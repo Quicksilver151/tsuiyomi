@@ -123,6 +123,8 @@ pub struct Config {
     pub local_source_order: LocalSourceOrder,
     /// Sources included in global search.
     pub global_search_scope: GlobalSearchScope,
+    /// Hide sources with no results or errors in global search.
+    pub global_search_only_results: bool,
     /// Layout for remote source results.
     pub source_display_mode: SourceDisplayMode,
     /// Hide manga already saved in the library from source results.
@@ -167,6 +169,7 @@ impl Default for Config {
             incognito_extensions: Vec::new(),
             local_source_order: LocalSourceOrder::default(),
             global_search_scope: GlobalSearchScope::default(),
+            global_search_only_results: false,
             source_display_mode: SourceDisplayMode::default(),
             browse_hide_saved: false,
             remote_library: Vec::new(),
@@ -269,6 +272,7 @@ disabled_sources = ["pkg.b|Beta|en"]
 incognito_extensions = ["pkg.private"]
 local_source_order = "title_desc"
 global_search_scope = "all"
+global_search_only_results = true
 source_display_mode = "list"
 browse_hide_saved = true
 "#,
@@ -283,6 +287,7 @@ browse_hide_saved = true
         assert_eq!(config.incognito_extensions, ["pkg.private"]);
         assert_eq!(config.local_source_order, LocalSourceOrder::TitleDesc);
         assert_eq!(config.global_search_scope, GlobalSearchScope::All);
+        assert!(config.global_search_only_results);
         assert_eq!(config.source_display_mode, SourceDisplayMode::List);
         assert!(config.browse_hide_saved);
 
@@ -293,6 +298,7 @@ browse_hide_saved = true
         assert!(serialized.contains("incognito_extensions"));
         assert!(serialized.contains("local_source_order = \"title_desc\""));
         assert!(serialized.contains("global_search_scope = \"all\""));
+        assert!(serialized.contains("global_search_only_results = true"));
         assert!(serialized.contains("source_display_mode = \"list\""));
         assert!(serialized.contains("browse_hide_saved = true"));
     }

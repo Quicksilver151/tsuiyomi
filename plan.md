@@ -176,6 +176,7 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
 - [x] Extension sections for updates/installed/available-by-language, plus an extension
       details screen with source toggles, enable/disable-all, source preferences,
       per-extension Incognito, clear-cookies, and uninstall.
+- [x] Global-search empty/error source rows and a persisted only-with-results filter (`h`).
 - [ ] Migrate.
 
 ## Phase 5 — Later

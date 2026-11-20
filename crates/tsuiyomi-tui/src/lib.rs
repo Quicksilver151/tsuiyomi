@@ -582,8 +582,12 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::HideSaved => {
-                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
-                    app.toggle_hide_saved_results();
+                if app.tab == 3 {
+                    match app.browse_view {
+                        BrowseView::RemoteResults => app.toggle_hide_saved_results(),
+                        BrowseView::GlobalResults => app.toggle_global_search_only_results(),
+                        _ => {}
+                    }
                 }
             }
             Action::Extensions => {

@@ -672,6 +672,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓", "source"),
                 ("←→", "result"),
                 ("A", "scope"),
+                ("h", "results only"),
                 ("F", "library"),
                 ("↵", "open"),
                 ("Esc", "back"),
@@ -1436,10 +1437,14 @@ fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     })
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                format!("  {} results", group.mangas.len()),
-                Style::default().fg(c_overlay0()),
-            ),
+            if let Some(error) = &group.error {
+                Span::styled(format!("  error · {error}"), Style::default().fg(c_peach()))
+            } else {
+                Span::styled(
+                    format!("  {} results", group.mangas.len()),
+                    Style::default().fg(c_overlay0()),
+                )
+            },
         ]);
         frame.render_widget(Paragraph::new(header), Rect::new(area.x, y, area.width, 1));
 
@@ -4203,6 +4208,32 @@ mod tests {
         assert!(text.contains("Chapter 1"));
         assert!(text.contains("Details"));
         assert!(text.contains("Test Series"));
+    }
+
+    #[test]
+    fn global_search_renders_failed_source_rows() {
+        let mut app = test_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::GlobalResults;
+        app.remote.global_query = "alpha".to_owned();
+        app.remote.global_total = 1;
+        app.remote.global_finished = 1;
+        app.remote.global_groups = vec![crate::app::GlobalGroup {
+            source: RemoteSource {
+                id: "1".to_owned(),
+                name: "Demo".to_owned(),
+                lang: "en".to_owned(),
+                pkg: Some("pkg.demo".to_owned()),
+                supports_latest: true,
+            },
+            mangas: Vec::new(),
+            error: Some("timeout".to_owned()),
+        }];
+
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Demo (EN)"));
+        assert!(text.contains("error"));
+        assert!(text.contains("timeout"));
     }
 
     #[test]

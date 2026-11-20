@@ -162,8 +162,8 @@ Controls:
 - `D` downloads the selected remote chapter (also available in the reader).
 - `b` bookmarks or unbookmarks the selected chapter (also available in the reader).
 - `/` on the Sources tab runs a background global search over enabled pinned sources,
-  showing progress and grouping hits by source. `A` switches between pinned and all
-  enabled sources.
+  showing progress and grouping hits by source. Empty and failed sources appear as rows;
+  `h` hides them. `A` switches between pinned and all enabled sources.
 
 The Library is one grid: local series and manga saved from sources share it, categories,
 sorting, and the reader. New saved manga go to the default category. Saved entries are

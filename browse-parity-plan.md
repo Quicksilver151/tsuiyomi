@@ -41,6 +41,7 @@ Completed in the first Browse-parity slice:
   remote categories.
 - Extension grouping and details with per-source toggles, bulk enable/disable, source
   preferences, per-extension Incognito, clear-cookies, and uninstall.
+- Global-search empty/error source rows and the persisted only-with-results filter.
 
 Still open from M0/M1: the Browse extraction and background worker, source
 options dialog, source preferences, Local source search/latest/sort, and the
