@@ -14,6 +14,10 @@ use crate::error::CoreError;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+fn default_true() -> bool {
+    true
+}
+
 /// A source exposed by the host: one per installed extension, or one per source in a
 /// multi-source extension.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -22,6 +26,9 @@ pub struct RemoteSource {
     pub name: String,
     pub lang: String,
     pub pkg: Option<String>,
+    /// Whether the source exposes a latest-updates listing. Older hosts omit the
+    /// field; default to true so existing behavior is preserved.
+    pub supports_latest: bool,
 }
 
 impl RemoteSource {
@@ -198,6 +205,8 @@ impl HostClient {
             lang: String,
             #[serde(default)]
             pkg: Option<String>,
+            #[serde(default = "default_true", alias = "supports_latest")]
+            supports_latest: bool,
         }
 
         let data: Data = self.get("/api/v1/sources")?;
@@ -212,6 +221,7 @@ impl HostClient {
                 name: row.name,
                 lang: row.lang,
                 pkg: row.pkg,
+                supports_latest: row.supports_latest,
             })
             .collect())
     }
@@ -922,7 +932,7 @@ mod tests {
     #[test]
     fn reads_manga_sources() {
         let (address, requests) = server(vec![
-            r#"{"manga":[{"id":"1","name":"Demo","lang":"en","type":"manga"},{"id":"7","name":"MangaDex","lang":"en","type":"manga","pkg":"eu.kanade.tachiyomi.extension.en.mangadex"}],"anime":[]}"#,
+            r#"{"manga":[{"id":"1","name":"Demo","lang":"en","type":"manga","supportsLatest":false},{"id":"7","name":"MangaDex","lang":"en","type":"manga","pkg":"eu.kanade.tachiyomi.extension.en.mangadex"}],"anime":[]}"#,
         ]);
         let client = HostClient::new(address);
 
@@ -931,6 +941,8 @@ mod tests {
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].id, "7");
         assert_eq!(sources[0].display_name(), "MangaDex (EN)");
+        // Older hosts omit supportsLatest; default to true.
+        assert!(sources[0].supports_latest);
         assert!(requests.recv().unwrap().ends_with("/api/v1/sources"));
     }
 

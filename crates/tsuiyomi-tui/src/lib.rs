@@ -280,6 +280,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Select => {
                 if app.reader.is_some() {
                     app.next_screen();
+                } else if app.tab == 3 && app.browse_view == BrowseView::SourceFilters {
+                    app.toggle_source_filter_selection();
                 } else {
                     app.toggle_multi_select();
                 }
@@ -329,7 +331,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                             app.browse_parent()
                         }
                         BrowseView::GlobalResults => app.global_previous_item(),
-                        BrowseView::Sources | BrowseView::Extensions | BrowseView::Stores => {}
+                        BrowseView::Sources
+                        | BrowseView::SourceFilters
+                        | BrowseView::Extensions
+                        | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content {
@@ -348,6 +353,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                             app.browse_next_column();
                         }
                         BrowseView::Sources
+                        | BrowseView::SourceFilters
                         | BrowseView::Chapters
                         | BrowseView::RemoteDetails
                         | BrowseView::Migrate => app.browse_open(),
@@ -367,7 +373,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::PreviousScreen => app.previous_screen(),
             Action::NextScreen => app.next_screen(),
             Action::PreviousChapter => app.previous_chapter(),
-            Action::NextChapter => app.next_chapter(),
+            Action::NextChapter => {
+                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
+                    app.load_next_remote_page();
+                } else {
+                    app.next_chapter();
+                }
+            }
             Action::ScrollUp => {
                 if app.tab == 3 {
                     app.browse_previous();
@@ -480,6 +492,15 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Extensions => {
                 if app.tab == 3 {
                     app.set_browse_tab(BrowseTab::Extensions);
+                }
+            }
+            Action::SourceFilters => {
+                if app.tab == 3 {
+                    if app.browse_view == BrowseView::SourceFilters {
+                        app.browse_parent();
+                    } else if app.browse_view == BrowseView::Sources {
+                        app.open_source_filters();
+                    }
                 }
             }
             Action::Stores => {
@@ -690,6 +711,13 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             if contains(list, column, row) {
                 let offset = app.browse_list_state.offset();
                 app.select_source_row(offset + (row - list.y) as usize);
+            }
+        }
+        BrowseView::SourceFilters => {
+            let list = inside(2);
+            if contains(list, column, row) {
+                let offset = app.source_filter_list_state.offset();
+                app.select_source_filter_row(offset + (row - list.y) as usize);
             }
         }
         BrowseView::Extensions => {

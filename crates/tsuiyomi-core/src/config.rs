@@ -83,6 +83,12 @@ pub struct Config {
     pub incognito: bool,
     /// Sources pinned to the top of Browse, keyed by `pkg|name|lang`.
     pub pinned_sources: Vec<String>,
+    /// Most recently opened source: `local` or a `pkg|name|lang` key.
+    pub last_used_source: Option<String>,
+    /// Languages shown in Browse and available extensions. `None` means all.
+    pub enabled_languages: Option<Vec<String>>,
+    /// Sources hidden from Browse, keyed by `pkg|name|lang`.
+    pub disabled_sources: Vec<String>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// Local series removed from the library but kept on disk, relative to the
@@ -117,6 +123,9 @@ impl Default for Config {
             default_category: None,
             incognito: false,
             pinned_sources: Vec::new(),
+            last_used_source: None,
+            enabled_languages: None,
+            disabled_sources: Vec::new(),
             remote_library: Vec::new(),
             hidden_series: Vec::new(),
             reader_zoom: 100,
@@ -205,6 +214,29 @@ external_mpv = ["mpv"]
 
         let serialized = toml::to_string(&config).unwrap();
         assert!(serialized.contains("[player]"));
+    }
+
+    #[test]
+    fn browse_source_preferences_roundtrip() {
+        let config: Config = toml::from_str(
+            r#"
+last_used_source = "pkg.a|Alpha|en"
+enabled_languages = ["en", "ja"]
+disabled_sources = ["pkg.b|Beta|en"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.last_used_source.as_deref(), Some("pkg.a|Alpha|en"));
+        assert_eq!(
+            config.enabled_languages.as_deref(),
+            Some(["en".to_owned(), "ja".to_owned()].as_slice())
+        );
+        assert_eq!(config.disabled_sources, ["pkg.b|Beta|en"]);
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("last_used_source = \"pkg.a|Alpha|en\""));
+        assert!(serialized.contains("enabled_languages"));
+        assert!(serialized.contains("disabled_sources"));
     }
 
     #[test]

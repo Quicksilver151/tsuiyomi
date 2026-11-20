@@ -127,9 +127,10 @@ chapters use `·` in the download column. Tile width is adjustable in
 Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
 
 - **Sources** — the Local source plus every source exposed by the extension host, grouped
-  by language. `P` pins the selected source; pinned sources move to a `Pinned` group.
-  Local lists only series folders from the configured library root, never saved remote
-  manga or downloads.
+  by last used, pinned, and language. `P` pins the selected source; pinned sources move to
+  a `Pinned` group. `o` opens source management, where languages and individual sources
+  can be enabled or disabled. Local lists only series folders from the configured library
+  root, never saved remote manga or downloads.
 - **Extensions** — installed and available extensions. `/` searches by name or package,
   `i` or `Enter` installs available extensions, `x` or `Delete` uninstalls installed
   ones after a `y` confirmation, `u` updates, `P` pins all sources of the selected
@@ -141,7 +142,8 @@ Controls:
 
 - `↑↓` moves through lists; `←→` moves by tile in grids.
 - `Enter` opens the selected source, series detail, chapter, or extension action.
-- Remote sources open with popular results. `s` searches and `l` loads latest updates.
+- Remote sources open with popular results. `s` searches, `l` loads latest updates when
+  the source supports them, and `n` appends the next results page.
 - Opening a chapter keeps you in the Browse tab; `Esc` walks back through
   reader → detail → results → sources.
 - `Esc` or `Backspace` goes back one level.
@@ -150,7 +152,8 @@ Controls:
 - `F` adds or removes the open manga from the library.
 - `D` downloads the selected remote chapter (also available in the reader).
 - `b` bookmarks or unbookmarks the selected chapter (also available in the reader).
-- `/` on the Sources tab searches every pinned source and groups the hits by source.
+- `/` on the Sources tab searches every enabled pinned source and groups the hits by
+  source.
 
 The Library is one grid: local series and manga saved from sources share it, categories,
 sorting, and the reader. New saved manga go to the default category. Saved entries are

@@ -17,7 +17,7 @@ use tsuiyomi_core::{
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
     ExtensionInfo, HistoryEntry, HistoryStore, HostClient, HostProcess, Library, LibrarySort, Page,
     PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite, RemoteManga,
-    RemoteSeries, RemoteSource, Series, Theme,
+    RemoteMangaPage, RemoteSeries, RemoteSource, Series, Theme,
 };
 
 use crate::{
@@ -130,6 +130,7 @@ pub enum BrowseTab {
 pub enum BrowseView {
     #[default]
     Sources,
+    SourceFilters,
     Local,
     Chapters,
     RemoteResults,
@@ -151,6 +152,21 @@ pub enum SourceRow {
     Header(String),
     Local,
     Remote(usize),
+}
+
+/// One rendered row in the source-management screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceFilterRow {
+    Header(&'static str),
+    Language {
+        lang: String,
+        enabled: bool,
+        source_count: usize,
+    },
+    Source {
+        index: usize,
+        enabled: bool,
+    },
 }
 
 /// A selectable source in display order.
@@ -175,10 +191,19 @@ pub struct TextInput {
     pub value: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RemoteListing {
+    #[default]
+    Popular,
+    Latest,
+    Search,
+}
+
 pub struct RemoteState {
     pub sources: Vec<RemoteSource>,
     pub source: Option<RemoteSource>,
     pub results: Vec<RemoteManga>,
+    pub listing: RemoteListing,
     pub query: String,
     pub page: i32,
     pub has_next_page: bool,
@@ -215,6 +240,7 @@ impl Default for RemoteState {
             sources: Vec::new(),
             source: None,
             results: Vec::new(),
+            listing: RemoteListing::Popular,
             query: String::new(),
             page: 1,
             has_next_page: false,
@@ -635,6 +661,7 @@ pub struct AppState {
     pub browse_local_series: Option<PathBuf>,
     pub browse_local_chapter: usize,
     pub browse_local_list_state: ListState,
+    pub source_filter_list_state: ListState,
     pub host_client: Option<HostClient>,
     /// Start the bundled host the first time Browse is opened.
     pub host_autostart: bool,
@@ -720,6 +747,7 @@ impl AppState {
             browse_local_series: None,
             browse_local_chapter: 0,
             browse_local_list_state: ListState::default(),
+            source_filter_list_state: ListState::default(),
             host_client: None,
             host_autostart: true,
             host_process: None,
@@ -882,6 +910,7 @@ impl AppState {
         match self.browse_view {
             BrowseView::Sources => match self.selected_source_ref() {
                 Some(SourceRef::Local) => {
+                    self.record_source_opened(SourceRef::Local);
                     self.browse_view = BrowseView::Local;
                     self.browse_selection = 0;
                     self.select_browse_entry(0);
@@ -890,10 +919,11 @@ impl AppState {
                     let Some(source) = self.remote.sources.get(index).cloned() else {
                         return;
                     };
+                    self.record_source_opened(SourceRef::Remote(index));
                     self.remote.source = Some(source);
                     self.remote.query.clear();
                     self.remote.page = 1;
-                    self.load_remote_results(false);
+                    self.load_remote_results(RemoteListing::Popular);
                     self.browse_view = BrowseView::RemoteResults;
                     self.browse_selection = 0;
                     self.browse_grid_offset = 0;
@@ -901,6 +931,7 @@ impl AppState {
                 }
                 None => {}
             },
+            BrowseView::SourceFilters => self.toggle_source_filter_selection(),
             BrowseView::Local => {
                 let Some(path) = self
                     .selected_browse_series()
@@ -959,6 +990,12 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
+            BrowseView::SourceFilters => {
+                self.browse_view = BrowseView::Sources;
+                self.browse_selection = 0;
+                self.browse_list_state = ListState::default();
+                self.select_browse_entry(0);
+            }
             BrowseView::Stores => {
                 self.browse_view = BrowseView::Extensions;
                 self.browse_selection = 0;
@@ -979,10 +1016,10 @@ impl AppState {
     pub fn refresh_browse(&mut self) {
         match self.browse_view {
             BrowseView::Sources => self.load_remote_sources(),
+            BrowseView::SourceFilters => self.load_remote_sources(),
             BrowseView::Local => self.refresh(),
             BrowseView::RemoteResults => {
-                let search = !self.remote.query.is_empty();
-                self.load_remote_results(search);
+                self.load_remote_results(self.remote.listing);
             }
             BrowseView::RemoteDetails => self.load_remote_chapters(),
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
@@ -994,7 +1031,8 @@ impl AppState {
 
     pub fn browse_item_count(&self) -> usize {
         match self.browse_view {
-            BrowseView::Sources => 1 + self.remote.sources.len(),
+            BrowseView::Sources => self.source_order().len(),
+            BrowseView::SourceFilters => self.source_filter_item_count(),
             BrowseView::Local => self.local_series_count(),
             BrowseView::Chapters => self.browse_local_chapter_count(),
             BrowseView::RemoteResults => self.remote.results.len(),
@@ -1134,24 +1172,88 @@ impl AppState {
         self.set_browse_tab(previous);
     }
 
-    /// Sources in the order they are displayed: pinned, Local, then language groups.
+    /// Whether a remote source is visible in Browse and global search.
+    pub fn source_enabled(&self, source: &RemoteSource) -> bool {
+        if self
+            .config
+            .disabled_sources
+            .iter()
+            .any(|disabled| pin_key_matches(disabled, source))
+        {
+            return false;
+        }
+        self.language_enabled(&source.lang)
+    }
+
+    /// Whether a language is enabled. `None` means all languages.
+    pub fn language_enabled(&self, lang: &str) -> bool {
+        self.config
+            .enabled_languages
+            .as_ref()
+            .is_none_or(|languages| {
+                languages
+                    .iter()
+                    .any(|enabled| enabled.eq_ignore_ascii_case(lang))
+            })
+    }
+
+    /// Languages present in the loaded source list, sorted by display name.
+    pub fn source_languages(&self) -> Vec<String> {
+        let mut languages: Vec<String> = self
+            .remote
+            .sources
+            .iter()
+            .map(|source| source.lang.clone())
+            .collect();
+        languages.sort_by(|left, right| {
+            natural_cmp(&language_label(left), &language_label(right)).then_with(|| left.cmp(right))
+        });
+        languages.dedup();
+        languages
+    }
+
+    fn last_used_source_ref(&self) -> Option<SourceRef> {
+        let key = self.config.last_used_source.as_deref()?;
+        if key == "local" {
+            return Some(SourceRef::Local);
+        }
+        self.remote
+            .sources
+            .iter()
+            .position(|source| self.source_enabled(source) && pin_key_matches(key, source))
+            .map(SourceRef::Remote)
+    }
+
+    /// Sources in the order they are displayed: last used, pinned, Local, then language
+    /// groups. Disabled sources and languages are omitted.
     ///
     /// Selection indexes this vector, so arrow keys follow the visible list instead of
     /// the host's storage order.
     pub fn source_order(&self) -> Vec<SourceRef> {
-        let mut order = Vec::new();
+        let last_used = self.last_used_source_ref();
+        let mut order: Vec<SourceRef> = last_used.into_iter().collect();
 
         let mut pinned: Vec<usize> = (0..self.remote.sources.len())
-            .filter(|index| self.is_source_pinned(&self.remote.sources[*index]))
+            .filter(|index| {
+                let source = &self.remote.sources[*index];
+                self.source_enabled(source)
+                    && self.is_source_pinned(source)
+                    && last_used != Some(SourceRef::Remote(*index))
+            })
             .collect();
         sort_sources_by_name(&self.remote.sources, &mut pinned);
         order.extend(pinned.into_iter().map(SourceRef::Remote));
 
-        order.push(SourceRef::Local);
+        if last_used != Some(SourceRef::Local) {
+            order.push(SourceRef::Local);
+        }
 
         let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (index, source) in self.remote.sources.iter().enumerate() {
-            if self.is_source_pinned(source) {
+            if !self.source_enabled(source)
+                || self.is_source_pinned(source)
+                || last_used == Some(SourceRef::Remote(index))
+            {
                 continue;
             }
             grouped.entry(source.lang.clone()).or_default().push(index);
@@ -1170,16 +1272,21 @@ impl AppState {
     /// Rendered rows, with a non-selectable header before each group.
     pub fn source_rows(&self) -> Vec<SourceRow> {
         let mut rows = Vec::new();
+        let last_used = self.last_used_source_ref();
         let mut group: Option<String> = None;
         for item in self.source_order() {
-            let label = match item {
-                SourceRef::Local => "Local".to_owned(),
-                SourceRef::Remote(index) => {
-                    let source = &self.remote.sources[index];
-                    if self.is_source_pinned(source) {
-                        "Pinned".to_owned()
-                    } else {
-                        language_label(&source.lang)
+            let label = if last_used == Some(item) {
+                "Last used".to_owned()
+            } else {
+                match item {
+                    SourceRef::Local => "Local".to_owned(),
+                    SourceRef::Remote(index) => {
+                        let source = &self.remote.sources[index];
+                        if self.is_source_pinned(source) {
+                            "Pinned".to_owned()
+                        } else {
+                            language_label(&source.lang)
+                        }
                     }
                 }
             };
@@ -1231,6 +1338,187 @@ impl AppState {
             selection += 1;
         }
         None
+    }
+
+    /// Rows for the source-management screen: language toggles, then source toggles.
+    pub fn source_filter_rows(&self) -> Vec<SourceFilterRow> {
+        let mut rows = vec![SourceFilterRow::Header("Languages")];
+        for lang in self.source_languages() {
+            let source_count = self
+                .remote
+                .sources
+                .iter()
+                .filter(|source| source.lang == lang)
+                .count();
+            rows.push(SourceFilterRow::Language {
+                enabled: self.language_enabled(&lang),
+                lang,
+                source_count,
+            });
+        }
+
+        rows.push(SourceFilterRow::Header("Sources"));
+        let mut indices: Vec<usize> = (0..self.remote.sources.len())
+            .filter(|index| {
+                let source = &self.remote.sources[*index];
+                self.language_enabled(&source.lang)
+            })
+            .collect();
+        indices.sort_by(|left, right| {
+            natural_cmp(
+                &language_label(&self.remote.sources[*left].lang),
+                &language_label(&self.remote.sources[*right].lang),
+            )
+            .then_with(|| {
+                natural_cmp(
+                    &self.remote.sources[*left].display_name(),
+                    &self.remote.sources[*right].display_name(),
+                )
+            })
+        });
+        rows.extend(indices.into_iter().map(|index| {
+            SourceFilterRow::Source {
+                index,
+                enabled: !self
+                    .config
+                    .disabled_sources
+                    .iter()
+                    .any(|disabled| pin_key_matches(disabled, &self.remote.sources[index])),
+            }
+        }));
+        rows
+    }
+
+    pub fn source_filter_item_count(&self) -> usize {
+        self.source_filter_rows()
+            .iter()
+            .filter(|row| !matches!(row, SourceFilterRow::Header(_)))
+            .count()
+    }
+
+    pub fn selected_source_filter_row(&self) -> Option<usize> {
+        let mut selection = 0;
+        for (row, item) in self.source_filter_rows().iter().enumerate() {
+            if matches!(item, SourceFilterRow::Header(_)) {
+                continue;
+            }
+            if selection == self.browse_selection {
+                return Some(row);
+            }
+            selection += 1;
+        }
+        None
+    }
+
+    /// Select the row shown at `row` in the rendered source-management list.
+    pub fn select_source_filter_row(&mut self, row: usize) {
+        let offset = self.source_filter_list_state.offset();
+        if let Some(index) = self.source_filter_index_for_row(offset + row) {
+            self.select_browse_index(index);
+        }
+    }
+
+    fn source_filter_index_for_row(&self, row: usize) -> Option<usize> {
+        let mut selection = 0;
+        for (index, item) in self.source_filter_rows().iter().enumerate() {
+            if matches!(item, SourceFilterRow::Header(_)) {
+                continue;
+            }
+            if index == row {
+                return Some(selection);
+            }
+            selection += 1;
+        }
+        None
+    }
+
+    pub fn open_source_filters(&mut self) {
+        self.browse_view = BrowseView::SourceFilters;
+        self.browse_selection = 0;
+        self.source_filter_list_state = ListState::default();
+        self.select_browse_entry(0);
+    }
+
+    /// Toggle the selected language or source on the source-management screen.
+    pub fn toggle_source_filter_selection(&mut self) {
+        let Some(selected_row) = self.selected_source_filter_row() else {
+            return;
+        };
+        let rows = self.source_filter_rows();
+        let Some(row) = rows.get(selected_row).cloned() else {
+            return;
+        };
+        let anchor = self.browse_selection;
+        match row {
+            SourceFilterRow::Header(_) => return,
+            SourceFilterRow::Language { lang, .. } => {
+                let all = self.source_languages();
+                let mut enabled = self
+                    .config
+                    .enabled_languages
+                    .clone()
+                    .unwrap_or_else(|| all.clone());
+                if let Some(position) = enabled
+                    .iter()
+                    .position(|candidate| candidate.eq_ignore_ascii_case(&lang))
+                {
+                    enabled.remove(position);
+                } else {
+                    enabled.push(lang);
+                }
+                self.config.enabled_languages =
+                    if all.iter().all(|candidate| enabled.contains(candidate)) {
+                        None
+                    } else {
+                        Some(enabled)
+                    };
+            }
+            SourceFilterRow::Source { index, enabled } => {
+                let Some(source) = self.remote.sources.get(index).cloned() else {
+                    return;
+                };
+                let key = source_pin_key(&source);
+                if enabled {
+                    self.config.disabled_sources.push(key);
+                } else if let Some(position) = self
+                    .config
+                    .disabled_sources
+                    .iter()
+                    .position(|disabled| disabled == &key)
+                {
+                    self.config.disabled_sources.remove(position);
+                }
+            }
+        }
+        self.persist_settings();
+        let count = self.source_filter_item_count();
+        if count == 0 {
+            self.browse_selection = 0;
+        } else {
+            self.browse_selection = anchor.min(count - 1);
+        }
+        self.select_browse_entry(self.browse_selection);
+    }
+
+    /// Remember the source the user just opened.
+    pub fn record_source_opened(&mut self, source: SourceRef) {
+        if self.config.incognito {
+            return;
+        }
+        let key = match source {
+            SourceRef::Local => "local".to_owned(),
+            SourceRef::Remote(index) => {
+                let Some(source) = self.remote.sources.get(index) else {
+                    return;
+                };
+                source_pin_key(source)
+            }
+        };
+        if self.config.last_used_source.as_deref() == Some(key.as_str()) {
+            return;
+        }
+        self.config.last_used_source = Some(key);
+        self.persist_settings();
     }
 
     pub fn is_source_pinned(&self, source: &RemoteSource) -> bool {
@@ -1608,10 +1896,12 @@ impl AppState {
             .sources
             .iter()
             .filter(|source| {
-                self.config
-                    .pinned_sources
-                    .iter()
-                    .any(|key| pin_key_matches(key, source))
+                self.source_enabled(source)
+                    && self
+                        .config
+                        .pinned_sources
+                        .iter()
+                        .any(|key| pin_key_matches(key, source))
             })
             .cloned()
             .collect()
@@ -1811,23 +2101,16 @@ impl AppState {
     }
 
     pub fn load_remote_latest(&mut self) {
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
         let Some(source) = self.remote.source.clone() else {
             return;
         };
-        match client.latest(&source.id, 1) {
-            Ok(result) => {
-                self.remote.results = result.mangas;
-                self.remote.has_next_page = result.has_next_page;
-                self.remote.query.clear();
-                self.remote.page = 1;
-                self.remote.status = None;
-                self.remote.error = false;
-            }
-            Err(error) => self.set_remote_error(error),
+        if !source.supports_latest {
+            self.remote.status = Some(format!("{} has no latest listing", source.display_name()));
+            self.remote.error = false;
+            return;
         }
+        self.remote.query.clear();
+        self.load_remote_results(RemoteListing::Latest);
         self.browse_view = BrowseView::RemoteResults;
         self.browse_selection = 0;
         self.browse_grid_offset = 0;
@@ -1836,28 +2119,36 @@ impl AppState {
 
     pub fn search_remote(&mut self, query: &str) {
         self.remote.query = query.trim().to_owned();
-        self.remote.page = 1;
-        self.load_remote_results(true);
+        self.load_remote_results(RemoteListing::Search);
         self.browse_view = BrowseView::RemoteResults;
         self.browse_selection = 0;
         self.browse_grid_offset = 0;
         self.select_browse_entry(0);
     }
 
-    fn load_remote_results(&mut self, search: bool) {
+    fn fetch_remote_page(
+        &self,
+        client: &HostClient,
+        source: &RemoteSource,
+        page: i32,
+    ) -> Result<RemoteMangaPage, tsuiyomi_core::CoreError> {
+        match self.remote.listing {
+            RemoteListing::Popular => client.popular(&source.id, page),
+            RemoteListing::Latest => client.latest(&source.id, page),
+            RemoteListing::Search => client.search(&source.id, &self.remote.query, page),
+        }
+    }
+
+    fn load_remote_results(&mut self, listing: RemoteListing) {
         let Some(client) = self.host_client.clone() else {
             return;
         };
         let Some(source) = self.remote.source.clone() else {
             return;
         };
-        let page = self.remote.page.max(1);
-        let result = if search && !self.remote.query.is_empty() {
-            client.search(&source.id, &self.remote.query, page)
-        } else {
-            client.popular(&source.id, page)
-        };
-        match result {
+        self.remote.listing = listing;
+        self.remote.page = 1;
+        match self.fetch_remote_page(&client, &source, 1) {
             Ok(result) => {
                 self.remote.results = result.mangas;
                 self.remote.has_next_page = result.has_next_page;
@@ -1867,6 +2158,47 @@ impl AppState {
                 self.failed_covers.clear();
             }
             Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    /// Append the next result page without moving the current selection.
+    pub fn load_next_remote_page(&mut self) {
+        if !self.remote.has_next_page {
+            self.remote.status = Some("End of results.".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let Some(source) = self.remote.source.clone() else {
+            return;
+        };
+        let next_page = self.remote.page.saturating_add(1).max(2);
+        match self.fetch_remote_page(&client, &source, next_page) {
+            Ok(result) => {
+                self.append_remote_results(result.mangas);
+                self.remote.page = next_page;
+                self.remote.has_next_page = result.has_next_page;
+                self.remote.status = None;
+                self.remote.error = false;
+                self.refresh_download_marks();
+            }
+            Err(error) => self.set_remote_error(error),
+        }
+    }
+
+    fn append_remote_results(&mut self, mangas: Vec<RemoteManga>) {
+        let mut known: HashSet<String> = self
+            .remote
+            .results
+            .iter()
+            .map(|manga| manga.url.clone())
+            .collect();
+        for manga in mangas {
+            if known.insert(manga.url.clone()) {
+                self.remote.results.push(manga);
+            }
         }
     }
 
@@ -2634,6 +2966,9 @@ impl AppState {
         if self.browse_view == BrowseView::Chapters {
             self.browse_local_chapter = index;
             self.browse_local_list_state
+                .select((count > 0).then_some(index));
+        } else if self.browse_view == BrowseView::SourceFilters {
+            self.source_filter_list_state
                 .select((count > 0).then_some(index));
         } else {
             self.browse_list_state.select((count > 0).then_some(index));
@@ -4236,7 +4571,7 @@ impl AppState {
                 let store = self.selected_store()?;
                 Some((SelectionScope::Stores, format!("store:{store}")))
             }
-            BrowseView::Migrate => None,
+            BrowseView::Migrate | BrowseView::SourceFilters => None,
         }
     }
 
@@ -7388,18 +7723,21 @@ mod tests {
                 name: "Alpha".to_owned(),
                 lang: "en".to_owned(),
                 pkg: Some("pkg.a".to_owned()),
+                supports_latest: true,
             },
             RemoteSource {
                 id: "2".to_owned(),
                 name: "Beta".to_owned(),
                 lang: "en".to_owned(),
                 pkg: Some("pkg.b".to_owned()),
+                supports_latest: true,
             },
             RemoteSource {
                 id: "3".to_owned(),
                 name: "Gamma".to_owned(),
                 lang: "ja".to_owned(),
                 pkg: Some("pkg.c".to_owned()),
+                supports_latest: true,
             },
         ];
         app
@@ -7471,6 +7809,153 @@ mod tests {
             Some(1),
             "row 3 is the Local source"
         );
+    }
+
+    #[test]
+    fn last_used_source_leads_the_list() {
+        let mut app = remote_app();
+        app.config.last_used_source = Some("pkg.b|Beta|en".to_owned());
+
+        let labels: Vec<String> = app
+            .source_rows()
+            .iter()
+            .map(|row| match row {
+                SourceRow::Header(label) => format!("[{label}]"),
+                SourceRow::Local => "local".to_owned(),
+                SourceRow::Remote(index) => app.remote.sources[*index].name.clone(),
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "[Last used]",
+                "Beta",
+                "[Local]",
+                "local",
+                "[EN]",
+                "Alpha",
+                "[JA]",
+                "Gamma"
+            ]
+        );
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Remote(1)));
+    }
+
+    #[test]
+    fn disabled_sources_and_languages_are_hidden() {
+        let mut app = remote_app();
+        app.config.disabled_sources = vec!["pkg.b|Beta|en".to_owned()];
+        app.config.enabled_languages = Some(vec!["en".to_owned()]);
+
+        assert!(!app.source_enabled(&app.remote.sources[1].clone()));
+        assert!(!app.source_enabled(&app.remote.sources[2].clone()));
+        assert_eq!(
+            app.source_order(),
+            vec![SourceRef::Local, SourceRef::Remote(0)]
+        );
+        assert_eq!(app.browse_item_count(), 2);
+    }
+
+    #[test]
+    fn source_filter_screen_toggles_languages_and_sources() {
+        let mut app = remote_app();
+        app.open_source_filters();
+        assert_eq!(app.browse_view, BrowseView::SourceFilters);
+
+        // Languages are the first two selectable rows: EN then JA.
+        app.browse_selection = 1;
+        app.toggle_source_filter_selection();
+        assert!(!app.language_enabled("ja"));
+        assert_eq!(
+            app.source_order(),
+            vec![SourceRef::Local, SourceRef::Remote(0), SourceRef::Remote(1)]
+        );
+
+        // Toggling it back restores the default "all languages" state.
+        app.browse_selection = 1;
+        app.toggle_source_filter_selection();
+        assert!(app.language_enabled("ja"));
+        assert_eq!(app.config.enabled_languages, None);
+
+        // Sources follow the language rows: Alpha, Beta, Gamma.
+        app.browse_selection = 3;
+        app.toggle_source_filter_selection();
+        assert!(!app.source_enabled(&app.remote.sources[1].clone()));
+        assert!(!app.source_order().contains(&SourceRef::Remote(1)));
+
+        app.browse_selection = 3;
+        app.toggle_source_filter_selection();
+        assert!(app.source_enabled(&app.remote.sources[1].clone()));
+    }
+
+    #[test]
+    fn appending_remote_pages_dedupes_by_url() {
+        let mut app = remote_app();
+        let manga = |title: &str| RemoteManga {
+            source_id: "1".to_owned(),
+            url: format!("/manga/{title}"),
+            title: title.to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        app.remote.results = vec![manga("Alpha")];
+        app.append_remote_results(vec![manga("Alpha"), manga("Beta")]);
+        let titles: Vec<&str> = app
+            .remote
+            .results
+            .iter()
+            .map(|manga| manga.title.as_str())
+            .collect();
+        assert_eq!(titles, ["Alpha", "Beta"]);
+    }
+
+    #[test]
+    fn unsupported_sources_do_not_load_latest() {
+        let mut app = remote_app();
+        app.remote.sources[0].supports_latest = false;
+        app.remote.source = Some(app.remote.sources[0].clone());
+
+        app.load_remote_latest();
+
+        assert_eq!(
+            app.remote.status.as_deref(),
+            Some("Alpha (EN) has no latest listing")
+        );
+        assert_eq!(app.browse_view, BrowseView::Sources);
+    }
+
+    #[test]
+    fn opening_a_source_records_it_as_last_used() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Sources;
+        app.browse_selection = 1;
+        assert_eq!(app.selected_source_ref(), Some(SourceRef::Remote(0)));
+
+        app.browse_open();
+
+        assert_eq!(
+            app.config.last_used_source.as_deref(),
+            Some("pkg.a|Alpha|en")
+        );
+    }
+
+    #[test]
+    fn incognito_does_not_record_last_used_source() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Sources;
+        app.config.incognito = true;
+        app.browse_selection = 1;
+
+        app.browse_open();
+
+        assert_eq!(app.config.last_used_source, None);
     }
 
     #[test]
@@ -7786,6 +8271,7 @@ mod tests {
             name: "Asura Scans".to_owned(),
             lang: "en".to_owned(),
             pkg: None,
+            supports_latest: true,
         }];
         let remote = RemoteSeries {
             source_id: "1".to_owned(),
@@ -7886,12 +8372,14 @@ mod tests {
             name: "MangaDex".to_owned(),
             lang: "en".to_owned(),
             pkg: Some("pkg.mangadex".to_owned()),
+            supports_latest: true,
         });
         app.remote.sources.push(RemoteSource {
             id: "5".to_owned(),
             name: "MangaDex".to_owned(),
             lang: "ja".to_owned(),
             pkg: Some("pkg.mangadex".to_owned()),
+            supports_latest: true,
         });
         app.remote.extensions = vec![
             ExtensionInfo {

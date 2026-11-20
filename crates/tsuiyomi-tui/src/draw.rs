@@ -21,8 +21,8 @@ use tsuiyomi_core::{
 use crate::{
     app::{
         AppState, BrowseTab, BrowseView, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind,
-        PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage, SourceRow, MORE_SECTIONS,
-        SETTINGS_PAGES,
+        PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage, SourceFilterRow,
+        SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout, grid_columns, grid_margin, grid_row_offset, grid_tile_rect, grid_tile_width,
@@ -462,8 +462,16 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓", "source"),
                 ("↵", "open"),
                 ("P", "pin"),
+                ("o", "filters"),
                 ("[ ]", "tabs"),
                 ("e", "extensions"),
+                ("r", "refresh"),
+                ("Esc", "back"),
+            ],
+            BrowseView::SourceFilters => vec![
+                ("q", "quit"),
+                ("↑↓", "row"),
+                ("↵", "toggle"),
                 ("r", "refresh"),
                 ("Esc", "back"),
             ],
@@ -489,6 +497,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓←→", "move"),
                 ("s", "search"),
                 ("l", "latest"),
+                ("n", "more"),
                 ("F", "library"),
                 ("↵", "open"),
                 ("r", "refresh"),
@@ -1107,6 +1116,7 @@ fn history_age(last_read: u64) -> String {
 fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
     match app.browse_view {
         BrowseView::Sources => draw_browse_sources(frame, area, app),
+        BrowseView::SourceFilters => draw_source_filters(frame, area, app),
         BrowseView::Extensions => draw_extensions(frame, area, app),
         BrowseView::Stores => draw_stores(frame, area, app),
         BrowseView::Migrate => draw_migrate(frame, area, app),
@@ -1344,7 +1354,16 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
         BrowseView::Sources => (
             "Sources".to_owned(),
             browse_host_label(app),
-            format!("{} sources", 1 + app.remote.sources.len()),
+            format!("{} sources", app.source_order().len()),
+        ),
+        BrowseView::SourceFilters => (
+            "Source filters".to_owned(),
+            browse_host_label(app),
+            format!(
+                "{} sources · {} languages",
+                app.source_order().len().saturating_sub(1),
+                app.source_languages().len()
+            ),
         ),
         BrowseView::Local => (
             "Local source".to_owned(),
@@ -1367,6 +1386,9 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             browse_host_label(app),
             match app.browse_view {
                 BrowseView::RemoteDetails => format!("{} chapters", app.remote.chapters.len()),
+                _ if app.remote.has_next_page => {
+                    format!("{} results · more available", app.remote.results.len())
+                }
                 _ => format!("{} results", app.remote.results.len()),
             },
         ),
@@ -1477,6 +1499,9 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     format!("  {} · {}", source.lang, source.name),
                     Style::default().fg(c_overlay0()),
                 ));
+                if source.supports_latest {
+                    spans.push(Span::styled("  latest", Style::default().fg(c_blue())));
+                }
                 items.push(ListItem::new(Line::from(spans)));
             }
         }
@@ -1492,6 +1517,102 @@ fn draw_browse_sources(frame: &mut Frame, area: Rect, app: &mut AppState) {
         )
         .highlight_symbol("› ");
     frame.render_stateful_widget(list, list_area, &mut app.browse_list_state);
+}
+
+fn draw_source_filters(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height == 0 {
+        return;
+    }
+    draw_browse_path(frame, Rect::new(body.x, body.y, body.width, 1), app);
+    let list_area = Rect::new(
+        body.x,
+        body.y + 1,
+        body.width,
+        body.height.saturating_sub(1),
+    );
+
+    if app.remote.sources.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No sources loaded. Press r to retry.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
+        );
+        app.source_filter_list_state.select(None);
+        return;
+    }
+
+    let rows = app.source_filter_rows();
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|row| match row {
+            SourceFilterRow::Header(label) => ListItem::new(Line::from(Span::styled(
+                format!(" {label}"),
+                Style::default()
+                    .fg(c_overlay0())
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            SourceFilterRow::Language {
+                lang,
+                enabled,
+                source_count,
+            } => {
+                let label = if lang.is_empty() {
+                    "Other".to_owned()
+                } else {
+                    lang.to_uppercase()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        if *enabled { "[x] " } else { "[ ] " },
+                        Style::default().fg(if *enabled { c_green() } else { c_overlay0() }),
+                    ),
+                    Span::styled(label, Style::default().fg(c_text())),
+                    Span::styled(
+                        format!("  {source_count} sources"),
+                        Style::default().fg(c_overlay0()),
+                    ),
+                ]))
+            }
+            SourceFilterRow::Source { index, enabled } => {
+                let source = &app.remote.sources[*index];
+                let mut spans = vec![
+                    Span::styled(
+                        if *enabled { "[x] " } else { "[ ] " },
+                        Style::default().fg(if *enabled { c_green() } else { c_overlay0() }),
+                    ),
+                    Span::styled(
+                        source.display_name(),
+                        Style::default().fg(if *enabled { c_text() } else { c_overlay1() }),
+                    ),
+                ];
+                if app.is_source_pinned(source) {
+                    spans.insert(0, Span::styled("★ ", Style::default().fg(c_accent())));
+                }
+                spans.push(Span::styled(
+                    format!("  {}", source.pkg.as_deref().unwrap_or("")),
+                    Style::default().fg(c_overlay0()),
+                ));
+                ListItem::new(Line::from(spans))
+            }
+        })
+        .collect();
+
+    app.source_filter_list_state
+        .select(app.selected_source_filter_row());
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, list_area, &mut app.source_filter_list_state);
 }
 
 fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -3281,6 +3402,37 @@ mod tests {
     }
 
     #[test]
+    fn source_filter_screen_renders_languages_and_sources() {
+        let mut app = test_app();
+        app.tab = 3;
+        app.remote.sources = vec![
+            RemoteSource {
+                id: "1".to_owned(),
+                name: "Alpha".to_owned(),
+                lang: "en".to_owned(),
+                pkg: Some("pkg.a".to_owned()),
+                supports_latest: true,
+            },
+            RemoteSource {
+                id: "2".to_owned(),
+                name: "Beta".to_owned(),
+                lang: "ja".to_owned(),
+                pkg: Some("pkg.b".to_owned()),
+                supports_latest: false,
+            },
+        ];
+        app.browse_view = BrowseView::SourceFilters;
+
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("Source filters"));
+        assert!(text.contains("[x] EN"));
+        assert!(text.contains("[x] JA"));
+        assert!(text.contains("Alpha (EN)"));
+        assert!(text.contains("Beta (JA)"));
+        assert!(text.contains("toggle"));
+    }
+
+    #[test]
     fn browse_renders_remote_sources_results_and_extensions() {
         let mut app = test_app();
         app.tab = 3;
@@ -3289,6 +3441,7 @@ mod tests {
             name: "MangaDex".to_owned(),
             lang: "en".to_owned(),
             pkg: None,
+            supports_latest: true,
         }];
         let text = render(&mut app, 80, 30);
         assert!(text.contains("MangaDex (EN)"));

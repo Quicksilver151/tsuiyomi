@@ -101,8 +101,14 @@ database rows. tsuiyomi owns reading progress.
 
 ## Phase 4 — Browse polish
 
+Detailed feature-parity plan: `browse-parity-plan.md`.
+
 - [x] Mihon-style Sources / Extensions / Migrate tabs, switched with `[`/`]`.
-- [x] Sources grouped by language, with a persistent `Pinned` group.
+- [x] Sources grouped by last used, pinned, and language, with a persistent `Pinned`
+      group.
+- [x] Source management screen (`o`) for enabling/disabling languages and individual
+      sources.
+- [x] Remote result pagination with `n`, appending and deduplicating pages.
 - [x] Inline extension search (name or package).
 - [x] Pin all sources of an extension from the Extensions tab.
 - [x] Tabs rendered inside the Browse panel; Esc at a tab root returns to Library.
@@ -158,7 +164,7 @@ database rows. tsuiyomi owns reading progress.
 ## Phase 5 — Later
 
 - [ ] Background networking; the UI currently blocks on host calls.
-- [ ] Pagination controls in the results grid.
+- [x] Pagination controls in the results grid.
 - [ ] Read-state mirroring back to the host.
 - [ ] Optional FlareSolverr configuration in Settings.
 - [ ] Optional remote-WebView bridge for the ~1% of sources that need one.

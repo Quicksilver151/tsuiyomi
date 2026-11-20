@@ -178,10 +178,13 @@ Rules:
   sources exposed by the extension host (a bundled miwayomi JVM). Remote results, manga
   details, chapters, and the reader stay under the Browse tab; Browse never switches to
   Library. Browse has Sources, Extensions, and Migrate tabs (`[`/`]`) inside the panel
-  title; Esc at a tab root returns to Library. Sources are grouped
-  by language and can be pinned (persisted in `pinned_sources`), and the Extensions tab has
-  an inline search bar. `/` on Sources runs a global search over pinned sources, grouped by
-  source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
+  title; Esc at a tab root returns to Library. Sources are grouped by last used, pinned,
+  and language. They can be pinned (persisted in `pinned_sources`), and `o` opens a source
+  management screen for enabling or disabling languages and individual sources (persisted
+  in `enabled_languages` and `disabled_sources`). Remote result pages append with `n`
+  (or the next remote page action) while `has_next_page` is true. The Extensions tab has an
+  inline search bar. `/` on Sources runs a global search over enabled pinned sources,
+  grouped by source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
   through the same remote chapter/reader path. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
@@ -252,8 +255,9 @@ Rules:
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
-  `incognito`, `host_url`, `host_jar`, `pinned_sources`, `remote_library`,
-  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
+  `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
+  `enabled_languages`, `disabled_sources`, `remote_library`, `downloads_path`, and
+  `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
