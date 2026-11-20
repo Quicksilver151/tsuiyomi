@@ -15,6 +15,7 @@ rust-version = "1.88"
 tsuiyomi-core = { path = "crates/tsuiyomi-core" }
 tsuiyomi-tui = { path = "crates/tsuiyomi-tui" }
 
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 confy = "2.0.0"
 crossterm = "0.29.0"
 directories = "6.0.0"

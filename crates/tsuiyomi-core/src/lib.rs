@@ -20,6 +20,7 @@ pub mod host;
 pub mod library;
 pub mod pages;
 pub mod progress;
+pub mod reading_stats;
 pub mod runtime;
 pub mod source_prefs;
 pub mod story_cache;
@@ -41,8 +42,8 @@ pub use extensions::merge_extensions;
 pub use filters::SourceFilter;
 pub use history::{HistoryEntry, HistoryStore, LocalHistory, RemoteHistory};
 pub use host::{
-    fetch_bytes, progress_key, ExtensionInfo, ExtensionSource, HostClient, InstallOutcome,
-    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSource,
+    fetch_bytes, progress_key, progress_prefix, ExtensionInfo, ExtensionSource, HostClient,
+    InstallOutcome, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSource,
 };
 pub use library::{
     ensure_series_cover, read_cover, scan_library, Chapter, ChapterKind, Library, RemoteSeries,
@@ -50,6 +51,7 @@ pub use library::{
 };
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
+pub use reading_stats::{date_key_for_unix, today_key, ReadingStats, SeriesReadingTime};
 pub use runtime::{
     ensure_runtime, host_data_dir, legacy_remote_cover_path, remote_cover_path, HostProcess,
     HostRuntime, HOST_VERSION,

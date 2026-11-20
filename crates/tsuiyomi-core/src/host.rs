@@ -785,11 +785,15 @@ impl HostClient {
 /// into fixed-size hex. The source id stays readable.
 pub fn progress_key(source_id: &str, manga_url: &str, chapter_url: &str) -> PathBuf {
     PathBuf::from(format!(
-        "remote://{}/{}/{}",
-        source_id,
-        fnv1a(manga_url),
+        "{}{}",
+        progress_prefix(source_id, manga_url),
         fnv1a(chapter_url)
     ))
+}
+
+/// Prefix shared by every chapter progress key for one remote manga.
+pub fn progress_prefix(source_id: &str, manga_url: &str) -> String {
+    format!("remote://{}/{}/", source_id, fnv1a(manga_url))
 }
 
 fn fnv1a(value: &str) -> String {

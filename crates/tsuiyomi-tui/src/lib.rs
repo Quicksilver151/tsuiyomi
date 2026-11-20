@@ -29,7 +29,7 @@ use crossterm::{
 };
 use ratatui::{layout::Rect, DefaultTerminal};
 use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
-use tsuiyomi_core::{BookmarkStore, HistoryStore, ProgressStore};
+use tsuiyomi_core::{BookmarkStore, HistoryStore, ProgressStore, ReadingStats};
 
 use crate::{
     app::{
@@ -70,6 +70,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_progress(ProgressStore::load_default());
     app.set_bookmarks(BookmarkStore::load_default());
     app.set_history(HistoryStore::load_default());
+    app.set_reading_stats(ReadingStats::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());
@@ -93,6 +94,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     }
 
     let result = event_loop(&mut terminal, &mut app);
+    app.finish_reading_session();
     app.flush_progress();
 
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
@@ -126,6 +128,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             terminal.autoresize()?;
+        }
+        if app.reading_session_due() {
+            app.flush_reading_session();
         }
         if app.progress_save_due() {
             app.flush_progress();
@@ -229,6 +234,27 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.history_delete.is_some() {
+            match action {
+                Action::Select => app.toggle_history_delete_all(),
+                Action::Open | Action::Confirm => app.confirm_history_delete(),
+                Action::Back => app.cancel_history_delete(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.history_clear_confirm {
+            match action {
+                Action::Open | Action::Confirm => app.confirm_history_clear(),
+                Action::Back => app.cancel_history_clear(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.multi_select.is_some() && matches!(action, Action::Back) {
             app.clear_multi_select();
             needs_draw = true;
@@ -282,6 +308,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::Open => app.input_submit(),
                 Action::Char(character) => app.input_char(character),
                 Action::Backspace => app.input_backspace(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.history_search {
+            match action {
+                Action::Back => app.history_search_stop(true),
+                Action::Open => app.history_search_stop(false),
+                Action::Char(character) => app.history_search_push(character),
+                Action::Backspace => app.history_search_pop(),
+                Action::Previous => app.history_previous(),
+                Action::Next => app.history_next(),
                 _ => {}
             }
             needs_draw = true;
@@ -471,7 +511,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::PreviousTab => app.previous_tab(),
             Action::NextTab => app.next_tab(),
             Action::PreviousCategory => {
-                if app.tab == 3 {
+                if app.tab == 2 {
+                    app.history_section_previous();
+                } else if app.tab == 3 {
                     app.previous_browse_tab();
                 } else if app.tab == 4 {
                     app.previous_more_section();
@@ -480,7 +522,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::NextCategory => {
-                if app.tab == 3 {
+                if app.tab == 2 {
+                    app.history_section_next();
+                } else if app.tab == 3 {
                     app.next_browse_tab();
                 } else if app.tab == 4 {
                     app.next_more_section();
@@ -499,7 +543,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Search => {
-                if app.tab == 3 {
+                if app.tab == 2 {
+                    app.history_search_start();
+                } else if app.tab == 3 {
                     match app.browse_view {
                         BrowseView::RemoteResults => {
                             let query = app.remote.query.clone();
@@ -554,7 +600,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Favorite => {
-                if app.tab == 3 {
+                if app.tab == 2 {
+                    app.favorite_selected_history();
+                } else if app.tab == 3 {
                     match app.browse_view {
                         BrowseView::RemoteDetails => app.toggle_current_favorite(),
                         BrowseView::RemoteResults | BrowseView::GlobalResults => {
@@ -597,7 +645,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::SourceFilters => {
-                if app.tab == 3 {
+                if app.tab == 2 {
+                    app.open_history_details();
+                } else if app.tab == 3 {
                     if app.browse_view == BrowseView::SourceFilters {
                         app.browse_parent();
                     } else if app.browse_view == BrowseView::Sources {
@@ -668,6 +718,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.update_all_extensions();
                 }
             }
+            Action::ClearHistory => {
+                if app.tab == 2 {
+                    app.open_history_clear_confirm();
+                }
+            }
             Action::InstallExtension => {
                 if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.install_selected_extension();
@@ -679,7 +734,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.open_library_delete_dialog();
                 } else if app.tab == 2 {
-                    app.delete_history_selection();
+                    app.open_history_delete_dialog();
                 }
             }
             Action::Open => {

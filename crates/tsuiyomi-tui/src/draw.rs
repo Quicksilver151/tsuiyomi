@@ -1,5 +1,6 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, path::PathBuf};
 
+use chrono::{DateTime, Local};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect, Size},
     style::{Color, Modifier, Style},
@@ -14,16 +15,16 @@ use ratatui_image::{
 };
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    downloads_dir, BookmarkStore, Chapter, LibrarySort, ProgressStore, ReadingMode, RemoteChapter,
-    RemoteManga, RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreferenceKind,
-    Theme,
+    date_key_for_unix, downloads_dir, remote_cover_path, today_key, BookmarkStore, Chapter,
+    HistoryEntry, LibrarySort, ProgressStore, ReadingMode, RemoteChapter, RemoteManga,
+    RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreferenceKind, Theme,
 };
 
 use crate::{
     app::{
-        AppState, BrowseTab, BrowseView, ExtensionRow, FilterRow, LibraryView, MoreFocus, MoreRow,
-        MoreSection, PickerKind, PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage,
-        SourceFilterRow, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
+        AppState, BrowseTab, BrowseView, ExtensionRow, FilterRow, HistorySection, LibraryView,
+        MoreFocus, MoreRow, MoreSection, PickerKind, PickerState, ReaderMode, SelectionScope,
+        SettingId, SettingsPage, SourceFilterRow, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout, grid_columns, grid_margin, grid_row_offset, grid_tile_rect, grid_tile_width,
@@ -79,6 +80,8 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_library_delete(frame, app);
     draw_duplicate_dialog(frame, app);
     draw_remove_favorite(frame, app);
+    draw_history_delete(frame, app);
+    draw_history_clear_confirm(frame, app);
     draw_text_input(frame, app);
 }
 
@@ -387,6 +390,114 @@ fn draw_remove_favorite(frame: &mut Frame, app: &AppState) {
         )),
     ];
     frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+}
+
+fn draw_history_delete(frame: &mut Frame, app: &AppState) {
+    let Some(dialog) = app.history_delete.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 64.min(area.width);
+    let height = 8.min(area.height);
+    if width < 28 || height < 6 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Remove history ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let title = if dialog.keys.len() == 1 {
+        "Remove this history entry?".to_owned()
+    } else {
+        format!("Remove {} history entries?", dialog.keys.len())
+    };
+    let checkbox = format!(
+        "{}  Also remove all history for the selected manga",
+        if dialog.all_series { "[x]" } else { "[ ]" }
+    );
+    let lines = vec![
+        Line::from(Span::styled(
+            truncate_text(&title, width.saturating_sub(4)),
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            checkbox,
+            Style::default().fg(if dialog.all_series {
+                c_yellow()
+            } else {
+                c_text()
+            }),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Space toggle · Enter remove · Esc cancel",
+            Style::default().fg(c_overlay0()),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
+        inner,
+    );
+}
+
+fn draw_history_clear_confirm(frame: &mut Frame, app: &AppState) {
+    if !app.history_clear_confirm {
+        return;
+    }
+    let area = frame.area();
+    let width = 66.min(area.width);
+    let height = 7.min(area.height);
+    if width < 28 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Clear all history ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let lines = vec![
+        Line::from(Span::styled(
+            "Remove all reading history?",
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "Every chapter will be marked unread. Bookmarks and downloads stay.",
+            Style::default().fg(c_peach()),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter / y confirm · Esc cancel",
+            Style::default().fg(c_overlay0()),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 fn draw_header(frame: &mut Frame, area: Rect) {
@@ -741,14 +852,30 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
             ]
         }
     } else if app.tab == 2 {
-        vec![
-            ("q", "quit"),
-            ("↑↓", "history"),
-            ("↵", "resume"),
-            ("x/Del", "remove"),
-            ("[ ]", "tabs"),
-            ("Esc", "back"),
-        ]
+        if app.history_search {
+            vec![
+                ("q", "quit"),
+                ("type", "search"),
+                ("↵", "done"),
+                ("Esc", "clear"),
+            ]
+        } else {
+            match app.history_section {
+                HistorySection::History => vec![
+                    ("q", "quit"),
+                    ("↑↓", "history"),
+                    ("↵", "resume"),
+                    ("o", "details"),
+                    ("F", "library"),
+                    ("x/Del", "remove"),
+                    ("X", "clear all"),
+                    ("/", "search"),
+                    ("[ ]", "tabs"),
+                    ("Esc", "back"),
+                ],
+                HistorySection::Stats => vec![("q", "quit"), ("[ ]", "tabs"), ("Esc", "back")],
+            }
+        }
     } else if app.tab == 0 {
         match app.view {
             LibraryView::Series => vec![
@@ -1171,101 +1298,404 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_history(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let entries: Vec<(String, tsuiyomi_core::HistoryEntry)> = app
-        .history
-        .recent()
-        .into_iter()
-        .map(|(key, entry)| (key.clone(), entry.clone()))
-        .collect();
-    let block = panel(
-        Line::from(vec![
-            Span::styled(
-                " History ",
-                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{} ", entries.len()),
-                Style::default().fg(c_overlay0()),
-            ),
-        ]),
-        c_accent(),
-    );
+    let block = panel(history_tab_title(app), c_accent());
     let inner = block.inner(area);
-    frame.render_widget(block, area);
+    frame.render_widget(&block, area);
+    let body = if let Some(status) = &app.status {
+        if inner.height < 2 {
+            inner
+        } else {
+            let status_area = Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1);
+            frame.render_widget(
+                Paragraph::new(format!(" {status}")).style(Style::default().fg(c_green())),
+                status_area,
+            );
+            Rect::new(inner.x, inner.y, inner.width, inner.height - 1)
+        }
+    } else {
+        inner
+    };
+    match app.history_section {
+        HistorySection::History => draw_history_recent(frame, body, app),
+        HistorySection::Stats => draw_history_stats(frame, body, app),
+    }
+}
+
+fn history_tab_title(app: &AppState) -> Line<'static> {
+    let tabs = [
+        ("History", HistorySection::History),
+        ("Stats", HistorySection::Stats),
+    ];
+    let mut spans = vec![Span::raw(" ")];
+    for (index, (label, section)) in tabs.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" │ ", Style::default().fg(c_overlay0())));
+        }
+        let selected = app.history_section == *section;
+        spans.push(Span::styled(
+            *label,
+            Style::default()
+                .fg(if selected { c_accent() } else { c_overlay1() })
+                .add_modifier(if selected {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
+        ));
+        if *section == HistorySection::History {
+            spans.push(Span::styled(
+                format!(" {}", app.history_count()),
+                Style::default().fg(c_overlay0()),
+            ));
+        }
+    }
+    spans.push(Span::raw(" "));
+    Line::from(spans)
+}
+
+fn draw_history_recent(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    if area.height == 0 {
+        return;
+    }
+    let search_area = Rect::new(area.x, area.y, area.width, 1);
+    let search_style = if app.history_search {
+        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+    } else if app.history_query.trim().is_empty() {
+        Style::default().fg(c_overlay0())
+    } else {
+        Style::default().fg(c_text())
+    };
+    let search_text = if app.history_search {
+        format!(" Search: {}▏", app.history_query)
+    } else if app.history_query.trim().is_empty() {
+        " / search history".to_owned()
+    } else {
+        format!(" Search: {}  (/ edits, Esc clears)", app.history_query)
+    };
+    frame.render_widget(Paragraph::new(search_text).style(search_style), search_area);
+    let list_area = Rect::new(
+        area.x,
+        area.y + 1,
+        area.width,
+        area.height.saturating_sub(1),
+    );
+
+    let entries = app.history_entries();
     if entries.is_empty() {
+        let message = if app.history_query.trim().is_empty() {
+            "No reading history yet."
+        } else {
+            "No history matches the search."
+        };
         frame.render_widget(
-            Paragraph::new("No reading history yet.")
+            Paragraph::new(message)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(c_overlay1())),
-            inner,
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
         );
         app.history_list_state.select(None);
         return;
     }
 
-    if app.history_selection >= entries.len() {
-        app.history_selection = entries.len() - 1;
+    app.history_selection = app.history_selection.min(entries.len() - 1);
+    let row_height = 4u16;
+    let visible = (list_area.height / row_height).max(1) as usize;
+    if app.history_selection < app.history_scroll {
+        app.history_scroll = app.history_selection;
+    } else if app.history_selection >= app.history_scroll + visible {
+        app.history_scroll = app.history_selection + 1 - visible;
     }
-    app.history_list_state.select(Some(app.history_selection));
 
-    let items: Vec<ListItem> = entries
-        .iter()
-        .map(|(key, entry)| {
-            let marker =
-                if app.is_multi_selected(SelectionScope::History, &format!("history:{key}")) {
-                    "✓ "
-                } else {
-                    ""
-                };
-            ListItem::new(Line::from(vec![
+    let mut y = list_area.y;
+    let mut previous_day: Option<String> = None;
+    for (index, (key, entry)) in entries.iter().enumerate().skip(app.history_scroll) {
+        if y + 3 > list_area.y + list_area.height {
+            break;
+        }
+        let day = date_key_for_unix(entry.last_read);
+        if previous_day.as_deref() != Some(day.as_str()) {
+            if y + 4 > list_area.y + list_area.height {
+                break;
+            }
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    format!(" {}", history_date_label(entry.last_read)),
+                    Style::default()
+                        .fg(c_overlay0())
+                        .add_modifier(Modifier::BOLD),
+                ))),
+                Rect::new(list_area.x, y, list_area.width, 1),
+            );
+            y += 1;
+            previous_day = Some(day);
+        }
+        let row = Rect::new(list_area.x, y, list_area.width, 3);
+        let selected = index == app.history_selection;
+        if selected {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                row,
+            );
+        }
+        let marker = if app.is_multi_selected(SelectionScope::History, &format!("history:{key}")) {
+            "✓ "
+        } else {
+            ""
+        };
+        let cover_width = if row.width >= 40 { 4 } else { 0 };
+        if cover_width > 0 {
+            let cover_area = Rect::new(row.x, row.y, cover_width, 3);
+            let cover = history_cover_path(app, entry);
+            let mut rendered = false;
+            if let Some(path) = &cover {
+                if let Some(protocol) = app.tile_covers.get_mut(path) {
+                    render_centered_image(frame, cover_area, protocol);
+                    rendered = true;
+                }
+            }
+            if !rendered {
+                let initial = entry
+                    .series_title
+                    .chars()
+                    .next()
+                    .map(|character| character.to_uppercase().collect::<String>())
+                    .unwrap_or_default();
+                frame.render_widget(
+                    Paragraph::new(initial)
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                    Rect::new(cover_area.x, cover_area.y + 1, cover_area.width, 1),
+                );
+            }
+        }
+        let text_x = row.x + cover_width + if cover_width > 0 { 1 } else { 0 };
+        let text_width = row.width.saturating_sub(text_x - row.x);
+        let title_style = if selected {
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD)
+        };
+        let chapter = if entry.chapter_title.is_empty() {
+            "Unknown chapter".to_owned()
+        } else {
+            entry.chapter_title.clone()
+        };
+        let mut detail = format!("{chapter} · {}", history_time(entry.last_read));
+        if entry.pages > 0 {
+            detail.push_str(&format!(" · {}/{}", entry.page + 1, entry.pages));
+        }
+        let source = format!(
+            "{} · {}{}",
+            entry.source,
+            format_duration(entry.read_duration_secs),
+            if entry.read_duration_secs > 0 {
+                " read"
+            } else {
+                ""
+            }
+        );
+        let lines = vec![
+            Line::from(vec![
                 Span::styled(marker, Style::default().fg(c_accent())),
                 Span::styled(
-                    entry.series_title.clone(),
-                    Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                    truncate_text(&entry.series_title, text_width.saturating_sub(2)),
+                    title_style,
                 ),
-                Span::styled(" · ", Style::default().fg(c_overlay0())),
-                Span::raw(entry.chapter_title.clone()),
-                Span::styled(
-                    format!("  {}", entry.source),
-                    Style::default().fg(c_overlay1()),
-                ),
-                Span::styled(
-                    format!("  {}/{}", entry.page + 1, entry.pages),
-                    Style::default().fg(c_teal()),
-                ),
-                Span::styled(
-                    format!("  {}", history_age(entry.last_read)),
-                    Style::default().fg(c_overlay0()),
-                ),
-            ]))
-        })
-        .collect();
-    let list = List::new(items)
-        .style(Style::default().fg(c_text()))
-        .highlight_style(
-            Style::default()
-                .fg(c_accent())
-                .bg(c_surface0())
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("› ");
-    frame.render_stateful_widget(list, inner, &mut app.history_list_state);
+            ]),
+            Line::from(Span::styled(detail, Style::default().fg(c_subtext1()))),
+            Line::from(Span::styled(source, Style::default().fg(c_overlay0()))),
+        ];
+        frame.render_widget(
+            Paragraph::new(Text::from(lines)),
+            Rect::new(text_x, row.y, text_width, 3),
+        );
+        y += row_height;
+    }
+
+    app.history_list_state.select(Some(app.history_selection));
 }
 
-fn history_age(last_read: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(last_read);
-    let seconds = now.saturating_sub(last_read);
-    if seconds < 60 {
-        "just now".to_owned()
-    } else if seconds < 3_600 {
-        format!("{}m ago", seconds / 60)
-    } else if seconds < 86_400 {
-        format!("{}h ago", seconds / 3_600)
+fn history_cover_path(app: &mut AppState, entry: &HistoryEntry) -> Option<PathBuf> {
+    if let Some(remote) = &entry.remote {
+        let path = remote_cover_path(&remote.manga.source_id, &remote.manga.url)?;
+        if path.exists() {
+            app.ensure_tile_cover(&path);
+            if app.tile_covers.contains_key(&path) {
+                return Some(path);
+            }
+        } else {
+            app.request_series_thumbnail(
+                &remote.manga.source_id,
+                &remote.manga.url,
+                remote.manga.memo.as_deref(),
+            );
+        }
+        return None;
+    }
+    if let Some(cover) = entry.cover.clone().filter(|path| path.exists()) {
+        app.ensure_tile_cover(&cover);
+        if app.tile_covers.contains_key(&cover) {
+            return Some(cover);
+        }
+    }
+    let local = entry.local.as_ref()?;
+    let index = app
+        .library
+        .series
+        .iter()
+        .position(|series| series.path == local.series_path)?;
+    let cover = app.ensure_local_series_cover(index)?;
+    app.ensure_tile_cover(&cover);
+    app.tile_covers.contains_key(&cover).then_some(cover)
+}
+
+fn history_date_label(unix_seconds: u64) -> String {
+    let Some(date) = DateTime::from_timestamp(unix_seconds as i64, 0)
+        .map(|utc| utc.with_timezone(&Local).date_naive())
+    else {
+        return "Unknown date".to_owned();
+    };
+    let today = Local::now().date_naive();
+    if date == today {
+        "Today".to_owned()
+    } else if date == today - chrono::Duration::days(1) {
+        "Yesterday".to_owned()
     } else {
-        format!("{}d ago", seconds / 86_400)
+        date.format("%a, %b %-d").to_string()
+    }
+}
+
+fn history_time(unix_seconds: u64) -> String {
+    DateTime::from_timestamp(unix_seconds as i64, 0)
+        .map(|utc| utc.with_timezone(&Local).format("%H:%M").to_string())
+        .unwrap_or_else(|| "--:--".to_owned())
+}
+
+fn draw_history_stats(frame: &mut Frame, area: Rect, app: &AppState) {
+    let stats = &app.reading_stats;
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(" All time   ", Style::default().fg(c_overlay1())),
+            Span::styled(
+                format_duration(stats.total_seconds),
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("    Today ", Style::default().fg(c_overlay1())),
+            Span::styled(
+                format_duration(stats.day_seconds(&today_key())),
+                Style::default().fg(c_green()),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(" Last 7d    ", Style::default().fg(c_overlay1())),
+            Span::styled(
+                format_duration(stats.range_seconds(7)),
+                Style::default().fg(c_teal()),
+            ),
+            Span::styled("    Last 30d ", Style::default().fg(c_overlay1())),
+            Span::styled(
+                format_duration(stats.range_seconds(30)),
+                Style::default().fg(c_blue()),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Last 14 days",
+            Style::default()
+                .fg(c_overlay0())
+                .add_modifier(Modifier::BOLD),
+        )),
+    ];
+
+    let mut max_day = 1u64;
+    let today = Local::now().date_naive();
+    let days: Vec<_> = (0..14)
+        .rev()
+        .map(|offset| {
+            let date = today - chrono::Duration::days(offset);
+            let key = date.format("%Y-%m-%d").to_string();
+            let seconds = stats.day_seconds(&key);
+            max_day = max_day.max(seconds);
+            (date, seconds)
+        })
+        .collect();
+    for (date, seconds) in days {
+        let width = if max_day == 0 {
+            0
+        } else {
+            ((seconds as f64 / max_day as f64) * 22.0).round() as usize
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(" {} ", date.format("%b %-d")),
+                Style::default().fg(c_overlay0()),
+            ),
+            Span::styled("█".repeat(width), Style::default().fg(c_accent())),
+            Span::styled(
+                format!(" {}", format_duration(seconds)),
+                Style::default().fg(c_subtext1()),
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Top series",
+        Style::default()
+            .fg(c_overlay0())
+            .add_modifier(Modifier::BOLD),
+    )));
+    let top = stats.top_series(6);
+    if top.is_empty() {
+        lines.push(Line::from(Span::styled(
+            " No reading time recorded yet.",
+            Style::default().fg(c_overlay1()),
+        )));
+    } else {
+        for (index, (_, series)) in top.iter().enumerate() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!(" {:>2}. ", index + 1),
+                    Style::default().fg(c_overlay0()),
+                ),
+                Span::styled(
+                    truncate_text(&series.title, area.width.saturating_sub(24)),
+                    Style::default().fg(c_text()),
+                ),
+                Span::styled(
+                    format!("  {}", format_duration(series.seconds)),
+                    Style::default().fg(c_teal()),
+                ),
+            ]));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!(
+            " Chapters {} · streak {} days · active days {}",
+            app.history.len(),
+            stats.reading_streak(),
+            stats.active_days()
+        ),
+        Style::default().fg(c_overlay1()),
+    )));
+    frame.render_widget(Paragraph::new(Text::from(lines)), area);
+}
+
+fn format_duration(seconds: u64) -> String {
+    if seconds == 0 {
+        "0m".to_owned()
+    } else if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3600 {
+        format!("{}m", seconds / 60)
+    } else {
+        let hours = seconds / 3600;
+        let minutes = (seconds % 3600) / 60;
+        if minutes == 0 {
+            format!("{hours}h")
+        } else {
+            format!("{hours}h {minutes:02}m")
+        }
     }
 }
 
@@ -4706,6 +5136,25 @@ mod tests {
     }
 
     #[test]
+    fn history_stats_tab_renders_totals_and_top_series() {
+        let mut app = test_app();
+        app.tab = 2;
+        app.history_section = HistorySection::Stats;
+        app.reading_stats.record_session(
+            "local:/library/Test Series",
+            "Test Series",
+            125,
+            &today_key(),
+        );
+
+        let text = render(&mut app, 100, 40);
+        assert!(text.contains("Stats"));
+        assert!(text.contains("All time"));
+        assert!(text.contains("Top series"));
+        assert!(text.contains("Test Series"));
+    }
+
+    #[test]
     fn history_tab_renders_entries_and_empty_state() {
         let mut app = test_app();
         app.tab = 2;
@@ -4725,6 +5174,7 @@ mod tests {
                 page: 2,
                 pages: 10,
                 last_read: 1,
+                read_duration_secs: 0,
             },
         );
         let text = render(&mut app, 100, 30);

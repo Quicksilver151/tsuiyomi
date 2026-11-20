@@ -179,12 +179,24 @@ in the Mihon `local/` directory and rescan.
 
 ## History
 
-The History tab lists recently read chapters newest first: series, chapter, source, page
-progress, and when it was read. `Enter` resumes the chapter from its saved page, `x` or
-`Delete` removes the selected/current entries, and `Space` multi-selects entries for
-removal. Local and remote chapters both work; a remote entry reopens through the host.
-History is stored in `$XDG_DATA_HOME/tsuiyomi/history.json`. Incognito mode stops new
-entries from being recorded.
+The History tab shows one row per manga: its most recently read chapter. Rows have a
+small cover, title, chapter, read time, source, page progress, and accumulated reading
+time, grouped by Today / Yesterday / date. `Enter` reopens the current chapter if it is
+unfinished, otherwise the next chapter. `o` opens manga details, `F` saves a remote manga
+to the library, `x`/`Delete` opens a delete dialog, `X` clears all history after
+confirmation, and `/` searches series titles. `Space` multi-selects rows. Deletion is
+permanent and clears the matching chapter progress, so chapters appear unread again;
+bookmarks and downloads are untouched.
+
+`[` and `]` switch between History and Stats inside the panel. Stats shows total, today,
+7-day, and 30-day reading time, a 14-day bar chart, top series, reading streak, and
+trend counts. Reading time is accumulated while the reader is open and is kept separately
+so deleting history does not erase statistics.
+
+History is stored as an unbounded append-only
+`$XDG_DATA_HOME/tsuiyomi/history.jsonl`; the old `history.json` is imported on first
+start. Reading-time totals live in `reading_stats.json`. Incognito and per-extension
+Incognito stop new history and time recording.
 
 ## Remote sources and extensions
 

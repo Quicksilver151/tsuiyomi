@@ -60,6 +60,28 @@ impl ProgressStore {
             .insert(key(chapter), ProgressEntry { page, pages });
     }
 
+    pub fn remove(&mut self, chapter: &Path) -> bool {
+        self.entries.remove(&key(chapter)).is_some()
+    }
+
+    /// Remove every progress entry whose key starts with `prefix`.
+    pub fn remove_prefix(&mut self, prefix: &str) -> usize {
+        let keys: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .cloned()
+            .collect();
+        for key in &keys {
+            self.entries.remove(key);
+        }
+        keys.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     pub fn record(&mut self, chapter: &Path, page: usize, pages: usize) -> io::Result<()> {
         self.update(chapter, page, pages);
         self.save()
@@ -107,6 +129,23 @@ mod tests {
         let entry = reloaded.entry(&chapter).unwrap();
         assert_eq!(entry.page, 4);
         assert_eq!(entry.pages, 20);
+    }
+
+    #[test]
+    fn removes_one_prefix_and_everything() {
+        let mut store = ProgressStore::default();
+        store.update(Path::new("/library/A/1"), 1, 10);
+        store.update(Path::new("/library/A/2"), 2, 10);
+        store.update(Path::new("/library/B/1"), 3, 10);
+
+        assert!(store.remove(Path::new("/library/A/1")));
+        assert!(store.entry(Path::new("/library/A/1")).is_none());
+        assert_eq!(store.remove_prefix("/library/A/"), 1);
+        assert!(store.entry(Path::new("/library/A/2")).is_none());
+        assert!(store.entry(Path::new("/library/B/1")).is_some());
+
+        store.clear();
+        assert!(store.entry(Path::new("/library/B/1")).is_none());
     }
 
     #[test]

@@ -180,6 +180,9 @@ History parity and reading-time stats plan: `history-parity-plan.md`.
       details screen with source toggles, enable/disable-all, source preferences,
       per-extension Incognito, clear-cookies, and uninstall.
 - [x] Global-search empty/error source rows and a persisted only-with-results filter (`h`).
+- [x] History parity: latest-per-series rows, covers, title search, date headers,
+      permanent delete with progress clearing, multi-select, clear-all, next-chapter
+      resume, and History/Stats mini-tabs with reading-time analytics.
 - [ ] Migrate.
 
 ## Phase 5 — Later

@@ -260,12 +260,18 @@ Rules:
   the host is already running, the first open in a session refreshes the story in the
   background through `story_worker`; `r` reloads synchronously. Chapter download markers
   are cached per story instead of statting every row each frame.
-- Reading history lives in `$XDG_DATA_HOME/tsuiyomi/history.json` (`history.rs`), one
-  entry per chapter, newest first. `record_progress` upserts series/chapter/source/page
-  metadata and flushes with progress; Incognito suppresses it. The History tab resumes
-  local or remote entries (`ReaderOrigin::History`), supports multi-select deletion, and
-  keeps enough remote metadata to reopen without the manga being in the library. There
-  are no cover thumbnails in the history list yet.
+- Reading history lives in an unbounded append-only
+  `$XDG_DATA_HOME/tsuiyomi/history.jsonl` (`history.rs`), one record per chapter and
+  compacted with tombstones. The UI shows the latest chapter per series, grouped by
+  local date, with a small cover and accumulated read time. `Enter` resumes the current
+  chapter if unfinished or the next chapter otherwise; `o` opens details, `F` saves a
+  remote manga, `x`/Delete opens a single/all-series delete dialog, `X` clears all
+  history, `/` searches titles, and `Space` multi-selects. Deletion is permanent and
+  clears matching chapter progress so chapters become unread again. History and Stats
+  are mini-tabs inside the panel (`[`/`]`); Stats uses a separate
+  `reading_stats.json` daily/series ledger so history deletion does not erase reading
+  time. `record_progress` flushes history with progress; global and per-extension
+  Incognito suppress history and time.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
