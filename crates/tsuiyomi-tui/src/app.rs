@@ -12,8 +12,8 @@ use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
     ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
-    legacy_remote_cover_path, load_cached_story, page_dimensions, read_cover, read_page,
-    remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
+    legacy_remote_cover_path, load_cached_story, merge_extensions, page_dimensions, read_cover,
+    read_page, remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
     source_dir_name, story_cache_path, BookmarkStore, CachedStory, Chapter, ChapterKind, Config,
     ExtensionInfo, HistoryEntry, HistoryStore, HostClient, HostProcess, Library, LibrarySort,
     LocalSourceOrder, Page, PageSource, ProgressStore, ReadingMode, RemoteChapter, RemoteFavorite,
@@ -2685,36 +2685,14 @@ impl AppState {
             }
         };
 
-        let mut merged = installed;
+        let mut entries = Vec::new();
         for repo in &repos {
             match client.repo_extensions(repo) {
-                Ok(entries) => {
-                    for entry in entries {
-                        match merged.iter_mut().find(|known| known.pkg == entry.pkg) {
-                            Some(known) => {
-                                known.repo_url = entry.repo_url;
-                                known.apk = entry.apk;
-                                known.version = entry.version;
-                                known.source_count = known.source_count.max(entry.source_count);
-                                if known.lang.is_empty() {
-                                    known.lang = entry.lang;
-                                }
-                            }
-                            None => merged.push(entry),
-                        }
-                    }
-                }
+                Ok(available) => entries.extend(available),
                 Err(error) => self.set_remote_error(error),
             }
         }
-        merged.sort_by(|left, right| {
-            right
-                .installed
-                .cmp(&left.installed)
-                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-        });
-
-        self.remote.extensions = merged;
+        self.remote.extensions = merge_extensions(installed, entries);
         self.remote.repos = repos;
         if self.remote.status.is_none() {
             self.remote.error = false;
@@ -2852,16 +2830,46 @@ impl AppState {
         }
     }
 
+    pub fn extension_update_count(&self) -> usize {
+        self.remote
+            .extensions
+            .iter()
+            .filter(|extension| extension.update_available())
+            .count()
+    }
+
     pub fn update_selected_extension(&mut self) {
         let extensions: Vec<ExtensionInfo> = self
             .selected_extensions()
             .into_iter()
             .filter(|extension| {
-                extension.installed && !extension.repo_url.is_empty() && !extension.apk.is_empty()
+                extension.update_available()
+                    && !extension.repo_url.is_empty()
+                    && !extension.apk.is_empty()
             })
             .collect();
         if extensions.is_empty() {
-            self.remote.status = Some("Select an installed extension with a store".to_owned());
+            self.remote.status = Some("Selected extensions are up to date".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        self.install_extensions(extensions, "Updated");
+    }
+
+    pub fn update_all_extensions(&mut self) {
+        let extensions: Vec<ExtensionInfo> = self
+            .remote
+            .extensions
+            .iter()
+            .filter(|extension| {
+                extension.update_available()
+                    && !extension.repo_url.is_empty()
+                    && !extension.apk.is_empty()
+            })
+            .cloned()
+            .collect();
+        if extensions.is_empty() {
+            self.remote.status = Some("No extension updates available".to_owned());
             self.remote.error = false;
             return;
         }
@@ -8205,6 +8213,7 @@ mod tests {
                 lang: "en".to_owned(),
             }],
             repo_url: "https://example.org/index.min.json".to_owned(),
+            available_version: Some("1.1".to_owned()),
         }];
 
         app.install_selected_extension();
@@ -8483,6 +8492,34 @@ mod tests {
     }
 
     #[test]
+    fn extension_update_count_and_update_all_noop_when_current() {
+        let mut app = remote_app();
+        app.remote.extensions = vec![ExtensionInfo {
+            name: "Asura Scans".to_owned(),
+            pkg: "pkg.asura".to_owned(),
+            lang: "en".to_owned(),
+            version: "1.2".to_owned(),
+            apk: "asura.apk".to_owned(),
+            installed: true,
+            nsfw: false,
+            source_count: 1,
+            sources: Vec::new(),
+            repo_url: "https://example.org/index.min.json".to_owned(),
+            available_version: Some("1.2".to_owned()),
+        }];
+        assert_eq!(app.extension_update_count(), 0);
+
+        app.update_all_extensions();
+        assert_eq!(
+            app.remote.status.as_deref(),
+            Some("No extension updates available")
+        );
+
+        app.remote.extensions[0].available_version = Some("1.3".to_owned());
+        assert_eq!(app.extension_update_count(), 1);
+    }
+
+    #[test]
     fn extension_search_filters_and_extension_pins_all_sources() {
         let mut app = remote_app();
         app.remote.sources.push(RemoteSource {
@@ -8520,6 +8557,7 @@ mod tests {
                     },
                 ],
                 repo_url: "repo".to_owned(),
+                available_version: None,
             },
             ExtensionInfo {
                 name: "Comick".to_owned(),
@@ -8532,6 +8570,7 @@ mod tests {
                 source_count: 1,
                 sources: Vec::new(),
                 repo_url: "repo".to_owned(),
+                available_version: None,
             },
         ];
         app.browse_view = BrowseView::Extensions;

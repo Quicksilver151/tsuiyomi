@@ -110,6 +110,8 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
       sources.
 - [x] Remote result pagination with `n`, appending and deduplicating pages.
 - [x] Local source search (`s`), recent view (`l`), and title ordering (`v`).
+- [x] Extension update detection, pending count in the tab title, available-version
+      display, and `U` update-all.
 - [x] Inline extension search (name or package).
 - [x] Pin all sources of an extension from the Extensions tab.
 - [x] Tabs rendered inside the Browse panel; Esc at a tab root returns to Library.

@@ -134,9 +134,11 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   switches between all and recently modified series, and `v` reverses the title order.
 - **Extensions** — installed and available extensions. `/` searches by name or package,
   `i` or `Enter` installs available extensions, `x` or `Delete` uninstalls installed
-  ones after a `y` confirmation, `u` updates, `P` pins all sources of the selected
-  extensions, `a` adds a store URL, and `t` opens the store list. All of these apply to
-  a multi-selection.
+  ones after a `y` confirmation, `u` updates the selected extension, `U` updates every
+  extension with a pending update, `P` pins all sources of the selected extensions, `a`
+  adds a store URL, and `t` opens the store list. The Extensions tab shows the pending
+  update count, and rows show the installed and available versions. All actions apply to
+  a multi-selection where relevant.
 - **Migrate** — placeholder; source migration is not implemented.
 
 Controls:

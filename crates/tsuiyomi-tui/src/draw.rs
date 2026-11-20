@@ -547,6 +547,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("/", "search"),
                 ("P", "pin"),
                 ("u", "update"),
+                ("U", "update all"),
                 ("a", "store"),
                 ("t", "stores"),
                 ("[ ]", "tabs"),
@@ -1192,6 +1193,7 @@ fn browse_tab_title(app: &AppState) -> Line<'static> {
         ("Migrate", BrowseTab::Migrate),
     ];
     let mut spans = vec![Span::raw(" ")];
+    let updates = app.extension_update_count();
     for (index, (label, tab)) in tabs.iter().enumerate() {
         if index > 0 {
             spans.push(Span::styled(" │ ", Style::default().fg(c_overlay0())));
@@ -1202,6 +1204,12 @@ fn browse_tab_title(app: &AppState) -> Line<'static> {
             Style::default().fg(c_overlay1())
         };
         spans.push(Span::styled(*label, style));
+        if *tab == BrowseTab::Extensions && updates > 0 {
+            spans.push(Span::styled(
+                format!(" ({updates})"),
+                Style::default().fg(c_peach()),
+            ));
+        }
     }
     spans.push(Span::raw(" "));
     Line::from(spans)
@@ -1893,7 +1901,9 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
         .iter()
         .map(|index| {
             let extension = &app.remote.extensions[*index];
-            let status = if extension.installed {
+            let status = if extension.update_available() {
+                "update"
+            } else if extension.installed {
                 "installed"
             } else {
                 "available"
@@ -1917,9 +1927,19 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 ),
                 Style::default().fg(c_overlay0()),
             ));
+            if let Some(available) = &extension.available_version {
+                if extension.update_available() {
+                    spans.push(Span::styled(
+                        format!(" → {available}"),
+                        Style::default().fg(c_peach()),
+                    ));
+                }
+            }
             spans.push(Span::styled(
                 format!("  {status}"),
-                Style::default().fg(if extension.installed {
+                Style::default().fg(if extension.update_available() {
+                    c_peach()
+                } else if extension.installed {
                     c_green()
                 } else {
                     c_overlay1()
@@ -3515,14 +3535,17 @@ mod tests {
             lang: "en".to_owned(),
             version: "1.5.0".to_owned(),
             apk: "x.apk".to_owned(),
-            installed: false,
+            installed: true,
             nsfw: false,
             source_count: 1,
             sources: Vec::new(),
             repo_url: "https://example.org/index.min.json".to_owned(),
+            available_version: Some("1.6.0".to_owned()),
         }];
         let text = render(&mut app, 80, 30);
-        assert!(text.contains("available"));
+        assert!(text.contains("update"));
+        assert!(text.contains("→ 1.6.0"));
+        assert!(text.contains("Extensions (1)"));
     }
 
     #[test]

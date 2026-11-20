@@ -183,8 +183,10 @@ Rules:
   management screen for enabling or disabling languages and individual sources (persisted
   in `enabled_languages` and `disabled_sources`). Remote result pages append with `n`
   (or the next remote page action) while `has_next_page` is true. The Extensions tab has an
-  inline search bar. `/` on Sources runs a global search over enabled pinned sources,
-  grouped by source. `F` saves a remote manga to the host's favorites; saved manga are merged into the
+  inline search bar, detects installed-vs-repository version differences, shows the pending
+  update count in the tab title, and offers `U` update-all. `/` on Sources runs a global
+  search over enabled pinned sources, grouped by source. `F` saves a remote manga to the
+  host's favorites; saved manga are merged into the
   one Library grid under the default category (mirrored in `remote_library`) and read
   through the same remote chapter/reader path. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc

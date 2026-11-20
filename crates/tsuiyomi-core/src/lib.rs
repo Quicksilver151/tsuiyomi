@@ -12,6 +12,7 @@ pub mod config;
 pub mod downloads;
 mod epub;
 pub mod error;
+pub mod extensions;
 pub mod history;
 pub mod host;
 pub mod library;
@@ -31,6 +32,7 @@ pub use downloads::{
     source_dir_name,
 };
 pub use error::CoreError;
+pub use extensions::merge_extensions;
 pub use history::{HistoryEntry, HistoryStore, LocalHistory, RemoteHistory};
 pub use host::{
     fetch_bytes, progress_key, ExtensionInfo, ExtensionSource, HostClient, InstallOutcome,

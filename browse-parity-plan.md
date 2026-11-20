@@ -29,6 +29,7 @@ Completed in the first Browse-parity slice:
 - Remote result pagination with `n`, deduplicated by manga URL and preserving the
   selected tile.
 - Local source title search, recent/latest view, and persisted title ordering.
+- Extension update detection, pending count in the Browse tab title, and `U` update-all.
 
 Still open from M0/M1: the Browse extraction and background worker, source
 options dialog, source preferences, Local source search/latest/sort, and the

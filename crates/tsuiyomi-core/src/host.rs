@@ -100,6 +100,20 @@ pub struct ExtensionInfo {
     pub sources: Vec<ExtensionSource>,
     /// Repository this row came from; empty for installed-only rows.
     pub repo_url: String,
+    /// Version published by the repository. `version` stays the installed version for
+    /// installed rows so updates can be detected without re-reading the host.
+    pub available_version: Option<String>,
+}
+
+impl ExtensionInfo {
+    /// Whether the store offers a version different from the installed one.
+    pub fn update_available(&self) -> bool {
+        self.installed
+            && self
+                .available_version
+                .as_deref()
+                .is_some_and(|available| !available.is_empty() && available != self.version)
+    }
 }
 
 /// A manga saved in the host's library (favorites table).
@@ -857,13 +871,14 @@ impl ExtensionRow {
             name: self.name,
             pkg: self.pkg,
             lang: self.lang,
-            version: self.version,
+            version: self.version.clone(),
             apk: self.apk,
             installed: self.installed,
             nsfw: self.nsfw,
             source_count: sources.len(),
             sources,
             repo_url: repo_url.to_owned(),
+            available_version: (!repo_url.is_empty()).then_some(self.version),
         }
     }
 }
