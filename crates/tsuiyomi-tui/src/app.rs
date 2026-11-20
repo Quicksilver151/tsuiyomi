@@ -136,6 +136,7 @@ pub enum BrowseView {
     SourceFilters,
     SourcePrefs,
     Filters,
+    ExtensionDetails,
     Local,
     Chapters,
     RemoteResults,
@@ -163,6 +164,26 @@ pub enum SourceRow {
     Header(String),
     Local,
     Remote(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtensionRow {
+    Header(String),
+    Extension(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtensionDetailRow {
+    Source(usize),
+    EnableAll,
+    DisableAll,
+    Uninstall,
+}
+
+pub struct ExtensionDetailsState {
+    pub extension: ExtensionInfo,
+    pub sources: Vec<RemoteSource>,
+    pub list_state: ListState,
 }
 
 pub struct SourcePrefsState {
@@ -767,6 +788,7 @@ pub struct AppState {
     pub uninstall_confirm: Option<Vec<(String, String)>>,
     pub library_delete: Option<LibraryDeleteDialog>,
     pub duplicate_dialog: Option<DuplicateDialog>,
+    pub extension_details: Option<ExtensionDetailsState>,
     pub remove_favorite: Option<RemoteManga>,
     pub multi_select: Option<MultiSelect>,
     /// Chapter download currently running, if any.
@@ -859,6 +881,7 @@ impl AppState {
             uninstall_confirm: None,
             library_delete: None,
             duplicate_dialog: None,
+            extension_details: None,
             remove_favorite: None,
             multi_select: None,
             downloading: None,
@@ -1074,6 +1097,7 @@ impl AppState {
             }
             BrowseView::RemoteDetails => self.open_remote_chapter(self.browse_selection),
             BrowseView::Extensions => self.install_selected_extension(),
+            BrowseView::ExtensionDetails => self.activate_extension_detail_selection(),
             BrowseView::Stores | BrowseView::GlobalResults | BrowseView::Migrate => {}
         }
     }
@@ -1106,6 +1130,12 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
+            BrowseView::ExtensionDetails => {
+                self.browse_view = BrowseView::Extensions;
+                self.browse_selection = 0;
+                self.browse_list_state = ListState::default();
+                self.select_browse_entry(0);
+            }
             BrowseView::Stores => {
                 self.browse_view = BrowseView::Extensions;
                 self.browse_selection = 0;
@@ -1135,6 +1165,7 @@ impl AppState {
             }
             BrowseView::RemoteDetails => self.load_remote_chapters(),
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
+            BrowseView::ExtensionDetails => self.load_extensions(),
             BrowseView::Chapters => self.refresh(),
             BrowseView::GlobalResults | BrowseView::Migrate => {}
         }
@@ -1155,6 +1186,7 @@ impl AppState {
             BrowseView::RemoteResults => self.visible_remote_count(),
             BrowseView::RemoteDetails => self.remote.chapters.len(),
             BrowseView::Extensions => self.filtered_extension_count(),
+            BrowseView::ExtensionDetails => self.extension_detail_rows().len(),
             BrowseView::Stores => self.remote.repos.len(),
             BrowseView::GlobalResults | BrowseView::Migrate => 0,
         }
@@ -2262,7 +2294,7 @@ impl AppState {
         self.select_browse_entry(0);
     }
 
-    pub fn filtered_extension_indices(&self) -> Vec<usize> {
+    fn matching_extension_indices(&self) -> Vec<usize> {
         let query = self.extension_query.trim().to_lowercase();
         self.remote
             .extensions
@@ -2277,12 +2309,111 @@ impl AppState {
             .collect()
     }
 
-    pub fn filtered_extension_count(&self) -> usize {
-        if self.extension_query.trim().is_empty() {
-            self.remote.extensions.len()
-        } else {
-            self.filtered_extension_indices().len()
+    /// Grouped extension rows: Updates, Installed, then available extensions by language.
+    pub fn extension_rows(&self) -> Vec<ExtensionRow> {
+        let matching = self.matching_extension_indices();
+        let mut updates = Vec::new();
+        let mut installed = Vec::new();
+        let mut available = Vec::new();
+        for index in matching {
+            let extension = &self.remote.extensions[index];
+            if extension.update_available() {
+                updates.push(index);
+            } else if extension.installed {
+                installed.push(index);
+            } else {
+                available.push(index);
+            }
         }
+        for list in [&mut updates, &mut installed] {
+            list.sort_by(|left, right| {
+                natural_cmp(
+                    &self.remote.extensions[*left].name,
+                    &self.remote.extensions[*right].name,
+                )
+            });
+        }
+        available.sort_by(|left, right| {
+            natural_cmp(
+                &language_label(&self.remote.extensions[*left].lang),
+                &language_label(&self.remote.extensions[*right].lang),
+            )
+            .then_with(|| {
+                natural_cmp(
+                    &self.remote.extensions[*left].name,
+                    &self.remote.extensions[*right].name,
+                )
+            })
+        });
+
+        let mut rows = Vec::new();
+        if !updates.is_empty() {
+            rows.push(ExtensionRow::Header("Updates".to_owned()));
+            rows.extend(updates.into_iter().map(ExtensionRow::Extension));
+        }
+        if !installed.is_empty() {
+            rows.push(ExtensionRow::Header("Installed".to_owned()));
+            rows.extend(installed.into_iter().map(ExtensionRow::Extension));
+        }
+        let mut current_lang: Option<String> = None;
+        for index in available {
+            let lang = self.remote.extensions[index].lang.clone();
+            if current_lang.as_deref() != Some(lang.as_str()) {
+                rows.push(ExtensionRow::Header(language_label(&lang)));
+                current_lang = Some(lang);
+            }
+            rows.push(ExtensionRow::Extension(index));
+        }
+        rows
+    }
+
+    pub fn filtered_extension_indices(&self) -> Vec<usize> {
+        self.extension_rows()
+            .into_iter()
+            .filter_map(|row| match row {
+                ExtensionRow::Extension(index) => Some(index),
+                ExtensionRow::Header(_) => None,
+            })
+            .collect()
+    }
+
+    pub fn filtered_extension_count(&self) -> usize {
+        self.filtered_extension_indices().len()
+    }
+
+    pub fn selected_extension_row(&self) -> Option<usize> {
+        let mut selection = 0;
+        for (row, item) in self.extension_rows().iter().enumerate() {
+            if matches!(item, ExtensionRow::Header(_)) {
+                continue;
+            }
+            if selection == self.browse_selection {
+                return Some(row);
+            }
+            selection += 1;
+        }
+        None
+    }
+
+    pub fn select_extension_row(&mut self, row: usize) {
+        let offset = self.browse_list_state.offset();
+        if let Some(index) = self.extension_index_for_row(offset + row) {
+            self.select_browse_index(index);
+        }
+    }
+
+    fn extension_index_for_row(&self, row: usize) -> Option<usize> {
+        let mut selection = 0;
+        for (index, item) in self.extension_rows().iter().enumerate() {
+            if matches!(item, ExtensionRow::Header(_)) {
+                continue;
+            }
+            if index == row {
+                return Some(selection);
+            }
+            selection += 1;
+        }
+        None
     }
 
     pub fn load_favorites(&mut self) {
@@ -3731,6 +3862,13 @@ impl AppState {
         }
         self.load_extensions();
         self.load_remote_sources();
+        if let Some(details) = self.extension_details.as_ref() {
+            if items.iter().any(|(pkg, _)| pkg == &details.extension.pkg) {
+                self.extension_details = None;
+                self.browse_view = BrowseView::Extensions;
+                self.browse_selection = 0;
+            }
+        }
         self.remote.status = Some(if failed == 0 {
             format!("Uninstalled {removed} extensions")
         } else {
@@ -3753,6 +3891,138 @@ impl AppState {
             .iter()
             .filter(|extension| extension.update_available())
             .count()
+    }
+
+    pub fn open_extension_details(&mut self) {
+        let Some(extension) = self.selected_extension().cloned() else {
+            return;
+        };
+        if !extension.installed {
+            self.remote.status = Some("Install the extension to open its details.".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        let sources = self.resolved_extension_sources(&extension);
+        self.extension_details = Some(ExtensionDetailsState {
+            extension,
+            sources,
+            list_state: ListState::default(),
+        });
+        self.browse_view = BrowseView::ExtensionDetails;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+    }
+
+    pub fn extension_detail_rows(&self) -> Vec<ExtensionDetailRow> {
+        let mut rows: Vec<ExtensionDetailRow> = self
+            .extension_details
+            .as_ref()
+            .map(|state| {
+                (0..state.sources.len())
+                    .map(ExtensionDetailRow::Source)
+                    .collect()
+            })
+            .unwrap_or_default();
+        rows.push(ExtensionDetailRow::EnableAll);
+        rows.push(ExtensionDetailRow::DisableAll);
+        rows.push(ExtensionDetailRow::Uninstall);
+        rows
+    }
+
+    pub fn selected_extension_detail_row(&self) -> Option<usize> {
+        Some(self.browse_selection)
+    }
+
+    pub fn select_extension_detail_row(&mut self, row: usize) {
+        let offset = self
+            .extension_details
+            .as_ref()
+            .map_or(0, |state| state.list_state.offset());
+        self.select_browse_index(offset + row);
+    }
+
+    fn toggle_extension_source(&mut self, index: usize) {
+        let Some(source) = self
+            .extension_details
+            .as_ref()
+            .and_then(|state| state.sources.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        let key = source_pin_key(&source);
+        if let Some(position) = self
+            .config
+            .disabled_sources
+            .iter()
+            .position(|disabled| disabled == &key)
+        {
+            self.config.disabled_sources.remove(position);
+        } else {
+            self.config.disabled_sources.push(key);
+        }
+        self.persist_settings();
+    }
+
+    fn set_extension_sources_enabled(&mut self, enabled: bool) {
+        let Some(state) = self.extension_details.as_ref() else {
+            return;
+        };
+        let keys: Vec<String> = state.sources.iter().map(source_pin_key).collect();
+        if enabled {
+            self.config
+                .disabled_sources
+                .retain(|disabled| !keys.contains(disabled));
+        } else {
+            for key in keys {
+                if !self.config.disabled_sources.contains(&key) {
+                    self.config.disabled_sources.push(key);
+                }
+            }
+        }
+        self.persist_settings();
+    }
+
+    pub fn activate_extension_detail_selection(&mut self) {
+        let Some(row) = self
+            .extension_detail_rows()
+            .get(self.browse_selection)
+            .cloned()
+        else {
+            return;
+        };
+        match row {
+            ExtensionDetailRow::Source(index) => self.toggle_extension_source(index),
+            ExtensionDetailRow::EnableAll => self.set_extension_sources_enabled(true),
+            ExtensionDetailRow::DisableAll => self.set_extension_sources_enabled(false),
+            ExtensionDetailRow::Uninstall => {
+                let Some(state) = self.extension_details.as_ref() else {
+                    return;
+                };
+                self.uninstall_confirm = Some(vec![(
+                    state.extension.pkg.clone(),
+                    state.extension.name.clone(),
+                )]);
+                self.remote.status = Some(format!(
+                    "Press y to uninstall {}, Esc cancels",
+                    state.extension.name
+                ));
+                self.remote.error = false;
+            }
+        }
+    }
+
+    pub fn open_source_prefs_for_selected(&mut self) {
+        let Some(source) = self
+            .extension_details
+            .as_ref()
+            .and_then(|state| state.sources.get(self.browse_selection).cloned())
+        else {
+            self.remote.status = Some("Select a source to configure.".to_owned());
+            self.remote.error = false;
+            return;
+        };
+        self.load_source_prefs(source);
     }
 
     pub fn update_selected_extension(&mut self) {
@@ -3979,6 +4249,10 @@ impl AppState {
             self.remote
                 .filter_list_state
                 .select((count > 0).then_some(index));
+        } else if self.browse_view == BrowseView::ExtensionDetails {
+            if let Some(state) = self.extension_details.as_mut() {
+                state.list_state.select((count > 0).then_some(index));
+            }
         } else if self.browse_view == BrowseView::RemoteResults
             && self.config.source_display_mode == SourceDisplayMode::List
         {
@@ -5593,7 +5867,8 @@ impl AppState {
             BrowseView::Migrate
             | BrowseView::SourceFilters
             | BrowseView::SourcePrefs
-            | BrowseView::Filters => None,
+            | BrowseView::Filters
+            | BrowseView::ExtensionDetails => None,
         }
     }
 
@@ -9696,6 +9971,86 @@ mod tests {
 
         app.toggle_pin_for_selection();
         assert!(app.config.pinned_sources.is_empty());
+    }
+
+    #[test]
+    fn extension_rows_group_updates_installed_and_available() {
+        let mut app = remote_app();
+        let extension =
+            |name: &str, pkg: &str, installed: bool, available: Option<&str>| ExtensionInfo {
+                name: name.to_owned(),
+                pkg: pkg.to_owned(),
+                lang: "en".to_owned(),
+                version: "1.0".to_owned(),
+                apk: format!("{pkg}.apk"),
+                installed,
+                nsfw: false,
+                source_count: 1,
+                sources: Vec::new(),
+                repo_url: "repo".to_owned(),
+                available_version: available.map(str::to_owned),
+            };
+        app.remote.extensions = vec![
+            extension("Zeta", "pkg.zeta", false, Some("1.0")),
+            extension("Alpha", "pkg.alpha", true, Some("2.0")),
+            extension("Beta", "pkg.beta", true, Some("1.0")),
+        ];
+
+        let rows = app.extension_rows();
+        let labels: Vec<String> = rows
+            .iter()
+            .map(|row| match row {
+                ExtensionRow::Header(label) => format!("[{label}]"),
+                ExtensionRow::Extension(index) => app.remote.extensions[*index].name.clone(),
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            ["[Updates]", "Alpha", "[Installed]", "Beta", "[EN]", "Zeta"]
+        );
+        assert_eq!(app.filtered_extension_count(), 3);
+    }
+
+    #[test]
+    fn extension_details_toggle_sources_and_actions() {
+        let mut app = remote_app();
+        let extension = ExtensionInfo {
+            name: "MangaDex".to_owned(),
+            pkg: "pkg.mangadex".to_owned(),
+            lang: "en".to_owned(),
+            version: "1.0".to_owned(),
+            apk: "x.apk".to_owned(),
+            installed: true,
+            nsfw: false,
+            source_count: 2,
+            sources: Vec::new(),
+            repo_url: "repo".to_owned(),
+            available_version: None,
+        };
+        let sources = app.remote.sources[..2].to_vec();
+        app.extension_details = Some(ExtensionDetailsState {
+            extension,
+            sources,
+            list_state: ListState::default(),
+        });
+        app.browse_view = BrowseView::ExtensionDetails;
+
+        app.browse_selection = 0;
+        app.activate_extension_detail_selection();
+        assert!(!app.source_enabled(&app.remote.sources[0].clone()));
+
+        app.browse_selection = 2;
+        app.activate_extension_detail_selection();
+        assert!(app.source_enabled(&app.remote.sources[0].clone()));
+
+        app.browse_selection = 3;
+        app.activate_extension_detail_selection();
+        assert!(!app.source_enabled(&app.remote.sources[0].clone()));
+        assert!(!app.source_enabled(&app.remote.sources[1].clone()));
+
+        app.browse_selection = 4;
+        app.activate_extension_detail_selection();
+        assert!(app.uninstall_confirm.is_some());
     }
 
     #[test]

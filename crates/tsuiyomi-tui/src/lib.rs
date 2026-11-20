@@ -391,6 +391,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         | BrowseView::SourceFilters
                         | BrowseView::SourcePrefs
                         | BrowseView::Extensions
+                        | BrowseView::ExtensionDetails
                         | BrowseView::Stores => {}
                     }
                 } else if app.tab == 4 {
@@ -413,6 +414,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         BrowseView::Sources
                         | BrowseView::SourceFilters
                         | BrowseView::SourcePrefs
+                        | BrowseView::ExtensionDetails
                         | BrowseView::Chapters
                         | BrowseView::RemoteDetails
                         | BrowseView::Migrate => app.browse_open(),
@@ -595,12 +597,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         app.browse_parent();
                     } else if app.browse_view == BrowseView::Sources {
                         app.open_source_filters();
+                    } else if app.browse_view == BrowseView::Extensions {
+                        app.open_extension_details();
                     }
                 }
             }
             Action::SourcePrefs => {
-                if app.tab == 3 && app.browse_view == BrowseView::Sources {
-                    app.open_source_prefs();
+                if app.tab == 3 {
+                    match app.browse_view {
+                        BrowseView::Sources => app.open_source_prefs(),
+                        BrowseView::ExtensionDetails => app.open_source_prefs_for_selected(),
+                        _ => {}
+                    }
                 }
             }
             Action::Filters => {
@@ -847,11 +855,21 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_filter_row(offset + (row - list.y) as usize);
             }
         }
+        BrowseView::ExtensionDetails => {
+            let list = inside(8);
+            if contains(list, column, row) {
+                let offset = app
+                    .extension_details
+                    .as_ref()
+                    .map_or(0, |state| state.list_state.offset());
+                app.select_extension_detail_row(offset + (row - list.y) as usize);
+            }
+        }
         BrowseView::Extensions => {
             let list = inside(3);
             if contains(list, column, row) {
                 let offset = app.browse_list_state.offset();
-                app.select_browse_index(offset + (row - list.y) as usize);
+                app.select_extension_row(offset + (row - list.y) as usize);
             }
         }
         BrowseView::Stores => {

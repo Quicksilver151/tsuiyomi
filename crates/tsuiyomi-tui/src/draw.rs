@@ -21,8 +21,8 @@ use tsuiyomi_core::{
 
 use crate::{
     app::{
-        AppState, BrowseTab, BrowseView, FilterRow, LibraryView, MoreFocus, MoreRow, MoreSection,
-        PickerKind, PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage,
+        AppState, BrowseTab, BrowseView, ExtensionRow, FilterRow, LibraryView, MoreFocus, MoreRow,
+        MoreSection, PickerKind, PickerState, ReaderMode, SelectionScope, SettingId, SettingsPage,
         SourceFilterRow, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
@@ -599,6 +599,14 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("r", "reload"),
                 ("Esc", "back"),
             ],
+            BrowseView::ExtensionDetails => vec![
+                ("q", "quit"),
+                ("↑↓", "row"),
+                ("↵", "toggle"),
+                ("C", "prefs"),
+                ("r", "reload"),
+                ("Esc", "back"),
+            ],
             BrowseView::Local => vec![
                 ("q", "quit"),
                 ("↑↓←→", "move"),
@@ -672,6 +680,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "extension"),
                 ("i/↵", "install"),
+                ("o", "details"),
                 ("/", "search"),
                 ("P", "pin"),
                 ("u", "update"),
@@ -1265,6 +1274,7 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
         BrowseView::SourceFilters => draw_source_filters(frame, area, app),
         BrowseView::SourcePrefs => draw_source_prefs(frame, area, app),
         BrowseView::Filters => draw_filters(frame, area, app),
+        BrowseView::ExtensionDetails => draw_extension_details(frame, area, app),
         BrowseView::Extensions => draw_extensions(frame, area, app),
         BrowseView::Stores => draw_stores(frame, area, app),
         BrowseView::Migrate => draw_migrate(frame, area, app),
@@ -1543,6 +1553,17 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
             app.source_prefs
                 .as_ref()
                 .map_or(0, |state| state.preferences.prefs.len())
+                .to_string(),
+        ),
+        BrowseView::ExtensionDetails => (
+            "Extension".to_owned(),
+            app.extension_details
+                .as_ref()
+                .map(|state| state.extension.name.clone())
+                .unwrap_or_else(|| "Extension".to_owned()),
+            app.extension_details
+                .as_ref()
+                .map_or(0, |state| state.sources.len())
                 .to_string(),
         ),
         BrowseView::Filters => (
@@ -2141,6 +2162,136 @@ fn draw_filter_picker(frame: &mut Frame, app: &AppState) {
     frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
+fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let block = panel(browse_tab_title(app), c_accent());
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+    let body = browse_body_with_status(frame, inner, app);
+    if body.height == 0 {
+        return;
+    }
+    draw_browse_path(frame, Rect::new(body.x, body.y, body.width, 1), app);
+
+    let Some(state) = app.extension_details.as_ref() else {
+        frame.render_widget(
+            Paragraph::new("No extension selected.")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(c_overlay1())),
+            Rect::new(body.x, body.y + 2, body.width, 1),
+        );
+        return;
+    };
+    let extension = &state.extension;
+    let info = vec![
+        Line::from(Span::styled(
+            extension.name.clone(),
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        field("Package", &extension.pkg, c_blue()),
+        field(
+            "Version",
+            &match &extension.available_version {
+                Some(available) if extension.update_available() => {
+                    format!("{} → {available}", extension.version)
+                }
+                _ => extension.version.clone(),
+            },
+            c_green(),
+        ),
+        field(
+            "Store",
+            if extension.repo_url.is_empty() {
+                "installed only"
+            } else {
+                &extension.repo_url
+            },
+            c_overlay1(),
+        ),
+        field(
+            "Sources",
+            &format!(
+                "{} · {} enabled",
+                state.sources.len(),
+                state
+                    .sources
+                    .iter()
+                    .filter(|source| app.source_enabled(source))
+                    .count()
+            ),
+            c_teal(),
+        ),
+        Line::from(""),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(info)),
+        Rect::new(body.x, body.y + 1, body.width, 6),
+    );
+
+    let list_area = Rect::new(
+        body.x,
+        body.y + 7,
+        body.width,
+        body.height.saturating_sub(7),
+    );
+    let rows = app.extension_detail_rows();
+    let items: Vec<ListItem> =
+        rows.iter()
+            .map(|row| match row {
+                crate::app::ExtensionDetailRow::Source(index) => {
+                    let Some(source) = state.sources.get(*index) else {
+                        return ListItem::new("");
+                    };
+                    let enabled = app.source_enabled(source);
+                    ListItem::new(Line::from(vec![
+                        Span::styled(
+                            if enabled { "[x] " } else { "[ ] " },
+                            Style::default().fg(if enabled { c_green() } else { c_overlay0() }),
+                        ),
+                        Span::styled(
+                            source.display_name(),
+                            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("  {}", source.pkg.as_deref().unwrap_or("")),
+                            Style::default().fg(c_overlay0()),
+                        ),
+                    ]))
+                }
+                crate::app::ExtensionDetailRow::EnableAll => ListItem::new(Line::from(
+                    Span::styled(" Enable all sources", Style::default().fg(c_green())),
+                )),
+                crate::app::ExtensionDetailRow::DisableAll => ListItem::new(Line::from(
+                    Span::styled(" Disable all sources", Style::default().fg(c_yellow())),
+                )),
+                crate::app::ExtensionDetailRow::Uninstall => ListItem::new(Line::from(
+                    Span::styled(" Uninstall extension", Style::default().fg(c_peach())),
+                )),
+            })
+            .collect();
+    if let Some(state) = app.extension_details.as_mut() {
+        state
+            .list_state
+            .select((!rows.is_empty()).then_some(app.browse_selection));
+    }
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(
+        list,
+        list_area,
+        &mut app
+            .extension_details
+            .as_mut()
+            .expect("extension details")
+            .list_state,
+    );
+}
+
 fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let results = app.visible_remote_results();
     if app.config.source_display_mode == SourceDisplayMode::List {
@@ -2458,8 +2609,8 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
         body.height.saturating_sub(2),
     );
 
-    let filtered = app.filtered_extension_indices();
-    if filtered.is_empty() {
+    let rows = app.extension_rows();
+    if app.filtered_extension_count() == 0 {
         let message = if app.remote.extensions.is_empty() {
             "No extensions. Press a to add a store URL."
         } else {
@@ -2475,60 +2626,67 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
         return;
     }
 
-    let items: Vec<ListItem> = filtered
+    let items: Vec<ListItem> = rows
         .iter()
-        .map(|index| {
-            let extension = &app.remote.extensions[*index];
-            let status = if extension.update_available() {
-                "update"
-            } else if extension.installed {
-                "installed"
-            } else {
-                "available"
-            };
-            let nsfw = if extension.nsfw { " · 18+" } else { "" };
-            let mut spans = Vec::new();
-            if app.is_multi_selected(
-                SelectionScope::Extensions,
-                &format!("ext:{}", extension.pkg),
-            ) {
-                spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
-            }
-            if app.is_extension_pinned(extension) {
-                spans.push(Span::styled("★ ", Style::default().fg(c_accent())));
-            }
-            spans.push(Span::raw(extension.name.clone()));
-            spans.push(Span::styled(
-                format!(
-                    "  {} · {}{nsfw} · {} src",
-                    extension.lang, extension.version, extension.source_count
-                ),
-                Style::default().fg(c_overlay0()),
-            ));
-            if let Some(available) = &extension.available_version {
-                if extension.update_available() {
-                    spans.push(Span::styled(
-                        format!(" → {available}"),
-                        Style::default().fg(c_peach()),
-                    ));
-                }
-            }
-            spans.push(Span::styled(
-                format!("  {status}"),
-                Style::default().fg(if extension.update_available() {
-                    c_peach()
+        .map(|row| match row {
+            ExtensionRow::Header(label) => ListItem::new(Line::from(Span::styled(
+                format!(" {label}"),
+                Style::default()
+                    .fg(c_overlay0())
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            ExtensionRow::Extension(index) => {
+                let extension = &app.remote.extensions[*index];
+                let status = if extension.update_available() {
+                    "update"
                 } else if extension.installed {
-                    c_green()
+                    "installed"
                 } else {
-                    c_overlay1()
-                }),
-            ));
-            ListItem::new(Line::from(spans))
+                    "available"
+                };
+                let nsfw = if extension.nsfw { " · 18+" } else { "" };
+                let mut spans = Vec::new();
+                if app.is_multi_selected(
+                    SelectionScope::Extensions,
+                    &format!("ext:{}", extension.pkg),
+                ) {
+                    spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
+                }
+                if app.is_extension_pinned(extension) {
+                    spans.push(Span::styled("★ ", Style::default().fg(c_accent())));
+                }
+                spans.push(Span::raw(extension.name.clone()));
+                spans.push(Span::styled(
+                    format!(
+                        "  {} · {}{nsfw} · {} src",
+                        extension.lang, extension.version, extension.source_count
+                    ),
+                    Style::default().fg(c_overlay0()),
+                ));
+                if let Some(available) = &extension.available_version {
+                    if extension.update_available() {
+                        spans.push(Span::styled(
+                            format!(" → {available}"),
+                            Style::default().fg(c_peach()),
+                        ));
+                    }
+                }
+                spans.push(Span::styled(
+                    format!("  {status}"),
+                    Style::default().fg(if extension.update_available() {
+                        c_peach()
+                    } else if extension.installed {
+                        c_green()
+                    } else {
+                        c_overlay1()
+                    }),
+                ));
+                ListItem::new(Line::from(spans))
+            }
         })
         .collect();
 
-    app.browse_list_state
-        .select(Some(app.browse_selection.min(filtered.len() - 1)));
+    app.browse_list_state.select(app.selected_extension_row());
     let list = List::new(items)
         .highlight_style(
             Style::default()
@@ -4028,6 +4186,44 @@ mod tests {
         assert!(text.contains("Chapter 1"));
         assert!(text.contains("Details"));
         assert!(text.contains("Test Series"));
+    }
+
+    #[test]
+    fn extension_details_screen_renders_sources_and_actions() {
+        let mut app = test_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::ExtensionDetails;
+        app.extension_details = Some(crate::app::ExtensionDetailsState {
+            extension: ExtensionInfo {
+                name: "MangaDex".to_owned(),
+                pkg: "pkg.mangadex".to_owned(),
+                lang: "en".to_owned(),
+                version: "1.0".to_owned(),
+                apk: "x.apk".to_owned(),
+                installed: true,
+                nsfw: false,
+                source_count: 1,
+                sources: Vec::new(),
+                repo_url: "https://example.org/index.min.json".to_owned(),
+                available_version: None,
+            },
+            sources: vec![RemoteSource {
+                id: "1".to_owned(),
+                name: "MangaDex".to_owned(),
+                lang: "en".to_owned(),
+                pkg: Some("pkg.mangadex".to_owned()),
+                supports_latest: true,
+            }],
+            list_state: ListState::default(),
+        });
+
+        let text = render(&mut app, 100, 30);
+        assert!(text.contains("MangaDex"));
+        assert!(text.contains("Package"));
+        assert!(text.contains("pkg.mangadex"));
+        assert!(text.contains("Enable all sources"));
+        assert!(text.contains("Disable all sources"));
+        assert!(text.contains("Uninstall extension"));
     }
 
     #[test]

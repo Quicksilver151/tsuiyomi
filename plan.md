@@ -172,6 +172,9 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
 - [x] Result layouts (`v`) and in-library ✓ markers, with `h` hiding saved results.
 - [x] Duplicate-title detection, add-anyway/open dialogs, remove confirmation, and saved
       remote categories in `remote_library`.
+- [x] Extension sections for updates/installed/available-by-language, plus an extension
+      details screen with source toggles, enable/disable-all, source preferences, and
+      uninstall.
 - [ ] Migrate.
 
 ## Phase 5 — Later

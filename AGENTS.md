@@ -184,7 +184,9 @@ Rules:
   in `enabled_languages` and `disabled_sources`). Remote result pages append with `n`
   (or the next remote page action) while `has_next_page` is true. The Extensions tab has an
   inline search bar, detects installed-vs-repository version differences, shows the pending
-  update count in the tab title, and offers `U` update-all. `/` on Sources runs a
+  update count in the tab title, groups updates/installed/available by language, and offers
+  `U` update-all. `o` on Extensions opens extension details with per-source toggles,
+  enable/disable-all actions, source preferences, and uninstall. `/` on Sources runs a
   background global search over enabled pinned sources with per-source progress; `A`
   switches between pinned and all enabled sources. Results are grouped by source.
   `C` opens a configurable remote source's preferences (switch, text, and list values;

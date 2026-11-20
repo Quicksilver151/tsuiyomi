@@ -39,6 +39,8 @@ Completed in the first Browse-parity slice:
 - Result display modes (`v`), in-library markers, and saved-result hiding (`h`).
 - Duplicate-title detection, add-anyway/open dialogs, remove confirmation, and saved
   remote categories.
+- Extension grouping and details with per-source toggles, bulk enable/disable, source
+  preferences, and uninstall.
 
 Still open from M0/M1: the Browse extraction and background worker, source
 options dialog, source preferences, Local source search/latest/sort, and the
