@@ -41,6 +41,7 @@ GET  /api/v1/manga/{sourceId}/latest?page=N
 GET  /api/v1/manga/{sourceId}/search?query=&page=N
 GET  /api/v1/manga/{sourceId}/filters                 (patched)
 POST /api/v1/manga/{sourceId}/search                  (patched; filtered search)
+POST /api/v1/sources/{sourceId}/cookies/clear         (patched)
 GET  /api/v1/manga/{sourceId}/details?url=
 GET  /api/v1/manga/{sourceId}/chapters?url=
 GET  /api/v1/manga/{sourceId}/pages?url=
@@ -173,8 +174,8 @@ Detailed feature-parity plan: `browse-parity-plan.md`.
 - [x] Duplicate-title detection, add-anyway/open dialogs, remove confirmation, and saved
       remote categories in `remote_library`.
 - [x] Extension sections for updates/installed/available-by-language, plus an extension
-      details screen with source toggles, enable/disable-all, source preferences, and
-      uninstall.
+      details screen with source toggles, enable/disable-all, source preferences,
+      per-extension Incognito, clear-cookies, and uninstall.
 - [ ] Migrate.
 
 ## Phase 5 — Later

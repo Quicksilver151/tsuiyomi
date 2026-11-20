@@ -683,6 +683,33 @@ impl HostClient {
         }
     }
 
+    /// Clear cookies for a source's base and home URLs.
+    pub fn clear_source_cookies(&self, source_id: &str) -> Result<usize, CoreError> {
+        #[derive(Deserialize)]
+        struct Result_ {
+            #[serde(default)]
+            ok: bool,
+            #[serde(default)]
+            cleared: usize,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        let result: Result_ = self.post(
+            &format!("/api/v1/sources/{}/cookies/clear", encode(source_id)),
+            json!({}),
+        )?;
+        if result.ok {
+            Ok(result.cleared)
+        } else {
+            Err(CoreError::Network {
+                url: self.absolute_url(&format!("/api/v1/sources/{source_id}/cookies/clear")),
+                message: result
+                    .error
+                    .unwrap_or_else(|| "could not clear cookies".to_owned()),
+            })
+        }
+    }
+
     pub fn repos(&self) -> Result<Vec<String>, CoreError> {
         #[derive(Deserialize)]
         struct Data {
@@ -1028,6 +1055,18 @@ mod tests {
         });
 
         (address, request_rx)
+    }
+
+    #[test]
+    fn clears_source_cookies() {
+        let (address, requests) = server(vec![r#"{"ok":true,"cleared":2}"#]);
+        let client = HostClient::new(address);
+
+        let cleared = client.clear_source_cookies("7").unwrap();
+        assert_eq!(cleared, 2);
+        let request = requests.recv().unwrap();
+        assert!(request.starts_with("POST "));
+        assert!(request.ends_with("/api/v1/sources/7/cookies/clear"));
     }
 
     #[test]

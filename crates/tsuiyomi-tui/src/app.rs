@@ -177,6 +177,8 @@ pub enum ExtensionDetailRow {
     Source(usize),
     EnableAll,
     DisableAll,
+    Incognito,
+    ClearCookies,
     Uninstall,
 }
 
@@ -3925,6 +3927,8 @@ impl AppState {
             .unwrap_or_default();
         rows.push(ExtensionDetailRow::EnableAll);
         rows.push(ExtensionDetailRow::DisableAll);
+        rows.push(ExtensionDetailRow::Incognito);
+        rows.push(ExtensionDetailRow::ClearCookies);
         rows.push(ExtensionDetailRow::Uninstall);
         rows
     }
@@ -3995,6 +3999,22 @@ impl AppState {
             ExtensionDetailRow::Source(index) => self.toggle_extension_source(index),
             ExtensionDetailRow::EnableAll => self.set_extension_sources_enabled(true),
             ExtensionDetailRow::DisableAll => self.set_extension_sources_enabled(false),
+            ExtensionDetailRow::Incognito => {
+                let Some(state) = self.extension_details.as_ref() else {
+                    return;
+                };
+                let pkg = state.extension.pkg.clone();
+                let enabled = self.config.incognito_extensions.contains(&pkg);
+                if enabled {
+                    self.config
+                        .incognito_extensions
+                        .retain(|candidate| candidate != &pkg);
+                } else {
+                    self.config.incognito_extensions.push(pkg);
+                }
+                self.persist_settings();
+            }
+            ExtensionDetailRow::ClearCookies => self.clear_extension_cookies(),
             ExtensionDetailRow::Uninstall => {
                 let Some(state) = self.extension_details.as_ref() else {
                     return;
@@ -4023,6 +4043,30 @@ impl AppState {
             return;
         };
         self.load_source_prefs(source);
+    }
+
+    fn clear_extension_cookies(&mut self) {
+        let Some(state) = self.extension_details.as_ref() else {
+            return;
+        };
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let sources = state.sources.clone();
+        let mut cleared = 0usize;
+        let mut failed = 0usize;
+        for source in &sources {
+            match client.clear_source_cookies(&source.id) {
+                Ok(count) => cleared += count,
+                Err(_) => failed += 1,
+            }
+        }
+        self.remote.status = Some(if failed == 0 {
+            format!("Cleared {cleared} cookies")
+        } else {
+            format!("Cleared {cleared} cookies · {failed} sources failed")
+        });
+        self.remote.error = failed > 0;
     }
 
     pub fn update_selected_extension(&mut self) {
@@ -6079,8 +6123,30 @@ impl AppState {
     }
 
     /// Persist reading progress unless Incognito mode is on.
+    fn chapter_incognito(&self, chapter: &std::path::Path) -> bool {
+        if self.config.incognito_extensions.is_empty() {
+            return false;
+        }
+        let key = chapter.to_string_lossy();
+        let Some(rest) = key.strip_prefix("remote://") else {
+            return false;
+        };
+        let Some(source_id) = rest.split('/').next() else {
+            return false;
+        };
+        self.remote.sources.iter().any(|source| {
+            source.id == source_id
+                && source.pkg.as_ref().is_some_and(|pkg| {
+                    self.config
+                        .incognito_extensions
+                        .iter()
+                        .any(|candidate| candidate == pkg)
+                })
+        })
+    }
+
     fn record_progress(&mut self, chapter: &std::path::Path, page: usize, pages: usize) {
-        if self.config.incognito {
+        if self.config.incognito || self.chapter_incognito(chapter) {
             return;
         }
         self.progress.update(chapter, page, pages);
@@ -9974,6 +10040,19 @@ mod tests {
     }
 
     #[test]
+    fn extension_incognito_suppresses_remote_progress_only() {
+        let mut app = remote_app();
+        app.config.incognito_extensions = vec!["pkg.a".to_owned()];
+        let remote = std::path::PathBuf::from("remote://1/hash/hash");
+        app.record_progress(&remote, 1, 5);
+        assert!(app.progress.entry(&remote).is_none());
+
+        let local = std::path::PathBuf::from("/tmp/library/Chapter 1");
+        app.record_progress(&local, 1, 5);
+        assert!(app.progress.entry(&local).is_some());
+    }
+
+    #[test]
     fn extension_rows_group_updates_installed_and_available() {
         let mut app = remote_app();
         let extension =
@@ -10048,7 +10127,7 @@ mod tests {
         assert!(!app.source_enabled(&app.remote.sources[0].clone()));
         assert!(!app.source_enabled(&app.remote.sources[1].clone()));
 
-        app.browse_selection = 4;
+        app.browse_selection = 6;
         app.activate_extension_detail_selection();
         assert!(app.uninstall_confirm.is_some());
     }

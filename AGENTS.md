@@ -186,9 +186,10 @@ Rules:
   inline search bar, detects installed-vs-repository version differences, shows the pending
   update count in the tab title, groups updates/installed/available by language, and offers
   `U` update-all. `o` on Extensions opens extension details with per-source toggles,
-  enable/disable-all actions, source preferences, and uninstall. `/` on Sources runs a
-  background global search over enabled pinned sources with per-source progress; `A`
-  switches between pinned and all enabled sources. Results are grouped by source.
+  enable/disable-all actions, source preferences, per-extension Incognito, clear-cookies,
+  and uninstall. `/` on Sources runs a background global search over enabled pinned
+  sources with per-source progress; `A` switches between pinned and all enabled sources.
+  Results are grouped by source.
   `C` opens a configurable remote source's preferences (switch, text, and list values;
   multi-select is waiting on the host array contract). `z` opens source filters for
   search: checkbox, tri-state, text, select, sort, and nested groups. `v` cycles
@@ -267,9 +268,9 @@ Rules:
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
-  `enabled_languages`, `disabled_sources`, `local_source_order`, `global_search_scope`,
-  `source_display_mode`, `browse_hide_saved`, `remote_library`, `downloads_path`, and
-  `hidden_series`, and preserves unknown keys from existing files.
+  `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
+  `global_search_scope`, `source_display_mode`, `browse_hide_saved`, `remote_library`,
+  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

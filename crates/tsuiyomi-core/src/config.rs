@@ -117,6 +117,8 @@ pub struct Config {
     pub enabled_languages: Option<Vec<String>>,
     /// Sources hidden from Browse, keyed by `pkg|name|lang`.
     pub disabled_sources: Vec<String>,
+    /// Extensions whose reading progress is not recorded.
+    pub incognito_extensions: Vec<String>,
     /// Ordering of the Local source grid.
     pub local_source_order: LocalSourceOrder,
     /// Sources included in global search.
@@ -162,6 +164,7 @@ impl Default for Config {
             last_used_source: None,
             enabled_languages: None,
             disabled_sources: Vec::new(),
+            incognito_extensions: Vec::new(),
             local_source_order: LocalSourceOrder::default(),
             global_search_scope: GlobalSearchScope::default(),
             source_display_mode: SourceDisplayMode::default(),
@@ -263,6 +266,7 @@ external_mpv = ["mpv"]
 last_used_source = "pkg.a|Alpha|en"
 enabled_languages = ["en", "ja"]
 disabled_sources = ["pkg.b|Beta|en"]
+incognito_extensions = ["pkg.private"]
 local_source_order = "title_desc"
 global_search_scope = "all"
 source_display_mode = "list"
@@ -276,6 +280,7 @@ browse_hide_saved = true
             Some(["en".to_owned(), "ja".to_owned()].as_slice())
         );
         assert_eq!(config.disabled_sources, ["pkg.b|Beta|en"]);
+        assert_eq!(config.incognito_extensions, ["pkg.private"]);
         assert_eq!(config.local_source_order, LocalSourceOrder::TitleDesc);
         assert_eq!(config.global_search_scope, GlobalSearchScope::All);
         assert_eq!(config.source_display_mode, SourceDisplayMode::List);
@@ -285,6 +290,7 @@ browse_hide_saved = true
         assert!(serialized.contains("last_used_source = \"pkg.a|Alpha|en\""));
         assert!(serialized.contains("enabled_languages"));
         assert!(serialized.contains("disabled_sources"));
+        assert!(serialized.contains("incognito_extensions"));
         assert!(serialized.contains("local_source_order = \"title_desc\""));
         assert!(serialized.contains("global_search_scope = \"all\""));
         assert!(serialized.contains("source_display_mode = \"list\""));

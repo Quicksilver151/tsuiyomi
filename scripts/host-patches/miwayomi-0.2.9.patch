@@ -298,7 +298,7 @@ new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/server/src/main/kotlin/miwayomi/api/FilterRoutes.kt
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,152 @@
 +package miwayomi.api
 +
 +import eu.kanade.tachiyomi.source.model.Filter
@@ -309,9 +309,13 @@ index 0000000..0000000
 +import io.ktor.server.response.respond
 +import io.ktor.server.routing.get
 +import io.ktor.server.routing.post
++import io.ktor.http.HttpStatusCode
 +import io.ktor.server.routing.routing
 +import kotlinx.serialization.Serializable
++import eu.kanade.tachiyomi.network.NetworkHelper
++import eu.kanade.tachiyomi.source.online.HttpSource
 +import miwayomi.source.MangaSourceManager
++import okhttp3.HttpUrl.Companion.toHttpUrl
 +import uy.kohesive.injekt.Injekt
 +import uy.kohesive.injekt.api.get
 +
@@ -340,6 +344,13 @@ index 0000000..0000000
 +    val page: Int = 1,
 +    val query: String = "",
 +    val filters: List<FilterDto> = emptyList(),
++)
++
++@Serializable
++data class CookieClearDto(
++    val ok: Boolean,
++    val cleared: Int = 0,
++    val error: String? = null,
 +)
 +
 +private class HeaderFilter(name: String) : Filter.Header(name)
@@ -421,6 +432,22 @@ index 0000000..0000000
 +            val filters = FilterList(request.filters.mapNotNull { it.toFilter() })
 +            val res = source.getSearchManga(request.page.coerceAtLeast(1), request.query, filters)
 +            call.respond(MangasPageDto(res.hasNextPage, res.mangas.map { it.toDto() }))
++        }
++
++        post("/api/v1/sources/{sourceId}/cookies/clear") {
++            val source = call.sourceId().manga(mangaSources) as? HttpSource
++                ?: return@post call.respond(
++                    HttpStatusCode.BadRequest,
++                    CookieClearDto(ok = false, error = "source does not support cookies"),
++                )
++            val network = Injekt.get<NetworkHelper>()
++            val urls = listOf(source.baseUrl, source.getHomeUrl())
++                .filter { it.isNotEmpty() }
++                .distinct()
++            val cleared = urls.sumOf { url ->
++                runCatching { network.cookieJar.remove(url.toHttpUrl()) }.getOrDefault(0)
++            }
++            call.respond(CookieClearDto(ok = true, cleared = cleared))
 +        }
 +    }
 +}

@@ -2263,6 +2263,23 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 crate::app::ExtensionDetailRow::DisableAll => ListItem::new(Line::from(
                     Span::styled(" Disable all sources", Style::default().fg(c_yellow())),
                 )),
+                crate::app::ExtensionDetailRow::Incognito => {
+                    let enabled = app.extension_details.as_ref().is_some_and(|state| {
+                        app.config
+                            .incognito_extensions
+                            .contains(&state.extension.pkg)
+                    });
+                    ListItem::new(Line::from(vec![
+                        Span::styled(
+                            if enabled { "[x] " } else { "[ ] " },
+                            Style::default().fg(if enabled { c_green() } else { c_overlay0() }),
+                        ),
+                        Span::styled("Incognito mode", Style::default().fg(c_text())),
+                    ]))
+                }
+                crate::app::ExtensionDetailRow::ClearCookies => ListItem::new(Line::from(
+                    Span::styled(" Clear cookies", Style::default().fg(c_blue())),
+                )),
                 crate::app::ExtensionDetailRow::Uninstall => ListItem::new(Line::from(
                     Span::styled(" Uninstall extension", Style::default().fg(c_peach())),
                 )),
@@ -4223,6 +4240,8 @@ mod tests {
         assert!(text.contains("pkg.mangadex"));
         assert!(text.contains("Enable all sources"));
         assert!(text.contains("Disable all sources"));
+        assert!(text.contains("Incognito mode"));
+        assert!(text.contains("Clear cookies"));
         assert!(text.contains("Uninstall extension"));
     }
 
