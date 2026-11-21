@@ -410,7 +410,6 @@ Remaining or intentionally deferred:
 - Android swipe gestures; TUI keys and the download menu replace them.
 - Source-site WebView; `C` and `o` cover copy/open behavior instead.
 - Cover share and delete beyond replacing/removing a saved source cover.
-- Downloading newly discovered chapters automatically on refresh.
 - Aborting an in-flight download (the core download loop has no cancellation hook).
 - Tag copy actions (search is implemented).
 - Per-series tracking/update fields the host does not expose.

@@ -121,6 +121,8 @@ pub struct ChapterSettings {
     pub sort: ChapterSort,
     pub descending: bool,
     pub display: ChapterDisplay,
+    /// Fetch newly discovered chapters after a story refresh.
+    pub download_new_chapters: bool,
 }
 
 impl Default for ChapterSettings {
@@ -133,6 +135,7 @@ impl Default for ChapterSettings {
             sort: ChapterSort::Source,
             descending: false,
             display: ChapterDisplay::Title,
+            download_new_chapters: false,
         }
     }
 }
@@ -182,6 +185,9 @@ impl ChapterSettings {
         });
         parts.push(if self.descending { "↓" } else { "↑" });
         parts.push(self.display.label());
+        if self.download_new_chapters {
+            parts.push("auto-download");
+        }
         parts.join(" · ")
     }
 }
@@ -394,5 +400,10 @@ mod tests {
             ..ChapterSettings::default()
         };
         assert_eq!(settings.summary(), "unread · number · ↓ · title");
+        let settings = ChapterSettings {
+            download_new_chapters: true,
+            ..settings
+        };
+        assert!(settings.summary().contains("auto-download"));
     }
 }

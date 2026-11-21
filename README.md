@@ -179,8 +179,8 @@ Controls:
   unread, or bookmarked chapters, plus queue cancellation.
 - `b` bookmarks or unbookmarks the selected chapter (also available in the reader).
 - On a story screen, `f` opens chapter settings (downloaded/unread/bookmarked filters,
-  scanlators, sort, direction, display), `s` cycles sort, and `v` cycles title/number
-  display. `a`/`I` select all or invert, `m`/`u` mark selected chapters read or unread,
+  scanlators, sort, direction, display, download-new-chapters), `s` cycles sort, and `v`
+  cycles title/number display. `a`/`I` select all or invert, `m`/`u` mark selected chapters read or unread,
   `U` marks previous chapters read, and `n` continues with the next unread chapter.
 - `/` on the Sources tab runs a background global search over enabled pinned sources,
   showing progress and grouping hits by source. Empty and failed sources appear as rows;

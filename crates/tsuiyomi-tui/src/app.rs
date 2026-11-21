@@ -722,6 +722,7 @@ pub enum ChapterSettingRow {
     Sort,
     Direction,
     Display,
+    DownloadNewChapters,
     Reset,
     Scanlator(usize),
 }
@@ -1431,7 +1432,7 @@ impl AppState {
             }
             BrowseView::RemoteDetails => {
                 self.load_remote_details();
-                self.load_remote_chapters();
+                self.load_remote_chapters_with(true);
                 self.status = Some("Refreshed details and chapters".to_owned());
             }
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
@@ -4306,11 +4307,24 @@ impl AppState {
     }
 
     fn load_remote_chapters(&mut self) {
+        self.load_remote_chapters_with(false);
+    }
+
+    fn load_remote_chapters_with(&mut self, auto_download: bool) {
         let Some(client) = self.host_client.clone() else {
             return;
         };
         let Some(manga) = self.remote.manga.clone() else {
             return;
+        };
+        let old_urls: HashSet<String> = if auto_download {
+            self.remote
+                .chapters
+                .iter()
+                .map(|chapter| chapter.url.clone())
+                .collect()
+        } else {
+            HashSet::new()
         };
         match client.chapters(&manga.source_id, &manga.url, manga.memo.as_deref()) {
             Ok(mut chapters) => {
@@ -4328,6 +4342,13 @@ impl AppState {
                     self.cache_story(manga, self.remote.chapters.clone());
                 }
                 self.refresh_download_marks();
+                if let Some(manga) = self.remote.manga.clone() {
+                    self.auto_download_new_chapters(
+                        &manga,
+                        &old_urls,
+                        &self.remote.chapters.clone(),
+                    );
+                }
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -6150,6 +6171,39 @@ impl AppState {
         self.enqueue_chapters(&manga, chapters);
     }
 
+    fn auto_download_new_chapters(
+        &mut self,
+        manga: &RemoteManga,
+        old_urls: &HashSet<String>,
+        chapters: &[RemoteChapter],
+    ) {
+        if old_urls.is_empty() {
+            return;
+        }
+        let key = remote_story_key(&manga.source_id, &manga.url);
+        let settings = self
+            .config
+            .chapter_settings
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| self.config.chapter_defaults.clone());
+        if !settings.download_new_chapters || self.host_client.is_none() {
+            return;
+        }
+        let new_chapters: Vec<RemoteChapter> = chapters
+            .iter()
+            .filter(|chapter| !old_urls.contains(&chapter.url))
+            .cloned()
+            .collect();
+        if new_chapters.is_empty() {
+            return;
+        }
+        self.enqueue_chapters(manga, new_chapters);
+        if self.download_queue.running() {
+            self.status = Some("Queued newly discovered chapters".to_owned());
+        }
+    }
+
     fn enqueue_chapters(&mut self, manga: &RemoteManga, chapters: Vec<RemoteChapter>) {
         if chapters.is_empty() {
             self.status = Some("No chapters to download.".to_owned());
@@ -6854,6 +6908,7 @@ impl AppState {
             ChapterSettingRow::Sort,
             ChapterSettingRow::Direction,
             ChapterSettingRow::Display,
+            ChapterSettingRow::DownloadNewChapters,
             ChapterSettingRow::Reset,
         ];
         rows.extend((0..self.chapter_scanlators().len()).map(ChapterSettingRow::Scanlator));
@@ -7770,6 +7825,9 @@ impl AppState {
                 } else {
                     settings.display.next()
                 };
+            }),
+            ChapterSettingRow::DownloadNewChapters => self.update_chapter_settings(|settings| {
+                settings.download_new_chapters = !settings.download_new_chapters;
             }),
             ChapterSettingRow::Reset => {
                 let defaults = self.config.chapter_defaults.clone();
@@ -10790,7 +10848,7 @@ impl AppState {
             self.goto_library_remote_story();
             return;
         }
-        self.fetch_library_remote_series(remote, title);
+        self.fetch_library_remote_series(remote, title, false);
     }
 
     /// Store a story in memory and on disk after a fetch.
@@ -10865,10 +10923,15 @@ impl AppState {
             thumbnail_url: manga.thumbnail_url.clone(),
             memo: manga.memo.clone(),
         };
-        self.fetch_library_remote_series(remote, manga.title.clone());
+        self.fetch_library_remote_series(remote, manga.title.clone(), true);
     }
 
-    fn fetch_library_remote_series(&mut self, remote: RemoteSeries, title: String) {
+    fn fetch_library_remote_series(
+        &mut self,
+        remote: RemoteSeries,
+        title: String,
+        auto_download: bool,
+    ) {
         if self.host_client.is_none() && !self.ensure_host() {
             return;
         }
@@ -10878,6 +10941,20 @@ impl AppState {
         let Some(client) = self.host_client.clone() else {
             return;
         };
+        let old_urls: HashSet<String> =
+            if auto_download
+                && self.library_remote.manga.as_ref().is_some_and(|manga| {
+                    manga.source_id == remote.source_id && manga.url == remote.url
+                })
+            {
+                self.library_remote
+                    .chapters
+                    .iter()
+                    .map(|chapter| chapter.url.clone())
+                    .collect()
+            } else {
+                HashSet::new()
+            };
         let mut manga = RemoteManga {
             source_id: remote.source_id.clone(),
             url: remote.url.clone(),
@@ -10925,7 +11002,10 @@ impl AppState {
             .insert(remote_story_key(&manga.source_id, &manga.url));
         self.cache_story(manga.clone(), chapters.clone());
         let source = self.remote_source_display_name(&manga.source_id);
+        let manga_for_download = manga.clone();
+        let chapters_for_download = chapters.clone();
         self.show_library_remote_story(manga, chapters, source);
+        self.auto_download_new_chapters(&manga_for_download, &old_urls, &chapters_for_download);
     }
 
     /// Whether each chapter of a remote manga has a completed download directory.

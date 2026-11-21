@@ -479,6 +479,15 @@ fn draw_chapter_settings(frame: &mut Frame, app: &AppState) {
                 ChapterSettingRow::Display => {
                     ("Display".to_owned(), settings.display.label().to_owned())
                 }
+                ChapterSettingRow::DownloadNewChapters => (
+                    "Download new chapters".to_owned(),
+                    if settings.download_new_chapters {
+                        "on"
+                    } else {
+                        "off"
+                    }
+                    .to_owned(),
+                ),
                 ChapterSettingRow::Reset => ("Reset to defaults".to_owned(), String::new()),
                 ChapterSettingRow::Scanlator(index) => {
                     let name = scanlators.get(*index).cloned().unwrap_or_default();
