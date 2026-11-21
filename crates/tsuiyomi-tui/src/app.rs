@@ -72,6 +72,14 @@ const COVER_RETRY: Duration = Duration::from_secs(10);
 /// reader open while idle does not inflate stats.
 const READING_IDLE_CUTOFF: Duration = Duration::from_secs(120);
 
+/// Page-turn direction derived from Mihon's reading mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReadingDirection {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LibraryView {
     #[default]
@@ -909,6 +917,7 @@ pub struct AppState {
     pub fullscreen: bool,
     pub view: LibraryView,
     pub reader_mode: ReaderMode,
+    pub reading_direction: ReadingDirection,
     pub library: Library,
     pub library_remote: LibraryRemoteState,
     /// Chapters fetched for saved manga, keyed by source+URL. Reopening a story is
@@ -1054,6 +1063,7 @@ impl AppState {
             fullscreen: false,
             view: LibraryView::Series,
             reader_mode: ReaderMode::Page,
+            reading_direction: ReadingDirection::LeftToRight,
             library,
             library_remote: LibraryRemoteState::default(),
             remote_chapter_cache: HashMap::new(),
@@ -8742,6 +8752,8 @@ impl AppState {
         if self.reader.is_some() && self.reader_mode == ReaderMode::Scroll {
             let page = self.reader.as_ref().map_or(0, |reader| reader.page_index);
             self.jump_to_page(page + 1);
+        } else if self.previous_page_key_advances() {
+            self.change_page(false);
         } else {
             self.change_page(true);
         }
@@ -8766,6 +8778,8 @@ impl AppState {
             } else {
                 self.jump_to_page(page);
             }
+        } else if self.previous_page_key_advances() {
+            self.change_page(true);
         } else {
             self.change_page(false);
         }
@@ -8796,6 +8810,17 @@ impl AppState {
                 ReaderMode::Scroll
             }
         };
+        self.reading_direction = if mode == ReadingMode::RightToLeft {
+            ReadingDirection::RightToLeft
+        } else {
+            ReadingDirection::LeftToRight
+        };
+    }
+
+    /// In RTL page mode the left arrow advances and the right arrow goes back.
+    pub fn previous_page_key_advances(&self) -> bool {
+        self.reader_mode == ReaderMode::Page
+            && self.reading_direction == ReadingDirection::RightToLeft
     }
 
     /// Apply the persisted config to runtime state.
@@ -12733,6 +12758,19 @@ mod tests {
 
         assert_eq!(app.reader_chapter_index(), 1);
         assert_eq!(app.reader_chapter_count(), 2);
+    }
+
+    #[test]
+    fn right_to_left_mode_reverses_page_keys() {
+        let mut app = AppState::default();
+        app.set_reading_mode(ReadingMode::RightToLeft);
+        assert_eq!(app.reader_mode, ReaderMode::Page);
+        assert_eq!(app.reading_direction, ReadingDirection::RightToLeft);
+        assert!(app.previous_page_key_advances());
+
+        app.set_reading_mode(ReadingMode::LeftToRight);
+        assert_eq!(app.reading_direction, ReadingDirection::LeftToRight);
+        assert!(!app.previous_page_key_advances());
     }
 
     #[test]

@@ -360,7 +360,8 @@ works; remote dimensions are probed with small ranged requests. Set
 `TSUIYOMI_DEBUG_SCROLL=1` to write timings to `/tmp/tsuiyomi-scroll.log`.
 
 Reading mode, zoom, and scroll cache settings can also be changed in
-**More → Settings → Reader** using the thin sliders. Valid `reading_mode` values are `default`,
+**More → Settings → Reader** using the thin sliders. Right-to-left mode reverses the
+left/right page-turn keys in paged mode. Valid `reading_mode` values are `default`,
 `left_to_right`, `right_to_left`, `vertical`, `webtoon`, and `continuous_vertical`.
 Page-turn modes open single pages; `webtoon` and `continuous_vertical` open in scroll
 mode. `m` switches between page and scroll for the current session. Scroll mode fits

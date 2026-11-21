@@ -164,8 +164,9 @@ Rules:
   stays stable. Progress is stored in `$XDG_DATA_HOME/tsuiyomi/progress.json` and written
   after a short idle period instead of on every page change. Chapter bookmarks are stored
   in `$XDG_DATA_HOME/tsuiyomi/bookmarks.json`; `b` toggles them from a story screen or the
-  reader. Chapter rows use fixed bookmark/download columns. Reading direction, fit modes,
-  and retransmit-free Kitty placement zoom are not implemented yet.
+  reader. Chapter rows use fixed bookmark/download columns. Right-to-left page mode
+  reverses the left/right keys; vertical still uses paged mode. Fit modes and
+  retransmit-free Kitty placement zoom are not implemented yet.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
