@@ -4900,6 +4900,13 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 .clone()
                 .unwrap_or_else(|| "not set".to_owned()),
         ),
+        SettingId::FlareSolverr => (
+            "FlareSolverr URL".to_owned(),
+            app.config
+                .flaresolverr_url
+                .clone()
+                .unwrap_or_else(|| "off".to_owned()),
+        ),
         SettingId::ShowNsfw => (
             "Show NSFW extensions".to_owned(),
             if app.config.show_nsfw_extensions {

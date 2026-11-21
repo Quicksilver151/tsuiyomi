@@ -293,7 +293,11 @@ pub struct HostProcess {
 
 impl HostProcess {
     /// Start the host on a free loopback port and wait until it answers `/health`.
-    pub fn start(runtime: &HostRuntime, data_dir: &Path) -> Result<Self, CoreError> {
+    pub fn start(
+        runtime: &HostRuntime,
+        data_dir: &Path,
+        flaresolverr_url: Option<&str>,
+    ) -> Result<Self, CoreError> {
         fs::create_dir_all(data_dir).map_err(|source| CoreError::ReadDir {
             path: data_dir.to_path_buf(),
             source,
@@ -325,7 +329,7 @@ impl HostProcess {
             .arg(data_dir)
             .arg("--no-open")
             .arg("--flaresolverr")
-            .arg("")
+            .arg(flaresolverr_url.unwrap_or(""))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(log_err))

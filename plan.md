@@ -203,7 +203,7 @@ Chapter/story parity plan: `story-parity-plan.md`.
 - [ ] Background networking; the UI currently blocks on host calls.
 - [x] Pagination controls in the results grid.
 - [ ] Read-state mirroring back to the host.
-- [ ] Optional FlareSolverr configuration in Settings.
+- [x] Optional FlareSolverr configuration in Settings.
 - [ ] Optional remote-WebView bridge for the ~1% of sources that need one.
 
 ## Findings from a live host run

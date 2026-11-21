@@ -283,6 +283,7 @@ pub enum TextAction {
     FilterText,
     AddExtensionStore,
     SetHostUrl,
+    SetFlareSolverr,
     StoryNotes,
     SetCustomCover,
 }
@@ -431,6 +432,7 @@ pub enum SettingId {
     Incognito,
     HostUrl,
     ShowNsfw,
+    FlareSolverr,
 }
 
 /// Settings pages mirroring Mihon's `SettingsMainScreen` entries.
@@ -527,11 +529,12 @@ const SECURITY_ROWS: [MoreRow; 3] = [
     MoreRow::Note("Incognito stops writing reading progress."),
 ];
 
-const ADVANCED_ROWS: [MoreRow; 4] = [
+const ADVANCED_ROWS: [MoreRow; 5] = [
+    MoreRow::Divider("Network"),
+    MoreRow::Setting(SettingId::FlareSolverr),
     MoreRow::Divider("Diagnostics"),
     MoreRow::Note("Log level comes from TSUIYOMI_LOG."),
     MoreRow::Note("Refresh scans synchronously and may block briefly."),
-    MoreRow::Note("Scroll workers and page cache are tuned per session."),
 ];
 
 impl SettingsPage {
@@ -4081,7 +4084,7 @@ impl AppState {
             self.set_remote_error("Cannot resolve the host data directory.");
             return;
         };
-        match HostProcess::start(&runtime, &data_dir) {
+        match HostProcess::start(&runtime, &data_dir, self.config.flaresolverr_url.as_deref()) {
             Ok(process) => {
                 self.remote.host = Some(process.base_url().to_owned());
                 self.host_client = Some(HostClient::new(process.base_url()));
@@ -4576,6 +4579,7 @@ impl AppState {
             }
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
             TextAction::SetHostUrl => self.set_host_url(&input.value),
+            TextAction::SetFlareSolverr => self.set_flaresolverr_url(&input.value),
             TextAction::StoryNotes => self.save_story_notes(&input.value),
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
         }
@@ -5328,6 +5332,27 @@ impl AppState {
         self.start_bundled_host();
     }
 
+    fn set_flaresolverr_url(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            self.config.flaresolverr_url = None;
+        } else if value.starts_with("http://") || value.starts_with("https://") {
+            self.config.flaresolverr_url = Some(value.to_owned());
+        } else {
+            self.status = Some("FlareSolverr URL must start with http:// or https://".to_owned());
+            return;
+        }
+        self.persist_settings();
+        self.status = Some(if self.config.flaresolverr_url.is_some() {
+            "FlareSolverr configured".to_owned()
+        } else {
+            "FlareSolverr disabled".to_owned()
+        });
+        if self.host_process.is_some() {
+            self.restart_bundled_host();
+        }
+    }
+
     fn add_extension_store(&mut self, url: &str) {
         let Some(client) = self.host_client.clone() else {
             return;
@@ -5760,6 +5785,7 @@ impl AppState {
         self.remote.error = false;
         worker.request(HostRequest {
             host_jar: self.config.host_jar.clone(),
+            flaresolverr_url: self.config.flaresolverr_url.clone(),
             epoch: self.host_start_epoch,
         });
     }
@@ -9387,6 +9413,10 @@ impl AppState {
                 let current = self.config.host_url.clone().unwrap_or_default();
                 self.open_text_input(TextAction::SetHostUrl, "Extension host URL", &current);
             }
+            SettingId::FlareSolverr => {
+                let current = self.config.flaresolverr_url.clone().unwrap_or_default();
+                self.open_text_input(TextAction::SetFlareSolverr, "FlareSolverr URL", &current);
+            }
             SettingId::ReadingMode | SettingId::LibrarySort | SettingId::DefaultCategory => {
                 self.adjust_setting(1)
             }
@@ -9781,7 +9811,10 @@ impl AppState {
             SettingId::ShowNsfw => {
                 self.config.show_nsfw_extensions = !self.config.show_nsfw_extensions;
             }
-            SettingId::LibraryPath | SettingId::RescanLibrary | SettingId::HostUrl => return,
+            SettingId::LibraryPath
+            | SettingId::RescanLibrary
+            | SettingId::HostUrl
+            | SettingId::FlareSolverr => return,
         }
 
         self.persist_settings();
@@ -13362,6 +13395,20 @@ mod tests {
                 .map(|reader| reader.chapter_title.as_str()),
             Some("Chapter 2")
         );
+    }
+
+    #[test]
+    fn flaresolverr_requires_an_http_url() {
+        let mut app = AppState::default();
+        app.set_flaresolverr_url("127.0.0.1:8191");
+        assert!(app.config.flaresolverr_url.is_none());
+        app.set_flaresolverr_url("http://127.0.0.1:8191");
+        assert_eq!(
+            app.config.flaresolverr_url.as_deref(),
+            Some("http://127.0.0.1:8191")
+        );
+        app.set_flaresolverr_url("");
+        assert!(app.config.flaresolverr_url.is_none());
     }
 
     #[test]

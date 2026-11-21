@@ -92,6 +92,8 @@ pub struct Config {
     pub host_url: Option<String>,
     /// Explicit `miwayomi.jar` path for development. `None` uses the bundled runtime.
     pub host_jar: Option<PathBuf>,
+    /// Optional FlareSolverr endpoint passed to the bundled host.
+    pub flaresolverr_url: Option<String>,
     /// Default reader mode.
     pub reading_mode: ReadingMode,
     /// UI color theme.
@@ -165,6 +167,7 @@ impl Default for Config {
             downloads_path: None,
             host_url: None,
             host_jar: None,
+            flaresolverr_url: None,
             reading_mode: ReadingMode::default(),
             theme: Theme::default(),
             accent: None,

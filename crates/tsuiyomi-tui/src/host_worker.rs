@@ -8,6 +8,7 @@ use tsuiyomi_core::{ensure_runtime, host_data_dir, HostProcess};
 
 pub(crate) struct HostRequest {
     pub host_jar: Option<PathBuf>,
+    pub flaresolverr_url: Option<String>,
     pub epoch: u64,
 }
 
@@ -43,7 +44,8 @@ impl HostWorker {
                         })?;
                     let data_dir = host_data_dir()
                         .ok_or_else(|| "Cannot resolve the host data directory.".to_owned())?;
-                    HostProcess::start(&runtime, &data_dir).map_err(|error| error.to_string())
+                    HostProcess::start(&runtime, &data_dir, request.flaresolverr_url.as_deref())
+                        .map_err(|error| error.to_string())
                 })();
                 let _ = result_tx.send(HostResult {
                     epoch: request.epoch,

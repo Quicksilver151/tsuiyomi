@@ -52,7 +52,7 @@ fn host_selftest() -> Result<(), Box<dyn Error>> {
     println!("java: {}", runtime.java.display());
 
     let data_dir = host_data_dir().ok_or("cannot resolve the host data directory")?;
-    let process = HostProcess::start(&runtime, &data_dir)?;
+    let process = HostProcess::start(&runtime, &data_dir, config.flaresolverr_url.as_deref())?;
     let client = HostClient::new(process.base_url());
     client.health()?;
 

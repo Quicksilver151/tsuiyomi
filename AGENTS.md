@@ -306,8 +306,8 @@ Rules:
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
-  `browse_hide_saved`, `show_nsfw_extensions`, `remote_library`, `downloads_path`, and
-  `hidden_series`, and preserves unknown keys from existing files.
+  `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `remote_library`,
+  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
