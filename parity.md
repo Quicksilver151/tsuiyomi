@@ -85,6 +85,7 @@ Legend:
 | Results | Hide saved results | Yes | ✅ | ✅ | `h`, persisted. |
 | Results | Dim/mark saved results | Yes | ✅ | ✅ | `✓` plus dimmed title/status in terminals. |
 | Results | Pagination | Yes | ✅ | ✅ | `n` plus automatic load at the last result. |
+| Results | Empty/error retry hints | Yes | ✅ | ✅ | Retry and source-home hints in empty result states. |
 | Results | Save / remove with confirmation | Yes | ✅ | ✅ | Multi-select supported. |
 | Results | Duplicate detection | Yes | ✅ | ✅ | Add anyway, open existing, Migrate. |
 | Results | Category choice when saving | Yes | ✅ | ✅ | Default preselected. |

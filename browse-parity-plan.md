@@ -841,7 +841,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Pagination and append behavior.
 - [x] Loading and end-of-list indicators (background result worker).
 - [ ] Retry on error.
-- [ ] Empty-state retry, open-home, help.
+- [x] Empty-state retry and open-home hints.
 - [x] Comfortable grid, compact grid, list modes.
 - [x] Persisted display mode.
 - [x] In-library badge.

@@ -2376,7 +2376,7 @@ fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 failure.message
             )
         } else {
-            "No results.".to_owned()
+            "No results. Press r to retry.".to_owned()
         };
         frame.render_widget(
             Paragraph::new(message)
@@ -3318,6 +3318,22 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
     );
 }
 
+fn remote_results_empty_message(app: &AppState) -> String {
+    if !app.remote.results.is_empty() && app.config.browse_hide_saved {
+        return "All results are saved. Press h to show them.".to_owned();
+    }
+    if app.remote.loading {
+        return "Loading results…".to_owned();
+    }
+    if !app.remote.query.trim().is_empty() {
+        return format!(
+            "No results for \"{}\". Press s to search or r to retry.",
+            app.remote.query
+        );
+    }
+    "No results. Press r to retry or g for the source home page.".to_owned()
+}
+
 fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let results = app.visible_remote_results();
     if app.config.source_display_mode == SourceDisplayMode::List {
@@ -3326,11 +3342,7 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
     }
     let columns = grid_columns(area, app.config.thumbnail_width);
     if results.is_empty() {
-        let message = if !app.remote.results.is_empty() && app.config.browse_hide_saved {
-            "All results are saved. Press h to show them."
-        } else {
-            "No results."
-        };
+        let message = remote_results_empty_message(app);
         frame.render_widget(
             Paragraph::new(message)
                 .alignment(Alignment::Center)
@@ -3463,11 +3475,7 @@ fn draw_remote_result_list(
     results: &[RemoteManga],
 ) {
     if results.is_empty() {
-        let message = if !app.remote.results.is_empty() && app.config.browse_hide_saved {
-            "All results are saved. Press h to show them."
-        } else {
-            "No results."
-        };
+        let message = remote_results_empty_message(app);
         frame.render_widget(
             Paragraph::new(message)
                 .alignment(Alignment::Center)
