@@ -401,7 +401,7 @@ Implemented:
 - Categories for saved source manga.
 - Story notes persisted in config.
 - Story-level migration entry.
-- URL copy through OSC 52, local folder or absolute source URL opening, cover
+- URL and tag copy through OSC 52, local folder or absolute source URL opening, cover
   overlay, custom covers for local and saved source manga, and tag search.
 
 Remaining or intentionally deferred:
@@ -410,5 +410,4 @@ Remaining or intentionally deferred:
 - Android swipe gestures; TUI keys and the download menu replace them.
 - Source-site WebView; `C` and `o` cover copy/open behavior instead.
 - Cover share and delete beyond replacing/removing a saved source cover.
-- Tag copy actions (search is implemented).
 - Per-series tracking/update fields the host does not expose.

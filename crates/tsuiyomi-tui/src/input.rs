@@ -57,6 +57,7 @@ pub enum Action {
     Migrate,
     InvertSelection,
     StoryNotes,
+    CopyTags,
     ToggleCover,
     CustomCover,
     OpenSourceHome,
@@ -126,6 +127,7 @@ fn key_action(code: KeyCode, text_mode: bool) -> Option<Action> {
         KeyCode::Char('M') => Action::Migrate,
         KeyCode::Char('I') => Action::InvertSelection,
         KeyCode::Char('N') => Action::StoryNotes,
+        KeyCode::Char('Y') => Action::CopyTags,
         KeyCode::Char('w') => Action::ToggleCover,
         KeyCode::Char('W') => Action::CustomCover,
         KeyCode::Char('g') => Action::OpenSourceHome,
@@ -173,6 +175,15 @@ fn mouse_action(kind: MouseEventKind, column: u16, row: u16) -> Option<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shift_y_copies_tags() {
+        assert_eq!(
+            key_action(KeyCode::Char('Y'), false),
+            Some(Action::CopyTags)
+        );
+        assert_eq!(key_action(KeyCode::Char('y'), false), Some(Action::Confirm));
+    }
 
     #[test]
     fn arrows_do_not_control_tabs() {

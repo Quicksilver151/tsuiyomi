@@ -896,6 +896,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     }
                 }
             }
+            Action::CopyTags => {
+                if app.story_screen_active() {
+                    app.copy_story_tags();
+                }
+            }
             Action::SourcePrefs => {
                 if app.story_screen_active() {
                     app.copy_story_reference();

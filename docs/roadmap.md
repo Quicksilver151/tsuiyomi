@@ -13,13 +13,13 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Library](#library) | 12 | 2 | 2 | 0 | 81.2% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 39 | 2 | 6 | 0 | 85.1% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 40 | 2 | 5 | 0 | 87.2% |
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 17 | 2 | 1 | 0 | 90.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **183** | **17** | **16** | **2** | **88.7%** |
+| **All categories** | **184** | **17** | **15** | **2** | **89.1%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -193,7 +193,7 @@ table below.
 | Actions | Custom cover | Yes | ✅ | ✅ | Local and saved source manga; `W`. |
 | Actions | Remote cover share/delete | Yes | ❌ | ❌ | Replace/remove only. |
 | Actions | Tag search | Yes | ✅ | ✅ | `t` picker. |
-| Actions | Tag copy | Yes | ❌ | ❌ | |
+| Actions | Tag copy | Yes | ✅ | ✅ | `Y` copies the story tags through OSC 52. |
 | Gestures | Swipe to read/bookmark/download | Yes | ❌ | ❌ | TUI uses keys and menu actions. |
 
 ### Reader

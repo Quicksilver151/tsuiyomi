@@ -207,8 +207,8 @@ cover and metadata on the right. Browse uses that screen too. Rows show unread,
 in-progress, and read state, chapter dates, scanlators, bookmarks, and download state;
 chapter filters, sorting, and display mode persist per series. `x`/Delete removes
 selected downloads after confirmation, `c` edits categories for saved source manga,
-`M` opens Migrate with the manga selected, `N` edits notes, `C` copies the URL, `o`
-opens the local folder or an absolute source URL, `t` searches a tag, and `w`/`W` show
+`M` opens Migrate with the manga selected, `N` edits notes, `Y` copies tags, `C` copies
+the URL, `o` opens the local folder or an absolute source URL, `t` searches a tag, and `w`/`W` show
 the cover or set a custom cover for local or saved source manga. An empty path removes a
 custom source cover. Remote chapters can be downloaded with `D`; they are read from disk
 afterwards, even when the source is offline. Cancelling a queue aborts the active

@@ -9275,8 +9275,9 @@ impl AppState {
         self.status = Some("Saved story notes".to_owned());
     }
 
-    pub fn open_tag_picker(&mut self) {
-        let tags = if self.tab == 0 && self.view == LibraryView::Chapters {
+    /// Tags for the open story, whether it is local or remote.
+    fn current_story_tags(&self) -> Vec<String> {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
             self.selected_series()
                 .map(|series| series.tags.clone())
                 .unwrap_or_default()
@@ -9288,7 +9289,25 @@ impl AppState {
             self.remote_story_manga()
                 .map(|manga| manga.genre.clone())
                 .unwrap_or_default()
-        };
+        }
+    }
+
+    /// Copy the open story's tags through OSC 52, one per line.
+    pub fn copy_story_tags(&mut self) {
+        let tags = self.current_story_tags();
+        if tags.is_empty() {
+            self.status = Some("This story has no tags.".to_owned());
+            return;
+        }
+        let text = tags.join(", ");
+        match write_osc52_clipboard(&text) {
+            Ok(()) => self.status = Some(format!("Copied {} tags", tags.len())),
+            Err(error) => self.status = Some(format!("Could not copy: {error}")),
+        }
+    }
+
+    pub fn open_tag_picker(&mut self) {
+        let tags = self.current_story_tags();
         if tags.is_empty() {
             self.status = Some("This story has no tags.".to_owned());
             return;
@@ -14460,6 +14479,21 @@ mod tests {
         let mut app = AppState::new(library(), None);
         app.config.downloads_path = Some(root.to_path_buf());
         app
+    }
+
+    #[test]
+    fn story_tags_follow_the_open_local_series() {
+        let mut app = AppState::new(library(), None);
+        app.tab = 0;
+        app.view = LibraryView::Chapters;
+        app.selected = 0;
+        assert!(app.current_story_tags().is_empty());
+
+        app.library.series[0].tags = vec!["Comedy".to_owned(), "Slice of life".to_owned()];
+        assert_eq!(
+            app.current_story_tags(),
+            vec!["Comedy".to_owned(), "Slice of life".to_owned()]
+        );
     }
 
     #[test]
