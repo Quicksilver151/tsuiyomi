@@ -1,10 +1,14 @@
 use std::{
     path::PathBuf,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
     thread,
 };
 
-use tsuiyomi_core::{download_chapter, Page};
+use tsuiyomi_core::{download_chapter_with_cancel, Page};
 
 pub(crate) struct DownloadRequest {
     pub label: String,
@@ -14,6 +18,7 @@ pub(crate) struct DownloadRequest {
     pub chapter_name: String,
     pub scanlator: Option<String>,
     pub pages: Vec<Page>,
+    pub cancel: Arc<AtomicBool>,
 }
 
 pub(crate) struct DownloadResult {
@@ -34,13 +39,14 @@ impl DownloadWorker {
 
         thread::spawn(move || {
             for request in request_rx {
-                let result = download_chapter(
+                let result = download_chapter_with_cancel(
                     &request.root,
                     &request.source_name,
                     &request.series_title,
                     &request.chapter_name,
                     request.scanlator.as_deref(),
                     &request.pages,
+                    || request.cancel.load(Ordering::Relaxed),
                 )
                 .map_err(|error| error.to_string());
                 let _ = result_tx.send(DownloadResult {

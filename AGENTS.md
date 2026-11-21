@@ -272,8 +272,10 @@ Rules:
   chapter at a time on a worker thread; the reader downloads the current chapter
   directly. Queued and active rows show transient markers, `x`/Delete removes selected
   downloads after confirmation, and downloaded chapters are read from disk through the
-  same reader path. Cancelling drops pending chapters; an in-flight chapter finishes
-  because the download core has no abort hook yet. The root comes from `TSUIYOMI_DOWNLOADS`
+  same reader path. Cancelling drops pending chapters and signals the active chapter;
+  the core checks cancellation between page fetches, removes the partial `.tmp`
+  directory, and never replaces an existing complete download. The root comes from
+  `TSUIYOMI_DOWNLOADS`
   (runtime-only and never persisted), `downloads_path`, a sibling `downloads/` when the
   library lives in `local/`, or the app data directory.
 - Saved-source details and chapters are cached per story in

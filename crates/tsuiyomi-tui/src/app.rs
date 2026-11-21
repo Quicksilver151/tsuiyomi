@@ -1,7 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -740,6 +743,7 @@ pub enum DownloadState {
     Downloading,
     Done,
     Error,
+    Cancelled,
 }
 
 pub struct DownloadTask {
@@ -750,7 +754,7 @@ pub struct DownloadTask {
 #[derive(Default)]
 pub struct DownloadQueue {
     pub pending: VecDeque<DownloadTask>,
-    pub active: Option<(String, String)>,
+    pub active: Option<(String, String, Arc<AtomicBool>)>,
     pub total: usize,
     pub completed: usize,
     pub failed: usize,
@@ -5933,17 +5937,21 @@ impl AppState {
             .and_then(DownloadWorker::try_result)
         {
             let active = self.download_queue.active.take();
-            if let Some((key, _)) = &active {
+            let worker_cancelled =
+                matches!(&result.result, Err(error) if error == "operation cancelled");
+            if let Some((key, _, _)) = &active {
                 let state = if result.result.is_ok() {
                     self.download_queue.completed += 1;
                     DownloadState::Done
+                } else if worker_cancelled {
+                    DownloadState::Cancelled
                 } else {
                     self.download_queue.failed += 1;
                     DownloadState::Error
                 };
                 self.download_states.insert(key.clone(), state);
             }
-            let cancelled = self.download_queue.cancelling;
+            let cancelled = self.download_queue.cancelling || worker_cancelled;
             if cancelled {
                 self.download_queue.pending.clear();
                 self.download_queue.cancelling = false;
@@ -5986,7 +5994,8 @@ impl AppState {
         if let Some(task) = self.download_queue.pending.pop_front() {
             self.download_states
                 .insert(task.key.clone(), DownloadState::Downloading);
-            self.download_queue.active = Some((task.key, task.request.label.clone()));
+            let cancel = task.request.cancel.clone();
+            self.download_queue.active = Some((task.key, task.request.label.clone(), cancel));
             worker.request(task.request);
         }
     }
@@ -6233,7 +6242,7 @@ impl AppState {
                 self.download_queue
                     .active
                     .iter()
-                    .map(|(key, _)| key.clone()),
+                    .map(|(key, _, _)| key.clone()),
             )
             .collect();
         let mut tasks = Vec::new();
@@ -6274,6 +6283,7 @@ impl AppState {
                     chapter_name: chapter.name.clone(),
                     scanlator: chapter.scanlator.clone(),
                     pages,
+                    cancel: Arc::new(AtomicBool::new(false)),
                 },
             });
         }
@@ -6310,7 +6320,8 @@ impl AppState {
         for task in self.download_queue.pending.drain(..) {
             self.download_states.remove(&task.key);
         }
-        if self.download_queue.active.is_some() {
+        if let Some((_, _, cancel)) = &self.download_queue.active {
+            cancel.store(true, Ordering::Relaxed);
             self.download_queue.cancelling = true;
             self.status = Some("Cancelling the download queue…".to_owned());
         } else {
@@ -13475,6 +13486,17 @@ mod tests {
                 .map(|reader| reader.chapter_title.as_str()),
             Some("Chapter 2")
         );
+    }
+
+    #[test]
+    fn cancelling_marks_the_active_download() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut app = AppState::default();
+        app.download_queue.active =
+            Some(("chapter".to_owned(), "label".to_owned(), cancel.clone()));
+        app.cancel_downloads();
+        assert!(cancel.load(Ordering::Relaxed));
+        assert!(app.download_queue.cancelling);
     }
 
     #[test]

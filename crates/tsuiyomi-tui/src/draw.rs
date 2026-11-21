@@ -4287,6 +4287,7 @@ fn chapter_marker_spans(
         Some(DownloadState::Queued) => Span::styled("… ", Style::default().fg(c_blue())),
         Some(DownloadState::Downloading) => Span::styled("⟳ ", Style::default().fg(c_yellow())),
         Some(DownloadState::Error) => Span::styled("! ", Style::default().fg(c_peach())),
+        Some(DownloadState::Cancelled) => Span::styled("× ", Style::default().fg(c_overlay0())),
         Some(DownloadState::Done) | None => match downloaded {
             Some(true) => Span::styled("⬇ ", Style::default().fg(c_green())),
             Some(false) => Span::styled("↓ ", Style::default().fg(c_overlay0())),

@@ -154,6 +154,31 @@ pub fn download_chapter(
     scanlator: Option<&str>,
     pages: &[Page],
 ) -> Result<PathBuf, CoreError> {
+    download_chapter_with_cancel(
+        root,
+        source_name,
+        series_title,
+        chapter_name,
+        scanlator,
+        pages,
+        || false,
+    )
+}
+
+/// Download a chapter, checking `cancelled` between page fetches. A cancelled
+/// download removes its temporary directory and never replaces an existing chapter.
+pub fn download_chapter_with_cancel(
+    root: &Path,
+    source_name: &str,
+    series_title: &str,
+    chapter_name: &str,
+    scanlator: Option<&str>,
+    pages: &[Page],
+    cancelled: impl Fn() -> bool,
+) -> Result<PathBuf, CoreError> {
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
     let target = chapter_dir(root, source_name, series_title, chapter_name, scanlator);
     let temporary = target.with_extension("tmp");
     if temporary.exists() {
@@ -166,10 +191,18 @@ pub fn download_chapter(
 
     let digits = pages.len().max(1).to_string().len().max(3);
     for (index, page) in pages.iter().enumerate() {
+        if cancelled() {
+            let _ = fs::remove_dir_all(&temporary);
+            return Err(CoreError::Cancelled);
+        }
         let PageSource::Remote { url } = &page.source else {
             continue;
         };
         let bytes = crate::host::fetch_bytes(url)?;
+        if cancelled() {
+            let _ = fs::remove_dir_all(&temporary);
+            return Err(CoreError::Cancelled);
+        }
         let extension = image_extension(&bytes);
         let name = format!("{:0width$}.{extension}", index + 1, width = digits);
         fs::write(temporary.join(name), bytes).map_err(|source| CoreError::WriteFile {
@@ -213,6 +246,23 @@ mod tests {
         assert_eq!(sanitize_component("a/b:c?d"), "a_b_c_d");
         assert_eq!(sanitize_component("..."), "(invalid)");
         assert_eq!(sanitize_component(".hidden"), "hidden");
+    }
+
+    #[test]
+    fn cancelled_downloads_do_not_create_directories() {
+        let root = tempfile::tempdir().unwrap();
+        let error = download_chapter_with_cancel(
+            root.path(),
+            "Source",
+            "Series",
+            "Chapter 1",
+            None,
+            &[],
+            || true,
+        )
+        .unwrap_err();
+        assert!(matches!(error, CoreError::Cancelled));
+        assert!(!chapter_dir(root.path(), "Source", "Series", "Chapter 1", None).exists());
     }
 
     #[test]

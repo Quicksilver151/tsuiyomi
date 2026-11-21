@@ -199,7 +199,8 @@ selected downloads after confirmation, `c` edits categories for saved source man
 opens the local folder or an absolute source URL, `t` searches a tag, and `w`/`W` show
 the cover or set a custom cover for local or saved source manga. An empty path removes a
 custom source cover. Remote chapters can be downloaded with `D`; they are read from disk
-afterwards, even when the source is offline.
+afterwards, even when the source is offline. Cancelling a queue aborts the active
+chapter between page fetches and removes its partial `.tmp` directory.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.

@@ -43,4 +43,7 @@ pub enum CoreError {
 
     #[error("extension host error: {message}")]
     Host { message: String },
+
+    #[error("operation cancelled")]
+    Cancelled,
 }

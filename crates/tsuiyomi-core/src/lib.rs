@@ -40,8 +40,8 @@ pub use config::{
     ReadingMode, SourceDisplayMode, Theme,
 };
 pub use downloads::{
-    chapter_dir, chapter_dir_name, download_chapter, downloads_dir, is_downloaded, series_dir_name,
-    source_dir_name,
+    chapter_dir, chapter_dir_name, download_chapter, download_chapter_with_cancel, downloads_dir,
+    is_downloaded, series_dir_name, source_dir_name,
 };
 pub use error::CoreError;
 pub use extensions::merge_extensions;
