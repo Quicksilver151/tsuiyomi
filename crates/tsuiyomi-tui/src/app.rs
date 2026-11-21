@@ -15878,6 +15878,39 @@ mod tests {
     }
 
     #[test]
+    fn manual_migration_search_prefills_the_old_title() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Migrate;
+        app.migrate.screen = MigrateScreen::Matches;
+        app.migrate.matches = vec![MigrationMatch {
+            old: RemoteFavorite {
+                source_id: "1".to_owned(),
+                url: "/manga/old".to_owned(),
+                title: "Old Title".to_owned(),
+                thumbnail_url: None,
+                last_read_url: None,
+                last_read_name: None,
+                categories: Vec::new(),
+            },
+            old_chapters: Vec::new(),
+            target: None,
+            target_source: None,
+            target_chapters: Vec::new(),
+            score: 0.0,
+            error: Some("No match found".to_owned()),
+            skipped: false,
+        }];
+        app.browse_selection = 0;
+
+        app.open_migration_search();
+
+        let input = app.text_input.as_ref().expect("search input");
+        assert_eq!(input.action, TextAction::MigrationSearch);
+        assert_eq!(input.value, "Old Title");
+    }
+
+    #[test]
     fn backing_out_of_migration_cancels_matching() {
         let mut app = remote_app();
         app.migrate.screen = MigrateScreen::Favorites;
