@@ -5,7 +5,11 @@
 //! See `tachiyomi/core/metadata/comicinfo/ComicInfo.kt` and the local source's
 //! `copyFromComicInfo` / `setChapterDetailsFromComicInfoFile`.
 
+use std::{fs, path::Path};
+
 use quick_xml::{events::Event, Reader};
+
+use crate::error::CoreError;
 
 /// A chapter date from ComicInfo's `Year`/`Month`/`Day` fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +112,76 @@ impl ComicInfo {
             self.day.as_deref(),
         )
     }
+}
+
+impl ComicInfo {
+    /// Serialize the fields tsuiyomi reads back into a Mihon-readable `ComicInfo.xml`.
+    ///
+    /// Empty fields are omitted instead of written as empty elements. Unknown
+    /// extensions are intentionally not preserved: callers should avoid overwriting
+    /// an existing file.
+    pub fn to_xml(&self) -> String {
+        let mut xml = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ComicInfo>\n");
+        for (element, value) in [
+            ("Title", &self.title),
+            ("Series", &self.series),
+            ("Number", &self.number),
+            ("Summary", &self.summary),
+            ("Writer", &self.writer),
+            ("Penciller", &self.penciller),
+            ("Inker", &self.inker),
+            ("Colorist", &self.colorist),
+            ("Letterer", &self.letterer),
+            ("CoverArtist", &self.cover_artist),
+            ("Translator", &self.translator),
+            ("Genre", &self.genre),
+            ("Tags", &self.tags),
+            ("Categories", &self.categories),
+            ("PublishingStatusTachiyomi", &self.publishing_status),
+            ("Year", &self.year),
+            ("Month", &self.month),
+            ("Day", &self.day),
+        ] {
+            if let Some(value) = value {
+                if !value.trim().is_empty() {
+                    xml.push_str(&format!("  <{element}>{}</{element}>\n", escape_xml(value)));
+                }
+            }
+        }
+        xml.push_str("</ComicInfo>\n");
+        xml
+    }
+}
+
+/// Write `ComicInfo.xml` atomically next to a series directory.
+pub fn write_comic_info(path: &Path, info: &ComicInfo) -> Result<(), CoreError> {
+    let temporary = path.with_extension("xml.tmp");
+    fs::write(&temporary, info.to_xml()).map_err(|source| CoreError::WriteFile {
+        path: temporary.clone(),
+        source,
+    })?;
+    fs::rename(&temporary, path).map_err(|source| {
+        let _ = fs::remove_file(&temporary);
+        CoreError::WriteFile {
+            path: path.to_path_buf(),
+            source,
+        }
+    })
+}
+
+fn escape_xml(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn split_list(value: &str) -> Vec<String> {
@@ -308,5 +382,44 @@ mod tests {
                 day: 1
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod serializer_tests {
+    use super::*;
+
+    #[test]
+    fn serializes_and_parses_back() {
+        let info = ComicInfo {
+            title: Some("Berserk".to_owned()),
+            series: Some("Berserk".to_owned()),
+            summary: Some("A swordsman & a dream".to_owned()),
+            writer: Some("Kentaro Miura".to_owned()),
+            penciller: Some("Kentaro Miura".to_owned()),
+            genre: Some("Action, Drama".to_owned()),
+            publishing_status: Some("Ongoing".to_owned()),
+            ..ComicInfo::default()
+        };
+        let parsed = parse_comic_info(&info.to_xml()).unwrap();
+        assert_eq!(parsed, info);
+        assert!(info.to_xml().contains("A swordsman &amp; a dream"));
+    }
+
+    #[test]
+    fn writes_a_comic_info_file() {
+        let root = tempfile::tempdir().unwrap();
+        let info = ComicInfo {
+            title: Some("Series".to_owned()),
+            ..ComicInfo::default()
+        };
+        let path = root.path().join("ComicInfo.xml");
+        write_comic_info(&path, &info).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            parse_comic_info(&text).unwrap().title.as_deref(),
+            Some("Series")
+        );
+        assert!(!path.with_extension("xml.tmp").exists());
     }
 }

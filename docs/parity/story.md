@@ -402,7 +402,8 @@ Implemented:
 - Story notes persisted in config.
 - Story-level migration entry.
 - URL and tag copy through OSC 52, local folder or absolute source URL opening, cover
-  overlay, custom covers for local and saved source manga, and tag search.
+  overlay, custom covers for local and saved source manga, tag search, and
+  Mihon-readable `ComicInfo.xml` export for local series.
 
 Remaining or intentionally deferred:
 

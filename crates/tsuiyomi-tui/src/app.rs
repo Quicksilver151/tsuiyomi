@@ -24,12 +24,12 @@ use tsuiyomi_core::{
     move_series_downloads, normalized_title, page_dimensions, parse_mihon_backup, progress_prefix,
     read_cover, read_page, read_state, remote_cover_path, save_cached_story, save_config,
     scan_library, series_dir_name, source_dir_name, story_cache_path, title_similarity, today_key,
-    visible_chapters, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
-    BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
-    ChapterMeta, ChapterSettings, ChapterSort, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibrarySort,
-    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
-    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
+    BackupHistory, BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay,
+    ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo,
+    GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library,
+    LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page,
+    PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
     RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, Series,
     SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
     SourcePreferences, Theme, TriState,
@@ -9306,6 +9306,49 @@ impl AppState {
         }
     }
 
+    /// Write a Mihon-readable `ComicInfo.xml` for the open local series.
+    ///
+    /// Existing files are never overwritten: hand-edited metadata and fields
+    /// tsuiyomi does not model would be lost.
+    pub fn export_story_metadata(&mut self) {
+        let Some(series) = self.current_local_series() else {
+            self.status = Some("Metadata export is only available for local series.".to_owned());
+            return;
+        };
+        let path = series.path.join("ComicInfo.xml");
+        if path.exists() {
+            self.status = Some(format!(
+                "{} already exists; not overwriting.",
+                path.display()
+            ));
+            return;
+        }
+        let info = ComicInfo {
+            title: Some(series.title.clone()),
+            series: Some(series.title.clone()),
+            summary: (!series.description.trim().is_empty()).then(|| series.description.clone()),
+            writer: series.author.clone(),
+            penciller: series.artist.clone(),
+            genre: (!series.tags.is_empty()).then(|| series.tags.join(", ")),
+            publishing_status: series.status.clone(),
+            ..ComicInfo::default()
+        };
+        match write_comic_info(&path, &info) {
+            Ok(()) => self.status = Some(format!("Wrote {}", path.display())),
+            Err(error) => self.status = Some(format!("Could not write metadata: {error}")),
+        }
+    }
+
+    fn current_local_series(&self) -> Option<&Series> {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            self.selected_series()
+        } else if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            self.selected_browse_local_series()
+        } else {
+            None
+        }
+    }
+
     pub fn open_tag_picker(&mut self) {
         let tags = self.current_story_tags();
         if tags.is_empty() {
@@ -14479,6 +14522,37 @@ mod tests {
         let mut app = AppState::new(library(), None);
         app.config.downloads_path = Some(root.to_path_buf());
         app
+    }
+
+    #[test]
+    fn exports_metadata_for_the_open_local_series() {
+        let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let path = temp.path().join("Series");
+        std::fs::create_dir_all(&path).unwrap_or_else(|error| panic!("{error}"));
+
+        let mut app = AppState::new(library(), None);
+        app.tab = 0;
+        app.view = LibraryView::Chapters;
+        app.selected = 0;
+        app.library.series[0].path = path.clone();
+        app.library.series[0].title = "Exported Series".to_owned();
+        app.library.series[0].author = Some("Author".to_owned());
+        app.library.series[0].tags = vec!["Action".to_owned()];
+
+        app.export_story_metadata();
+        let file = path.join("ComicInfo.xml");
+        let xml = std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("{error}"));
+        assert!(xml.contains("<Title>Exported Series</Title>"));
+        assert!(xml.contains("<Writer>Author</Writer>"));
+        assert!(xml.contains("<Genre>Action</Genre>"));
+
+        // A second export must keep an existing, possibly hand-edited file.
+        std::fs::write(&file, "manual").unwrap_or_else(|error| panic!("{error}"));
+        app.export_story_metadata();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("{error}")),
+            "manual"
+        );
     }
 
     #[test]

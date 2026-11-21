@@ -9,7 +9,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| [On-disk compatibility](#on-disk-compatibility) | 17 | 4 | 1 | 0 | 86.4% |
+| [On-disk compatibility](#on-disk-compatibility) | 18 | 4 | 0 | 0 | 90.9% |
 | [Library](#library) | 12 | 2 | 2 | 0 | 81.2% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 17 | 2 | 1 | 0 | 90.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **184** | **17** | **15** | **2** | **89.1%** |
+| **All categories** | **185** | **17** | **14** | **2** | **89.6%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -52,7 +52,7 @@ table below.
 | Covers | `cover.jpg` custom cover | Yes | Yes | ✅ | Other valid `cover.*` images also work. |
 | Covers | Generated first-page cover | Yes | Yes | ✅ | Best effort, capped at 512 px longest edge. |
 | Categories | Mihon database categories | Yes | 🟡 | 🟡 | `categories.json` in the library root; unlisted series use `Default`. |
-| Metadata writes | Mihon-readable metadata export | Yes | ❌ | ❌ | No `ComicInfo.xml`/`details.json` writing. |
+| Metadata writes | Mihon-readable metadata export | Yes | ✅ | ✅ | `E` writes `ComicInfo.xml` for a local series; existing files are kept. Legacy `details.json` is not rewritten. |
 | Backups | Import `.tachibk` / `.proto.gz` | Yes | 🟡 | 🟡 | Remote favorites/categories/notes/progress/bookmarks/history; local-source entries and some metadata are skipped. |
 | Backups | Export Mihon-restorable backups | Yes | 🟡 | 🟡 | Local and remote library/categories/chapter state/history written; Mihon restore is not yet round-trip verified. |
 

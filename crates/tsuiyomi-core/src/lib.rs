@@ -39,7 +39,7 @@ pub use chapter_view::{
     missing_chapter_count, read_state, visible_chapters, ChapterDisplay, ChapterMeta,
     ChapterSettings, ChapterSort, ReadState, TriState,
 };
-pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
+pub use comic_info::{parse_comic_info, write_comic_info, ChapterDate, ComicInfo};
 pub use config::{
     load_config, save_config, Config, GlobalSearchScope, LibrarySort, LocalSourceOrder, ReaderFit,
     ReadingMode, SourceDisplayMode, Theme,

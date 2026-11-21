@@ -901,6 +901,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.copy_story_tags();
                 }
             }
+            Action::ExportMetadata => {
+                if app.story_screen_active() {
+                    app.export_story_metadata();
+                }
+            }
             Action::SourcePrefs => {
                 if app.story_screen_active() {
                     app.copy_story_reference();
