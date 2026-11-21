@@ -218,7 +218,8 @@ Rules:
   scanlators, bookmarks, and download queue state. Chapter actions cover select all/
   invert, mark read/unread/previous, continue reading, single and batch downloads
   (selected, next 1/5/10/25, unread, bookmarked), queue cancellation, download deletion,
-  categories, notes, migrate, copy/open, cover overlay, and custom local covers. Panels with item actions support
+  categories, notes, migrate, copy/open, cover overlay, tag search, and custom covers for
+  local or saved source manga. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
   clears); delete, install/uninstall/update/pin, source pinning, store removal, save to
   library, chapter download, and bookmark all operate on the selection. In the Library

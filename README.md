@@ -197,7 +197,8 @@ chapter filters, sorting, and display mode persist per series. `x`/Delete remove
 selected downloads after confirmation, `c` edits categories for saved source manga,
 `M` opens Migrate with the manga selected, `N` edits notes, `C` copies the URL, `o`
 opens the local folder or an absolute source URL, `t` searches a tag, and `w`/`W` show
-the cover or set a custom local cover. Remote chapters can be downloaded with `D`; they are read from disk
+the cover or set a custom cover for local or saved source manga. An empty path removes a
+custom source cover. Remote chapters can be downloaded with `D`; they are read from disk
 afterwards, even when the source is offline.
 
 There is no filesystem import browser. To add local manga, place the folder or archive

@@ -172,7 +172,7 @@ Chapter/story parity plan: `story-parity-plan.md`.
       extensions, stores, and chapter lists; actions apply to the whole selection.
 - [x] Reading history: one entry per chapter persisted in `history.json`, History tab
       with resume/delete/multi-select, local and remote sources, Incognito suppression.
-- [ ] Series-level download queue and download deletion UI.
+- [x] Series-level download queue and download deletion UI.
 - [x] Per-source preferences opened with `C` for switch, text, and list values through
       the host's existing preferences API. Multi-select preferences await host array
       support.

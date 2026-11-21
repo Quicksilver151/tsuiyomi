@@ -7329,13 +7329,62 @@ impl AppState {
             || self.tab == 3 && self.browse_view == BrowseView::Chapters
         {
             self.open_text_input(TextAction::SetCustomCover, "Custom cover path", "");
+        } else if self.remote_story_manga().is_some() {
+            let saved = self
+                .remote_story_manga()
+                .is_some_and(|manga| self.is_favorite(&manga.source_id, &manga.url));
+            if !saved {
+                self.status = Some("Save this manga before setting a custom cover.".to_owned());
+                return;
+            }
+            self.open_text_input(TextAction::SetCustomCover, "Custom cover path", "");
         } else {
-            self.status = Some("Custom covers are currently local-series only.".to_owned());
+            self.status = Some("Open a story to set its cover.".to_owned());
         }
     }
 
     fn set_custom_cover(&mut self, value: &str) {
-        let path = PathBuf::from(value.trim());
+        let value = value.trim();
+        if let Some(manga) = self.remote_story_manga().cloned() {
+            let Some(target) = remote_cover_path(&manga.source_id, &manga.url) else {
+                self.status = Some("Cannot resolve the cover cache path.".to_owned());
+                return;
+            };
+            if value.is_empty() {
+                let _ = std::fs::remove_file(&target);
+                self.tile_covers.clear();
+                self.failed_covers.clear();
+                self.status = Some(format!("Removed custom cover for {}", manga.title));
+                return;
+            }
+            let path = PathBuf::from(value);
+            if !path.is_file() {
+                self.status = Some(format!("Cover file not found: {}", path.display()));
+                return;
+            }
+            if let Some(parent) = target.parent() {
+                if std::fs::create_dir_all(parent).is_err() {
+                    self.status = Some("Cannot create the cover cache directory.".to_owned());
+                    return;
+                }
+            }
+            match std::fs::copy(&path, &target) {
+                Ok(_) => {
+                    self.tile_covers.clear();
+                    self.failed_covers
+                        .remove(&target.to_string_lossy().into_owned());
+                    self.status = Some(format!("Set custom cover for {}", manga.title));
+                }
+                Err(error) => self.status = Some(format!("Could not set cover: {error}")),
+            }
+            return;
+        }
+
+        if value.is_empty() {
+            self.status = Some("Enter a cover image path.".to_owned());
+            return;
+        }
+        let path = PathBuf::from(value);
         if !path.is_file() {
             self.status = Some(format!("Cover file not found: {}", path.display()));
             return;

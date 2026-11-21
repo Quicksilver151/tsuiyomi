@@ -402,14 +402,14 @@ Implemented:
 - Story notes persisted in config.
 - Story-level migration entry.
 - URL copy through OSC 52, local folder or absolute source URL opening, cover
-  overlay, custom local covers, and tag search.
+  overlay, custom covers for local and saved source manga, and tag search.
 
 Remaining or intentionally deferred:
 
 - Tracking integration (separate milestone).
 - Android swipe gestures; TUI keys and the download menu replace them.
 - Source-site WebView; `C` and `o` cover copy/open behavior instead.
-- Cover editing for remote favorites and cover share/delete.
+- Cover share and delete beyond replacing/removing a saved source cover.
 - Downloading newly discovered chapters automatically on refresh.
 - Aborting an in-flight download (the core download loop has no cancellation hook).
 - Tag copy actions (search is implemented).
