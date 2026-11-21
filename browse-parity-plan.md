@@ -839,7 +839,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Filter reset/apply.
 - [ ] Filters sent for popular, latest, and search.
 - [ ] Pagination and append behavior.
-- [ ] Loading and end-of-list indicators.
+- [x] Loading and end-of-list indicators (background result worker).
 - [ ] Retry on error.
 - [ ] Empty-state retry, open-home, help.
 - [x] Comfortable grid, compact grid, list modes.
@@ -1185,3 +1185,12 @@ Latest pass:
 Still open: debounced extension search over source URLs/ids, a full background Browse
 worker, and category migration from duplicate dialogs. Result pagination now loads
 automatically at the last row.
+
+
+### Browse polish status (latest)
+
+- Source result pages (popular/latest/search, first page and pagination) fetch on a
+  background worker with loading status and stale-result generation checks.
+- Global search starts with a per-source `searching…` row and updates it in place.
+- Saved results are marked and dimmed, store rows show counts, and `g` opens a source's
+  home page from installed extension metadata.

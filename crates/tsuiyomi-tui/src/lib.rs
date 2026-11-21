@@ -12,6 +12,7 @@ mod host_worker;
 mod input;
 mod layout;
 mod palette;
+mod result_worker;
 mod scroll_worker;
 mod search_worker;
 mod story_worker;
@@ -75,6 +76,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_download_worker(DownloadWorker::spawn());
     app.set_story_worker(StoryWorker::spawn());
     app.set_host_worker(HostWorker::spawn());
+    app.set_result_worker(crate::result_worker::ResultWorker::spawn());
     app.set_global_search_worker(GlobalSearchWorker::spawn());
     app.set_cover_worker(CoverWorker::spawn());
     app.maybe_recover_covers();
@@ -141,6 +143,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_extension_jobs() {
+            needs_draw = true;
+        }
+        if app.poll_result_worker() {
             needs_draw = true;
         }
         if app.poll_story_refresh() {

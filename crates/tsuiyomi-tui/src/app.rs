@@ -40,6 +40,7 @@ use crate::{
     host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
     palette,
+    result_worker::{ResultListing, ResultRequest, ResultWorker},
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
     search_worker::{GlobalSearchEvent, GlobalSearchWorker},
     story_worker::{StoryRequest, StoryWorker},
@@ -345,6 +346,8 @@ pub struct RemoteState {
     pub global_finished: usize,
     pub global_loading: bool,
     pub global_generation: u64,
+    /// A source result page is being fetched.
+    pub loading: bool,
     /// Installed files the host could not load.
     pub not_loaded: Vec<NotLoadedExtension>,
     /// Async install/update jobs keyed by package name.
@@ -393,6 +396,7 @@ impl Default for RemoteState {
             global_finished: 0,
             global_loading: false,
             global_generation: 0,
+            loading: false,
             not_loaded: Vec::new(),
             extension_jobs: BTreeMap::new(),
             global_group: 0,
@@ -935,6 +939,8 @@ pub struct AppState {
     pub(crate) scroll_worker: Option<ScrollWorker>,
     pub(crate) size_worker: Option<SizeWorker>,
     pub(crate) download_worker: Option<DownloadWorker>,
+    pub(crate) result_worker: Option<ResultWorker>,
+    result_generation: u64,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1057,6 +1063,8 @@ impl AppState {
             scroll_worker: None,
             size_worker: None,
             download_worker: None,
+            result_worker: None,
+            result_generation: 0,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -4306,14 +4314,37 @@ impl AppState {
         };
         self.remote.listing = listing;
         self.remote.page = 1;
+        self.remote.results.clear();
+        self.remote.has_next_page = false;
+        self.cover_lookups.clear();
+        self.failed_covers.clear();
+        self.result_generation = self.result_generation.wrapping_add(1);
+        if let Some(worker) = self.result_worker.as_ref() {
+            self.remote.loading = true;
+            self.remote.status = Some("Loading results…".to_owned());
+            self.remote.error = false;
+            worker.request(ResultRequest {
+                generation: self.result_generation,
+                client,
+                source,
+                listing: match listing {
+                    RemoteListing::Popular => ResultListing::Popular,
+                    RemoteListing::Latest => ResultListing::Latest,
+                    RemoteListing::Search => ResultListing::Search,
+                },
+                query: self.remote.query.clone(),
+                filters: self.remote.filters.clone(),
+                page: 1,
+                append: false,
+            });
+            return;
+        }
         match self.fetch_remote_page(&client, &source, 1) {
             Ok(result) => {
                 self.remote.results = result.mangas;
                 self.remote.has_next_page = result.has_next_page;
                 self.remote.status = None;
                 self.remote.error = false;
-                self.cover_lookups.clear();
-                self.failed_covers.clear();
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -4326,6 +4357,9 @@ impl AppState {
             self.remote.error = false;
             return;
         }
+        if self.remote.loading {
+            return;
+        }
         let Some(client) = self.host_client.clone() else {
             return;
         };
@@ -4333,6 +4367,26 @@ impl AppState {
             return;
         };
         let next_page = self.remote.page.saturating_add(1).max(2);
+        self.result_generation = self.result_generation.wrapping_add(1);
+        if let Some(worker) = self.result_worker.as_ref() {
+            self.remote.loading = true;
+            self.remote.status = Some(format!("Loading page {next_page}…"));
+            worker.request(ResultRequest {
+                generation: self.result_generation,
+                client,
+                source,
+                listing: match self.remote.listing {
+                    RemoteListing::Popular => ResultListing::Popular,
+                    RemoteListing::Latest => ResultListing::Latest,
+                    RemoteListing::Search => ResultListing::Search,
+                },
+                query: self.remote.query.clone(),
+                filters: self.remote.filters.clone(),
+                page: next_page,
+                append: true,
+            });
+            return;
+        }
         match self.fetch_remote_page(&client, &source, next_page) {
             Ok(result) => {
                 self.append_remote_results(result.mangas);
@@ -4344,6 +4398,41 @@ impl AppState {
             }
             Err(error) => self.set_remote_error(error),
         }
+    }
+
+    /// Apply a completed background result page. Returns whether the UI changed.
+    pub fn poll_result_worker(&mut self) -> bool {
+        let mut changed = false;
+        while let Some(event) = self
+            .result_worker
+            .as_ref()
+            .and_then(ResultWorker::try_result)
+        {
+            if event.generation != self.result_generation {
+                continue;
+            }
+            self.remote.loading = false;
+            changed = true;
+            match event.result {
+                Ok(page) => {
+                    if event.append {
+                        self.append_remote_results(page.mangas);
+                    } else {
+                        self.remote.results = page.mangas;
+                    }
+                    self.remote.page = event.page;
+                    self.remote.has_next_page = page.has_next_page;
+                    self.remote.status = None;
+                    self.remote.error = false;
+                    self.refresh_download_marks();
+                }
+                Err(error) => {
+                    self.remote.status = Some(error);
+                    self.remote.error = true;
+                }
+            }
+        }
+        changed
     }
 
     fn append_remote_results(&mut self, mangas: Vec<RemoteManga>) {
@@ -5758,6 +5847,10 @@ impl AppState {
 
     pub(crate) fn set_download_worker(&mut self, worker: DownloadWorker) {
         self.download_worker = Some(worker);
+    }
+
+    pub(crate) fn set_result_worker(&mut self, worker: ResultWorker) {
+        self.result_worker = Some(worker);
     }
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
