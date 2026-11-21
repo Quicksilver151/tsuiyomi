@@ -9,7 +9,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| [On-disk compatibility](#on-disk-compatibility) | 18 | 4 | 0 | 0 | 90.9% |
+| [On-disk compatibility](#on-disk-compatibility) | 19 | 3 | 0 | 0 | 93.2% |
 | [Library](#library) | 15 | 1 | 0 | 0 | 96.9% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 19 | 0 | 1 | 0 | 95.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **190** | **14** | **12** | **2** | **91.2%** |
+| **All categories** | **191** | **13** | **12** | **2** | **91.4%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -53,7 +53,7 @@ table below.
 | Covers | Generated first-page cover | Yes | Yes | ✅ | Best effort, capped at 512 px longest edge. |
 | Categories | Mihon database categories | Yes | 🟡 | 🟡 | `categories.json` in the library root; unlisted series use `Default`. |
 | Metadata writes | Mihon-readable metadata export | Yes | ✅ | ✅ | `E` writes `ComicInfo.xml` for a local series; existing files are kept. Legacy `details.json` is not rewritten. |
-| Backups | Import `.tachibk` / `.proto.gz` | Yes | 🟡 | 🟡 | Remote favorites/categories/notes/progress/bookmarks/history; local-source entries and some metadata are skipped. |
+| Backups | Import `.tachibk` / `.proto.gz` | Yes | ✅ | ✅ | Local and remote favorites, categories, notes, chapter state, bookmarks, and history. Local entries work without the extension host. |
 | Backups | Export Mihon-restorable backups | Yes | 🟡 | 🟡 | Local and remote library/categories/chapter state/history written; Mihon restore is not yet round-trip verified. |
 
 ### Library
@@ -458,25 +458,23 @@ defaults with a visible warning.
 
 ## Phase 7 — Mihon backups
 
-- [ ] Define protobuf structs with `prost` matching Mihon's `@ProtoNumber` models.
-- [ ] Detect optional gzip (magic `1f 8b`) and stream `BackupManga` entries.
-- [ ] Import: match series by title, chapters by number/title; import read state and
-      history.
-- [ ] Report unmatched series/chapters instead of silently dropping them.
-- [ ] Export: produce `.tachibk` files Mihon can restore.
-- [ ] Add round-trip tests and a real-backup fixture (redacted).
+- [x] Define protobuf structs matching Mihon's `@ProtoNumber` models.
+- [x] Detect optional gzip (magic `1f 8b`) and read `BackupManga` entries.
+- [x] Import: match local folders by name/title and remote manga by source/title;
+      restore read state, bookmarks, and history.
+- [x] Report unmatched manga instead of silently dropping them.
+- [x] Export: produce `.tachibk` files with local and remote entries.
+- [ ] Add round-trip tests with a real-backup fixture (redacted).
 
 **Done when:** a backup exported by Mihon imports with correct progress, and an exported
 backup restores in Mihon.
 
 ## Phase 8 — Updates and remote sources
 
-- [ ] Local updates: rescan the library, detect new chapters, mark them unread.
-- [ ] Updates tab lists new chapters since the last scan.
-- [ ] Decide the remote-source strategy. Mihon extensions are Android/Kotlin APKs and
-      cannot run here, so this needs independent source implementations or a companion
-      bridge — explicitly out of scope until designed.
-- [ ] Only add search/remote browsing after that decision.
+- [x] Local updates: rescan the library and detect new chapters.
+- [x] Updates tab lists new chapters since the last scan.
+- [x] Remote sources: run Mihon extensions through the bundled JVM host.
+- [x] Remote search, browsing, and reading through that host.
 
 **Done when:** new local chapters show up in the Updates tab without rescanning manually.
 

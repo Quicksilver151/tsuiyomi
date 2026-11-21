@@ -331,7 +331,9 @@ Rules:
   than two minutes are discarded. The duplicate-save dialog can open Migrate for the
   existing entry with `M`. `record_progress` flushes history with progress; global and
   per-extension Incognito suppress history and time.
-- No title filter or backup support yet.
+- Library title filtering and backup import/export are implemented. Import restores local
+  entries without the host; remote entries need a matching extension source. Exported
+  backups still need a real Mihon restore check.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
   `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,

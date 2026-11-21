@@ -6787,6 +6787,116 @@ impl AppState {
         }
     }
 
+    /// Whether a backup entry belongs to Mihon's Local source.
+    fn is_local_backup_manga(source_id: i64, source_name: Option<&String>) -> bool {
+        source_id == 0 || source_name.is_some_and(|name| normalized_title(name) == "localsource")
+    }
+
+    /// Restore progress, bookmarks, history, notes, and categories for one local entry.
+    ///
+    /// Returns `(progress, bookmarks, history, categories_changed)` when a library
+    /// series matches, or `None` when it is not in the library.
+    fn import_local_backup_manga(
+        &mut self,
+        manga: &BackupManga,
+        category_names: &std::collections::HashMap<i64, String>,
+    ) -> Option<(usize, usize, usize, bool)> {
+        let index = self.library.series.iter().position(|series| {
+            series.remote.is_none()
+                && (series.path.file_name().and_then(|name| name.to_str())
+                    == Some(manga.url.as_str())
+                    || series.title == manga.title)
+        })?;
+        let series = self.library.series[index].clone();
+
+        let categories: Vec<String> = manga
+            .category_ids
+            .iter()
+            .filter_map(|id| category_names.get(id).cloned())
+            .collect();
+        let mut categories_changed = false;
+        if !categories.is_empty() {
+            for name in &categories {
+                if !self.library.categories.iter().any(|known| known == name) {
+                    self.library.categories.push(name.clone());
+                }
+            }
+            self.library.series[index].categories = categories;
+            categories_changed = true;
+        }
+
+        let story_key = format!("local:{}", series.path.display());
+        if !manga.notes.trim().is_empty() {
+            self.config
+                .story_notes
+                .insert(story_key, manga.notes.clone());
+        }
+
+        let chapter_index = |url: &str, name: &str| {
+            series.chapters.iter().position(|chapter| {
+                chapter.path.file_name().and_then(|file| file.to_str()) == Some(url)
+                    || (!name.is_empty() && chapter.title == name)
+            })
+        };
+        let mut progress = 0usize;
+        let mut bookmarks = 0usize;
+        let mut history = 0usize;
+        for chapter in &manga.chapters {
+            let Some(index) = chapter_index(&chapter.url, &chapter.name) else {
+                continue;
+            };
+            let local_chapter = &series.chapters[index];
+            let page = chapter.last_page_read.max(0) as usize;
+            if chapter.read {
+                self.progress
+                    .update(&local_chapter.path, page, page.saturating_add(1));
+                progress += 1;
+            } else if page > 0 {
+                self.progress
+                    .update(&local_chapter.path, page, page.saturating_add(2));
+                progress += 1;
+            }
+            if chapter.bookmark {
+                self.bookmarks.set(&local_chapter.path, true);
+                bookmarks += 1;
+            }
+        }
+
+        let chapters: std::collections::HashMap<&str, &tsuiyomi_core::BackupChapter> = manga
+            .chapters
+            .iter()
+            .map(|chapter| (chapter.url.as_str(), chapter))
+            .collect();
+        for entry in &manga.history {
+            let Some(chapter) = chapters.get(entry.url.as_str()).copied() else {
+                continue;
+            };
+            let Some(index) = chapter_index(&entry.url, &chapter.name) else {
+                continue;
+            };
+            let local_chapter = &series.chapters[index];
+            let page = chapter.last_page_read.max(0) as usize;
+            let mut history_entry = HistoryEntry::local(
+                series.title.clone(),
+                local_chapter.title.clone(),
+                series.path.clone(),
+                local_chapter.path.clone(),
+                series.cover.clone(),
+                page,
+                page.saturating_add(1),
+            );
+            history_entry.last_read = unix_seconds(entry.last_read.max(0) as u64);
+            history_entry.read_duration_secs = entry.read_duration.max(0) as u64;
+            self.history.record(
+                local_chapter.path.to_string_lossy().into_owned(),
+                history_entry,
+            );
+            history += 1;
+        }
+
+        Some((progress, bookmarks, history, categories_changed))
+    }
+
     fn import_backup(&mut self, value: &str) {
         let path = PathBuf::from(value.trim());
         let bytes = match std::fs::read(&path) {
@@ -6807,15 +6917,7 @@ impl AppState {
             self.status = Some("Backup contains no manga.".to_owned());
             return;
         }
-        if self.host_client.is_none() && !self.ensure_host() {
-            return;
-        }
-        if self.remote.sources.is_empty() {
-            self.load_remote_sources();
-        }
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
+
         let source_names: std::collections::HashMap<i64, String> = backup
             .sources
             .iter()
@@ -6826,6 +6928,25 @@ impl AppState {
             .iter()
             .map(|category| (category.id, category.name.clone()))
             .collect();
+        let remote_mangas: Vec<&BackupManga> = backup
+            .mangas
+            .iter()
+            .filter(|manga| {
+                !Self::is_local_backup_manga(manga.source_id, source_names.get(&manga.source_id))
+            })
+            .collect();
+
+        if !remote_mangas.is_empty() {
+            if self.host_client.is_none() && !self.ensure_host() {
+                return;
+            }
+            if self.remote.sources.is_empty() {
+                self.load_remote_sources();
+            }
+            if self.host_client.is_none() {
+                return;
+            }
+        }
 
         let mut imported = 0usize;
         let mut skipped = 0usize;
@@ -6833,9 +6954,47 @@ impl AppState {
         let mut progress_count = 0usize;
         let mut bookmark_count = 0usize;
         let mut history_count = 0usize;
+        let mut local_categories_changed = false;
+        let mut remote_imported = 0usize;
         let mut categories_to_apply: Vec<(String, Vec<String>)> = Vec::new();
 
+        // Local entries do not need the extension host. Restore them first so a
+        // local-only backup works with no JVM installed.
         for manga in &backup.mangas {
+            if !Self::is_local_backup_manga(manga.source_id, source_names.get(&manga.source_id)) {
+                continue;
+            }
+            match self.import_local_backup_manga(manga, &category_names) {
+                Some((progress, bookmarks, history, changed)) => {
+                    progress_count += progress;
+                    bookmark_count += bookmarks;
+                    history_count += history;
+                    local_categories_changed |= changed;
+                    imported += 1;
+                }
+                None => skipped += 1,
+            }
+        }
+
+        if remote_mangas.is_empty() {
+            self.finish_backup_import(
+                imported,
+                skipped,
+                failed,
+                progress_count,
+                bookmark_count,
+                history_count,
+                local_categories_changed,
+                remote_imported,
+                categories_to_apply,
+            );
+            return;
+        }
+
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        for manga in remote_mangas {
             let source = if let Some(name) = source_names.get(&manga.source_id) {
                 let normalized = normalized_title(name);
                 self.remote.sources.iter().find(|source| {
@@ -6966,24 +7125,54 @@ impl AppState {
                     .record(key.to_string_lossy().into_owned(), entry);
                 history_count += 1;
             }
+            remote_imported += 1;
             imported += 1;
         }
 
+        self.finish_backup_import(
+            imported,
+            skipped,
+            failed,
+            progress_count,
+            bookmark_count,
+            history_count,
+            local_categories_changed,
+            remote_imported,
+            categories_to_apply,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_backup_import(
+        &mut self,
+        imported: usize,
+        skipped: usize,
+        failed: usize,
+        progress_count: usize,
+        bookmark_count: usize,
+        history_count: usize,
+        local_categories_changed: bool,
+        remote_imported: usize,
+        categories_to_apply: Vec<(String, Vec<String>)>,
+    ) {
         if imported > 0 {
-            self.load_favorites();
-            for (key, categories) in categories_to_apply {
-                if let Some(favorite) =
-                    self.config.remote_library.iter_mut().find(|favorite| {
+            if remote_imported > 0 {
+                self.load_favorites();
+                for (key, categories) in categories_to_apply {
+                    if let Some(favorite) = self.config.remote_library.iter_mut().find(|favorite| {
                         remote_story_key(&favorite.source_id, &favorite.url) == key
-                    })
-                {
-                    let mut known: std::collections::BTreeSet<String> =
-                        favorite.categories.iter().cloned().collect();
-                    known.extend(categories);
-                    favorite.categories = known.into_iter().collect();
+                    }) {
+                        let mut known: std::collections::BTreeSet<String> =
+                            favorite.categories.iter().cloned().collect();
+                        known.extend(categories);
+                        favorite.categories = known.into_iter().collect();
+                    }
                 }
+                self.merge_remote_library();
             }
-            self.merge_remote_library();
+            if local_categories_changed {
+                self.save_library_categories();
+            }
             let _ = self.progress.save();
             let _ = self.bookmarks.save();
             let _ = self.history.save();
@@ -7002,7 +7191,7 @@ impl AppState {
             parts.push(format!("{history_count} history entries"));
         }
         if skipped > 0 {
-            parts.push(format!("{skipped} unmatched sources"));
+            parts.push(format!("{skipped} unmatched manga"));
         }
         if failed > 0 {
             parts.push(format!("{failed} add failures"));
@@ -17031,6 +17220,100 @@ mod tests {
         let input = app.text_input.as_ref().expect("search input");
         assert_eq!(input.action, TextAction::MigrationSearch);
         assert_eq!(input.value, "Old Title");
+    }
+
+    #[test]
+    fn local_backup_entries_restore_state() {
+        let mut app = AppState::new(library(), None);
+        let manga = BackupManga {
+            source_id: 0,
+            url: "Berserk".to_owned(),
+            title: "Berserk".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            thumbnail_url: None,
+            chapters: vec![
+                BackupChapter {
+                    url: "Chapter 1".to_owned(),
+                    name: "Chapter 1".to_owned(),
+                    scanlator: None,
+                    read: true,
+                    bookmark: true,
+                    last_page_read: 4,
+                    date_upload: 0,
+                    chapter_number: 1.0,
+                },
+                BackupChapter {
+                    url: "Chapter 2".to_owned(),
+                    name: "Chapter 2".to_owned(),
+                    scanlator: None,
+                    read: false,
+                    bookmark: false,
+                    last_page_read: 2,
+                    date_upload: 0,
+                    chapter_number: 2.0,
+                },
+            ],
+            category_ids: vec![7],
+            favorite: true,
+            notes: "Remember this".to_owned(),
+            history: vec![BackupHistory {
+                url: "Chapter 1".to_owned(),
+                last_read: 1_700_000_000_000,
+                read_duration: 90,
+            }],
+        };
+        let categories = std::collections::HashMap::from([(7, "Reading".to_owned())]);
+
+        let result = app
+            .import_local_backup_manga(&manga, &categories)
+            .expect("local series matches");
+
+        assert_eq!(result, (2, 1, 1, true));
+        let first = Path::new("Chapter 1");
+        let second = Path::new("Chapter 2");
+        assert_eq!(
+            app.progress
+                .entry(first)
+                .map(|entry| (entry.page, entry.pages)),
+            Some((4, 5))
+        );
+        assert_eq!(
+            app.progress
+                .entry(second)
+                .map(|entry| (entry.page, entry.pages)),
+            Some((2, 4))
+        );
+        assert!(app.bookmarks.is_bookmarked(first));
+        let history = app.history.get("Chapter 1").expect("history restored");
+        assert_eq!(history.last_read, 1_700_000_000);
+        assert_eq!(history.read_duration_secs, 90);
+        assert_eq!(app.library.series[1].categories, ["Reading"]);
+        assert!(app.library.categories.iter().any(|name| name == "Reading"));
+        assert_eq!(
+            app.config
+                .story_notes
+                .get("local:Berserk")
+                .map(String::as_str),
+            Some("Remember this")
+        );
+    }
+
+    #[test]
+    fn local_backup_entries_without_a_series_are_skipped() {
+        let mut app = AppState::new(library(), None);
+        let manga = BackupManga {
+            source_id: 0,
+            url: "Missing".to_owned(),
+            title: "Missing".to_owned(),
+            chapters: Vec::new(),
+            ..BackupManga::default()
+        };
+        assert!(app
+            .import_local_backup_manga(&manga, &std::collections::HashMap::new())
+            .is_none());
     }
 
     #[test]
