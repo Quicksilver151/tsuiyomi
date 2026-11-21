@@ -37,6 +37,7 @@ use crate::{
     cover_cache::{fit_cover_image, image_bytes, TileCoverCache},
     cover_worker::{CoverRequest, CoverWorker},
     download_worker::{DownloadRequest, DownloadWorker},
+    favorites_worker::{FavoritesRequest, FavoritesWorker},
     host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
     palette,
@@ -944,6 +945,8 @@ pub struct AppState {
     result_generation: u64,
     pub(crate) source_worker: Option<SourceWorker>,
     source_generation: u64,
+    pub(crate) favorites_worker: Option<FavoritesWorker>,
+    favorites_generation: u64,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1070,6 +1073,8 @@ impl AppState {
             result_generation: 0,
             source_worker: None,
             source_generation: 0,
+            favorites_worker: None,
+            favorites_generation: 0,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -3203,41 +3208,84 @@ impl AppState {
             return;
         };
         match client.favorites() {
-            Ok(mut favorites) => {
-                let existing: std::collections::HashMap<(String, String), Vec<String>> = self
-                    .config
-                    .remote_library
-                    .iter()
-                    .map(|favorite| {
-                        (
-                            (favorite.source_id.clone(), favorite.url.clone()),
-                            favorite.categories.clone(),
-                        )
-                    })
-                    .collect();
-                for favorite in &mut favorites {
-                    if favorite.categories.is_empty() {
-                        if let Some(categories) =
-                            existing.get(&(favorite.source_id.clone(), favorite.url.clone()))
-                        {
-                            favorite.categories = categories.clone();
-                        }
-                    }
-                }
-                self.remote.favorites = favorites;
-                self.remote.favorites_loaded = true;
-                // Persist without thumbnails: their proxy URLs contain an ephemeral port.
-                let mut persisted = self.remote.favorites.clone();
-                for favorite in &mut persisted {
-                    favorite.thumbnail_url = None;
-                }
-                self.config.remote_library = persisted;
-                self.persist_settings();
-                self.merge_remote_library();
-                self.cache_favorite_covers();
-            }
+            Ok(favorites) => self.apply_favorites(favorites),
             Err(error) => self.set_remote_error(error),
         }
+    }
+
+    /// Load favorites without blocking when a worker is available.
+    pub fn load_favorites_async(&mut self) {
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        self.favorites_generation = self.favorites_generation.wrapping_add(1);
+        if let Some(worker) = self.favorites_worker.as_ref() {
+            worker.request(FavoritesRequest {
+                generation: self.favorites_generation,
+                client,
+            });
+            return;
+        }
+        self.load_favorites();
+    }
+
+    /// Apply a completed background favorites load. Returns whether the UI changed.
+    pub fn poll_favorites_worker(&mut self) -> bool {
+        let Some(event) = self
+            .favorites_worker
+            .as_ref()
+            .and_then(FavoritesWorker::try_result)
+        else {
+            return false;
+        };
+        if event.generation != self.favorites_generation {
+            return false;
+        }
+        match event.result {
+            Ok(favorites) => self.apply_favorites(favorites),
+            Err(error) => {
+                self.remote.status = Some(error);
+                self.remote.error = true;
+            }
+        }
+        true
+    }
+
+    fn apply_favorites(&mut self, mut favorites: Vec<RemoteFavorite>) {
+        let existing: std::collections::HashMap<(String, String), Vec<String>> = self
+            .config
+            .remote_library
+            .iter()
+            .map(|favorite| {
+                (
+                    (favorite.source_id.clone(), favorite.url.clone()),
+                    favorite.categories.clone(),
+                )
+            })
+            .collect();
+        for favorite in &mut favorites {
+            if favorite.categories.is_empty() {
+                if let Some(categories) =
+                    existing.get(&(favorite.source_id.clone(), favorite.url.clone()))
+                {
+                    favorite.categories = categories.clone();
+                }
+            }
+        }
+        self.remote.favorites = favorites;
+        self.remote.favorites_loaded = true;
+        // Persist without thumbnails: their proxy URLs contain an ephemeral port.
+        let mut persisted = self.remote.favorites.clone();
+        for favorite in &mut persisted {
+            favorite.thumbnail_url = None;
+        }
+        self.config.remote_library = persisted;
+        self.persist_settings();
+        self.merge_remote_library();
+        self.cache_favorite_covers();
     }
 
     /// Fill the on-disk cover cache for saved manga in the background.
@@ -4292,7 +4340,7 @@ impl AppState {
                 self.remote.status = None;
                 self.remote.error = false;
                 if !self.remote.favorites_loaded {
-                    self.load_favorites();
+                    self.load_favorites_async();
                 }
             }
             Err(error) => {
@@ -5932,6 +5980,10 @@ impl AppState {
 
     pub(crate) fn set_source_worker(&mut self, worker: SourceWorker) {
         self.source_worker = Some(worker);
+    }
+
+    pub(crate) fn set_favorites_worker(&mut self, worker: FavoritesWorker) {
+        self.favorites_worker = Some(worker);
     }
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {

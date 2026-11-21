@@ -99,7 +99,7 @@ Legend:
 | Stores | Add / remove repository | Yes | ✅ | ✅ | |
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
 | Stores | Store name / website / counts | Yes | 🟡 | 🟡 | Rows show URL, extension count, and installed count; no website metadata. |
-| Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, and remote details/chapters fetch on workers; filters, preferences, and favorites still block. |
+| Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, favorites, and remote details/chapters fetch on workers; filters and preferences still block. |
 | Search | Extension source URL/id search terms | Yes | 🟡 | 🟡 | Installed source ids/base URLs; repo-only entries expose names/languages. |
 | Search | Debounced extension search | Yes | ❌ | ❌ | Local filtering is immediate. |
 
