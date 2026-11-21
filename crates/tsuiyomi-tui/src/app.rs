@@ -43,6 +43,7 @@ use crate::{
     result_worker::{ResultListing, ResultRequest, ResultWorker},
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
     search_worker::{GlobalSearchEvent, GlobalSearchWorker},
+    source_worker::{SourceRequest, SourceWorker},
     story_worker::{StoryRequest, StoryWorker},
 };
 
@@ -941,6 +942,8 @@ pub struct AppState {
     pub(crate) download_worker: Option<DownloadWorker>,
     pub(crate) result_worker: Option<ResultWorker>,
     result_generation: u64,
+    pub(crate) source_worker: Option<SourceWorker>,
+    source_generation: u64,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1065,6 +1068,8 @@ impl AppState {
             download_worker: None,
             result_worker: None,
             result_generation: 0,
+            source_worker: None,
+            source_generation: 0,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -1442,8 +1447,8 @@ impl AppState {
     /// Refresh the active Browse list.
     pub fn refresh_browse(&mut self) {
         match self.browse_view {
-            BrowseView::Sources => self.load_remote_sources(),
-            BrowseView::SourceFilters => self.load_remote_sources(),
+            BrowseView::Sources => self.load_remote_sources_async(),
+            BrowseView::SourceFilters => self.load_remote_sources_async(),
             BrowseView::SourcePrefs => self.reload_source_prefs(),
             BrowseView::Filters => self.load_remote_filters(),
             BrowseView::Local => self.refresh(),
@@ -4243,6 +4248,62 @@ impl AppState {
         }
     }
 
+    /// Load the host source list without blocking when a worker is available.
+    pub fn load_remote_sources_async(&mut self) {
+        if !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        self.source_generation = self.source_generation.wrapping_add(1);
+        if let Some(worker) = self.source_worker.as_ref() {
+            self.remote.loading = true;
+            self.remote.status = Some("Loading sources…".to_owned());
+            self.remote.error = false;
+            worker.request(SourceRequest {
+                generation: self.source_generation,
+                client,
+            });
+            return;
+        }
+        self.load_remote_sources();
+    }
+
+    /// Apply a completed background source-list load. Returns whether the UI changed.
+    pub fn poll_source_worker(&mut self) -> bool {
+        let Some(event) = self
+            .source_worker
+            .as_ref()
+            .and_then(SourceWorker::try_result)
+        else {
+            return false;
+        };
+        if event.generation != self.source_generation {
+            return false;
+        }
+        self.remote.loading = false;
+        match event.result {
+            Ok(mut sources) => {
+                sources.sort_by(|left, right| {
+                    natural_cmp(&left.display_name(), &right.display_name())
+                });
+                self.remote.sources = sources;
+                self.remote.status = None;
+                self.remote.error = false;
+                if !self.remote.favorites_loaded {
+                    self.load_favorites();
+                }
+            }
+            Err(error) => {
+                self.remote.status = Some(error);
+                self.remote.error = true;
+            }
+        }
+        self.clamp_browse_selection();
+        true
+    }
+
     pub fn load_remote_latest(&mut self) {
         let Some(source) = self.remote.source.clone() else {
             return;
@@ -5869,6 +5930,10 @@ impl AppState {
         self.result_worker = Some(worker);
     }
 
+    pub(crate) fn set_source_worker(&mut self, worker: SourceWorker) {
+        self.source_worker = Some(worker);
+    }
+
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
         self.story_worker = Some(worker);
     }
@@ -5987,7 +6052,7 @@ impl AppState {
                 self.remote.error = false;
                 if self.pending_browse_sources {
                     self.pending_browse_sources = false;
-                    self.load_remote_sources();
+                    self.load_remote_sources_async();
                 }
             }
             Err(error) => {
