@@ -21,17 +21,18 @@ use tsuiyomi_core::{
     best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
     downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
     legacy_remote_cover_path, load_cached_story, merge_extensions, missing_chapter_count,
-    normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
-    read_state, remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
-    source_dir_name, story_cache_path, title_similarity, today_key, visible_chapters,
-    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
-    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
-    ChapterSort, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient,
-    HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup,
-    NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats,
-    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries,
-    RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
-    SourcePreferenceValue, SourcePreferences, Theme, TriState,
+    move_series_downloads, normalized_title, page_dimensions, parse_mihon_backup, progress_prefix,
+    read_cover, read_page, read_state, remote_cover_path, save_cached_story, save_config,
+    scan_library, series_dir_name, source_dir_name, story_cache_path, title_similarity, today_key,
+    visible_chapters, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
+    BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
+    ChapterMeta, ChapterSettings, ChapterSort, Config, ExtensionInfo, GlobalSearchScope,
+    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibrarySort,
+    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
+    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, Series,
+    SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
+    SourcePreferences, Theme, TriState,
 };
 
 use crate::{
@@ -2416,6 +2417,8 @@ impl AppState {
 
         let mut migrated = 0usize;
         let mut failed = 0usize;
+        let mut downloads_moved = 0usize;
+        let mut downloads_failed = 0usize;
         let mut categories_to_apply: Vec<(String, String, Vec<String>)> = Vec::new();
         for matched in &matches {
             let Some(target) = &matched.target else {
@@ -2451,6 +2454,22 @@ impl AppState {
             let _ = target_source;
             self.copy_migration_reading_state(matched, replace);
             if replace {
+                if let Some(root) = downloads_dir(&self.config) {
+                    let old_source = self
+                        .remote_source_display_name(&matched.old.source_id)
+                        .unwrap_or_else(|| matched.old.source_id.clone());
+                    match move_series_downloads(
+                        &root,
+                        &old_source,
+                        &matched.old.title,
+                        &target_source.display_name(),
+                        &target.title,
+                    ) {
+                        Ok(true) => downloads_moved += 1,
+                        Ok(false) => {}
+                        Err(_) => downloads_failed += 1,
+                    }
+                }
                 let _ = client.remove_favorite(&matched.old.source_id, &matched.old.url);
             }
             migrated += 1;
@@ -2482,7 +2501,7 @@ impl AppState {
         self.migrate.matches.clear();
         self.browse_selection = 0;
         self.select_browse_entry(0);
-        self.remote.status = Some(format!(
+        let mut status = format!(
             "{} {migrated} manga{}",
             if replace { "Migrated" } else { "Copied" },
             if failed == 0 {
@@ -2490,7 +2509,14 @@ impl AppState {
             } else {
                 format!(" · {failed} failed")
             }
-        ));
+        );
+        if downloads_moved > 0 {
+            status.push_str(&format!(" · {downloads_moved} download sets moved"));
+        }
+        if downloads_failed > 0 {
+            status.push_str(&format!(" · {downloads_failed} download moves failed"));
+        }
+        self.remote.status = Some(status);
         self.remote.error = failed > 0 || migrated == 0;
     }
 

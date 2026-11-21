@@ -46,7 +46,7 @@ pub use config::{
 };
 pub use downloads::{
     chapter_dir, chapter_dir_name, download_chapter, download_chapter_with_cancel, downloads_dir,
-    is_downloaded, series_dir_name, source_dir_name,
+    is_downloaded, move_series_downloads, series_dir_name, source_dir_name,
 };
 pub use error::CoreError;
 pub use extensions::merge_extensions;

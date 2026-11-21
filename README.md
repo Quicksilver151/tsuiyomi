@@ -157,7 +157,8 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   `t` chooses which enabled sources matching may use, with `+`/`-` reordering them;
   `s` skips the selected preview,
   `M` migrates included entries (removing the old favorite), or `C` copies them. Progress,
-  bookmarks, history, categories, and reading time move with the matched chapters.
+  bookmarks, history, categories, and reading time move with the matched chapters, and
+  replace also moves downloaded chapters to the target source and series folder.
 - **Global search** — `o` opens the selected source with the query filled in, `r`
   retries the search, `F` saves results, and `h` hides empty/failed sources.
 - **Stores** — `a` adds a URL, `d` removes it, `C` copies it, `o` opens it in the system
@@ -357,7 +358,8 @@ theme = "catppuccin_mocha"
 # accent = "#b4befe"   # optional palette color or hex override
 fullscreen = false      # start with the title and commands boxes hidden
 thumbnail_width = 14    # cover tile width in columns, 8–28
-library_sort = "natural" # natural, title_asc, title_desc
+library_sort = "natural" # natural, title_asc, title_desc,
+                             # chapter_count_desc, latest_chapter_desc, unread_desc
 # default_category = "Reading"
 incognito = false
 ```

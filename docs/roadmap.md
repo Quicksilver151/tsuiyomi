@@ -10,16 +10,16 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 17 | 4 | 1 | 0 | 86.4% |
-| [Library](#library) | 12 | 1 | 3 | 0 | 78.1% |
+| [Library](#library) | 12 | 2 | 2 | 0 | 81.2% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 39 | 2 | 6 | 0 | 85.1% |
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
-| [Migrate](#migrate) | 16 | 2 | 2 | 0 | 85.0% |
+| [Migrate](#migrate) | 17 | 2 | 1 | 0 | 90.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **182** | **16** | **18** | **2** | **88.0%** |
+| **All categories** | **183** | **17** | **16** | **2** | **88.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -66,7 +66,7 @@ table below.
 | Categories | Category tabs/filtering | Yes | ✅ | ✅ | `[`/`]`; default category. |
 | Categories | Edit categories from story | Yes | ✅ | ✅ | Local and saved source manga; local assignments write `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
-| Sorting | Other Mihon sort fields | Yes | ❌ | ❌ | Last-read, unread count, date added, etc. |
+| Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, and unread count; last-read and date-added pending. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
 | Updates | Updates tab | Yes | ❌ | ❌ | Tab is a placeholder. |
 | Removal | Remove local series, keep files | Yes | ✅ | ✅ | Path stored in `hidden_series`. |
@@ -265,7 +265,7 @@ table below.
 | Matching | Prioritize by chapters / hide options | Yes | ❌ | ❌ | |
 | Apply | Manual search override / skip | Yes | 🟡 | 🟡 | Per-item skip implemented; manual target search pending. |
 | Apply | Batch progress / cancel | Yes | 🟡 | 🟡 | Matching runs in the background with a status; applying is synchronous and cancellation drops the result. |
-| Downloads | Move/delete old downloads | Yes | ❌ | ❌ | |
+| Downloads | Move/delete old downloads | Yes | ✅ | ✅ | Replace moves the old series’ downloaded chapters to the target source/series; copy leaves them in place. |
 
 ### Settings, security, and data
 

@@ -125,6 +125,72 @@ pub fn chapter_dir(
         .join(chapter_dir_name(chapter_name, scanlator))
 }
 
+/// Move every downloaded chapter of one series to another source/series.
+///
+/// Migrate replace uses this so pages follow the manga to its new source. The old
+/// series directory is removed when it becomes empty. Existing chapter directories at
+/// the destination win, matching Mihon's replace behavior. Returns whether any
+/// downloaded content was found for the old series.
+pub fn move_series_downloads(
+    root: &Path,
+    old_source_name: &str,
+    old_series_title: &str,
+    new_source_name: &str,
+    new_series_title: &str,
+) -> Result<bool, CoreError> {
+    let old = root
+        .join(source_dir_name(old_source_name))
+        .join(series_dir_name(old_series_title));
+    let new = root
+        .join(source_dir_name(new_source_name))
+        .join(series_dir_name(new_series_title));
+    if old == new || !old.is_dir() {
+        return Ok(false);
+    }
+
+    if !new.exists() {
+        if let Some(parent) = new.parent() {
+            fs::create_dir_all(parent).map_err(|source| CoreError::WriteFile {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        fs::rename(&old, &new).map_err(|source| CoreError::WriteFile {
+            path: new.clone(),
+            source,
+        })?;
+    } else {
+        let entries = fs::read_dir(&old).map_err(|source| CoreError::ReadDir {
+            path: old.clone(),
+            source,
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|source| CoreError::ReadDir {
+                path: old.clone(),
+                source,
+            })?;
+            let target = new.join(entry.file_name());
+            if target.exists() {
+                continue;
+            }
+            fs::rename(entry.path(), &target).map_err(|source| CoreError::WriteFile {
+                path: target,
+                source,
+            })?;
+        }
+        // Only removes the directory when every chapter moved.
+        let _ = fs::remove_dir(&old);
+    }
+
+    // Drop the old source directory once its last series moved.
+    if let Some(source_dir) = old.parent() {
+        if fs::read_dir(source_dir).is_ok_and(|mut entries| entries.next().is_none()) {
+            let _ = fs::remove_dir(source_dir);
+        }
+    }
+    Ok(true)
+}
+
 /// Whether a chapter already has a complete download directory.
 pub fn is_downloaded(
     root: &Path,
@@ -263,6 +329,48 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, CoreError::Cancelled));
         assert!(!chapter_dir(root.path(), "Source", "Series", "Chapter 1", None).exists());
+    }
+
+    #[test]
+    fn moves_downloads_between_sources() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join("Old Source").join("Series");
+        std::fs::create_dir_all(old.join("Chapter 1")).unwrap();
+        std::fs::write(old.join("Chapter 1").join("001.jpg"), b"page").unwrap();
+
+        assert!(
+            move_series_downloads(root.path(), "Old Source", "Series", "New Source", "Series")
+                .unwrap()
+        );
+        let new = root.path().join("New Source").join("Series");
+        assert!(new.join("Chapter 1").join("001.jpg").is_file());
+        assert!(!root.path().join("Old Source").exists());
+    }
+
+    #[test]
+    fn moving_downloads_keeps_existing_destination_chapters() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join("Old Source").join("Series");
+        let new = root.path().join("New Source").join("Series");
+        for (path, page) in [(&old, "Chapter 1"), (&new, "Chapter 2")] {
+            std::fs::create_dir_all(path.join(page)).unwrap();
+            std::fs::write(path.join(page).join("001.jpg"), b"page").unwrap();
+        }
+
+        assert!(
+            move_series_downloads(root.path(), "Old Source", "Series", "New Source", "Series")
+                .unwrap()
+        );
+        assert!(new.join("Chapter 1").join("001.jpg").is_file());
+        assert!(new.join("Chapter 2").join("001.jpg").is_file());
+        assert!(!old.exists());
+    }
+
+    #[test]
+    fn moving_missing_downloads_is_a_no_op() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!move_series_downloads(root.path(), "Missing", "Series", "New", "Series").unwrap());
+        assert!(!root.path().join("New").exists());
     }
 
     #[test]
