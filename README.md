@@ -152,7 +152,8 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   signatures.
 - **Migrate** — saved remote manga grouped by source. Open a source, select one or more
   favorites with `Space`, and press `M` to search enabled sources and preview matches.
-  `t` chooses which enabled sources matching may use, `s` skips the selected preview,
+  `t` chooses which enabled sources matching may use, with `+`/`-` reordering them;
+  `s` skips the selected preview,
   `M` migrates included entries (removing the old favorite), or `C` copies them. Progress,
   bookmarks, history, categories, and reading time move with the matched chapters.
 - **Global search** — `o` opens the selected source with the query filled in, `r`

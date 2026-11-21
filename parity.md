@@ -32,10 +32,10 @@ Legend:
 | 5. Shared story / chapter screen | 39 | 1 | 7 | 0 | 84.0% |
 | 6. Reader | 14 | 1 | 1 | 0 | 90.6% |
 | 7. History and Stats | 19 | 0 | 0 | 0 | 100.0% |
-| 8. Migrate | 15 | 3 | 2 | 0 | 82.5% |
+| 8. Migrate | 16 | 2 | 2 | 0 | 85.0% |
 | 9. Settings, security, and data | 9 | 4 | 1 | 0 | 78.6% |
 | 10. Documented TUI deviations | 2 | 1 | 1 | 2 | 62.5% |
-| **All feature tables** | **177** | **18** | **20** | **2** | **86.5%** |
+| **All feature tables** | **178** | **17** | **20** | **2** | **86.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` marks intentional TUI
 deviations and is excluded. Recompute with `python3 scripts/parity-score.py` after changing status rows.
@@ -262,7 +262,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Migration | Migrate from duplicate dialog | Yes | ✅ | ✅ | `M`. |
 
 ## 8. Migrate
-<!-- parity-score --> *Completion: **82.5%** · 15 ✅ · 3 🟡 · 2 ❌*
+<!-- parity-score --> *Completion: **85.0%** · 16 ✅ · 2 🟡 · 2 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -281,7 +281,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Transfer | Reading duration | Yes | ✅ | ✅ | Replace mode. |
 | Entry | Story-level Migrate | Yes | ✅ | ✅ | `M` on story. |
 | Entry | Duplicate-dialog Migrate | Yes | ✅ | ✅ | `M` in duplicate dialog. |
-| Config | Migration source configuration/order | Yes | 🟡 | 🟡 | Target sources are selectable/persisted; ordering pending. |
+| Config | Migration source configuration/order | Yes | ✅ | ✅ | Target sources are selectable, reorderable, and persisted. |
 | Matching | Prioritize by chapters / hide options | Yes | ❌ | ❌ | |
 | Apply | Manual search override / skip | Yes | 🟡 | 🟡 | Per-item skip implemented; manual target search pending. |
 | Apply | Batch progress / cancel | Yes | 🟡 | 🟡 | Matching runs in the background with a status; applying is synchronous and cancellation drops the result. |

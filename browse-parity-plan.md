@@ -922,7 +922,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Multi-select and selection UI.
 - [ ] Open target/current details.
 - [x] Migration source selection: all/none/enabled (pinned ordering still pending).
-- [ ] Source reordering.
+- [x] Source reordering.
 - [x] Persisted source selection; ordering pending.
 - [ ] Regular matching.
 - [ ] Deep matching.

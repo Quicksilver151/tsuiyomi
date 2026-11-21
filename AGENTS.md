@@ -208,7 +208,7 @@ Rules:
   action. Migrate lists saved manga by source, multi-selects favorites, matches
   titles against enabled sources with regular/deep queries, previews targets, skips a
   preview (`s`), and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
-  `t` selects and persists the enabled target sources; ordering is still fixed. `/` on Sources
+  `t` selects, reorders (`+`/`-`), and persists the enabled target sources. `/` on Sources
   runs a background global search over enabled pinned
   sources with per-source progress; empty and failed sources are rows, `h` toggles
   only-with-results, and `A` switches between pinned and all enabled sources. `o` opens

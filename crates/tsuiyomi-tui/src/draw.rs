@@ -214,12 +214,7 @@ fn draw_migration_sources(frame: &mut Frame, app: &AppState) {
     let Some(picker) = app.migration_source_picker.as_ref() else {
         return;
     };
-    let sources: Vec<&RemoteSource> = app
-        .remote
-        .sources
-        .iter()
-        .filter(|source| app.source_enabled(source))
-        .collect();
+    let sources = app.migration_source_list();
     let area = frame.area();
     let height = (sources.len() as u16 + 3).min(area.height).max(4);
     let width = 68.min(area.width).max(20);
@@ -239,7 +234,7 @@ fn draw_migration_sources(frame: &mut Frame, app: &AppState) {
                 Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                "Space toggle · a all · n none · Enter apply · Esc cancel ",
+                "Space toggle · a all · n none · +/- order · Enter apply · Esc cancel ",
                 Style::default().fg(c_overlay0()),
             ),
         ]),

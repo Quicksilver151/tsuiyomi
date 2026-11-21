@@ -241,6 +241,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::Open | Action::Confirm => app.apply_migration_sources(),
                 Action::AddStore => app.migration_sources_all(true),
                 Action::NextChapter => app.migration_sources_all(false),
+                Action::ZoomIn => app.migration_sources_move(-1),
+                Action::ZoomOut => app.migration_sources_move(1),
                 Action::Back => app.cancel_migration_sources(),
                 _ => {}
             }
