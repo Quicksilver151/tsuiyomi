@@ -104,6 +104,7 @@ database rows. tsuiyomi owns reading progress.
 
 ## Phase 4 — Browse polish
 
+Current parity table: `parity.md`.
 Detailed feature-parity plan: `browse-parity-plan.md`.
 History parity and reading-time stats plan: `history-parity-plan.md`.
 Chapter/story parity plan: `story-parity-plan.md`.

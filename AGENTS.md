@@ -14,6 +14,9 @@ compiling, but do not extend it. It will be replaced by the manga library.
 
 ## Status
 
+`parity.md` is the single maintained table of Mihon feature parity. Update the affected
+rows whenever behavior changes or work lands.
+
 Local-library and extension-host MVP: scanning, browsing, metadata, covers, reading,
 progress, settings, remote sources, extension management, and reading history work.
 Updates and backups are not implemented. The API and config format are still unstable, and large refactors are

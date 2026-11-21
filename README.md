@@ -49,6 +49,8 @@ just test
 Machine-local paths and log settings live in `.env.local`, which is gitignored. The
 devshell sources it automatically.
 
+Current Mihon parity by area: [`parity.md`](parity.md).
+
 ## Library layout
 
 By default the library root is `$XDG_DATA_HOME/tsuiyomi/local`
