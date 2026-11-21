@@ -55,7 +55,7 @@ pub use history::{HistoryEntry, HistoryStore, LocalHistory, RemoteHistory};
 pub use host::{
     fetch_bytes, progress_key, progress_prefix, ExtensionInfo, ExtensionSource, HostClient,
     InstallJob, InstallOutcome, NotLoadedExtension, RemoteChapter, RemoteFavorite, RemoteManga,
-    RemoteMangaPage, RemoteSource,
+    RemoteMangaPage, RemoteReadState, RemoteSource,
 };
 pub use library::{
     ensure_series_cover, load_category_entries, read_cover, save_category_entries, scan_library,

@@ -272,9 +272,10 @@ Rules:
   bundled host on `host_worker` instead of blocking the UI: the Sources screen renders
   immediately with a status row and fills in when the host answers. A start epoch drops
   results from a host that was stopped meanwhile. Remote progress uses synthetic
-  `remote://source/manga/chapter` keys. Browse reads, extension lists, migration
-  matching, and library rescans use background workers; mutations and migration apply
-  remain synchronous.
+  `remote://source/manga/chapter` keys. Remote progress and bookmarks are mirrored to the
+  host in batches and merged back when local state is missing. Browse reads, extension
+  lists, migration matching, and library rescans use background workers; mutations and
+  migration apply remain synchronous.
   WebView-dependent sources are unsupported. Library itself also uses a tile grid, not a
   list. Category keys only affect Library's series grid. There is no filesystem import
   browser; users place folders in local/ and rescan. Browse's Local source lists only

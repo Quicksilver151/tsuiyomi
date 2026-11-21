@@ -29,8 +29,8 @@ use tsuiyomi_core::{
     ChapterSort, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient,
     HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup,
     NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats,
-    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource,
-    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries,
+    RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
     SourcePreferenceValue, SourcePreferences, Theme, TriState,
 };
 
@@ -1018,6 +1018,9 @@ pub struct AppState {
     scan_generation: u64,
     scan_context: Option<ScanContext>,
     pub storage_snapshot: Option<StorageSnapshot>,
+    pending_states: BTreeMap<String, RemoteReadState>,
+    host_states_loaded: bool,
+    state_dirty: bool,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1165,6 +1168,9 @@ impl AppState {
             scan_generation: 0,
             scan_context: None,
             storage_snapshot: None,
+            pending_states: BTreeMap::new(),
+            host_states_loaded: false,
+            state_dirty: false,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -4856,6 +4862,7 @@ impl AppState {
                 if !self.remote.favorites_loaded {
                     self.load_favorites();
                 }
+                self.load_remote_states();
             }
             Err(error) => self.set_remote_error(error),
         }
@@ -4907,6 +4914,7 @@ impl AppState {
                 if !self.remote.favorites_loaded {
                     self.load_favorites_async();
                 }
+                self.load_remote_states();
             }
             Err(error) => {
                 self.remote.status = Some(error);
@@ -6727,6 +6735,29 @@ impl AppState {
                     self.bookmarks.set(&key, true);
                     bookmark_count += 1;
                 }
+                if chapter.read || last > 0 || chapter.bookmark {
+                    self.pending_states.insert(
+                        Self::state_key(&RemoteReadState {
+                            source_id: source.id.clone(),
+                            manga_url: manga.url.clone(),
+                            chapter_url: chapter.url.clone(),
+                            page: last,
+                            pages: 0,
+                            read: chapter.read,
+                            bookmark: chapter.bookmark,
+                        }),
+                        RemoteReadState {
+                            source_id: source.id.clone(),
+                            manga_url: manga.url.clone(),
+                            chapter_url: chapter.url.clone(),
+                            page: last,
+                            pages: 0,
+                            read: chapter.read,
+                            bookmark: chapter.bookmark,
+                        },
+                    );
+                    self.state_dirty = true;
+                }
             }
             for history in &manga.history {
                 let Some(chapter) = chapters.get(history.url.as_str()).copied() else {
@@ -8173,6 +8204,25 @@ impl AppState {
             ),
             Err(error) => format!("Could not save bookmark: {error}"),
         });
+        if let Some((manga, chapters, _)) = self.active_remote_story() {
+            for chapter in chapters {
+                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
+                if !keys.contains(&key) {
+                    continue;
+                }
+                let page = self
+                    .progress
+                    .entry(&key)
+                    .map(|entry| entry.page)
+                    .unwrap_or(0);
+                let pages = self
+                    .progress
+                    .entry(&key)
+                    .map(|entry| entry.pages)
+                    .unwrap_or(0);
+                self.queue_remote_state(&manga, &chapter, page, pages);
+            }
+        }
         if self.tab == 3 {
             self.remote.status = self.status.clone();
             self.remote.error = false;
@@ -8867,8 +8917,25 @@ impl AppState {
                 .filter(|pages| *pages > 0)
                 .unwrap_or(1);
             self.progress.update(&key, pages.saturating_sub(1), pages);
+            let page = pages.saturating_sub(1);
+            if let (Some(manga), Some(chapter)) = (
+                self.remote_story_manga().cloned(),
+                self.story_remote_chapters()
+                    .and_then(|chapters| chapters.get(source_index))
+                    .cloned(),
+            ) {
+                self.queue_remote_state(&manga, &chapter, page, pages);
+            }
         } else {
             self.progress.remove(&key);
+            if let (Some(manga), Some(chapter)) = (
+                self.remote_story_manga().cloned(),
+                self.story_remote_chapters()
+                    .and_then(|chapters| chapters.get(source_index))
+                    .cloned(),
+            ) {
+                self.queue_remote_state(&manga, &chapter, 0, 0);
+            }
         }
     }
 
@@ -10926,13 +10993,133 @@ impl AppState {
             }
         };
 
+        if let Some(remote) = &entry.remote {
+            let manga = remote.manga.clone();
+            let chapter = remote.chapter.clone();
+            self.queue_remote_state(&manga, &chapter, page, pages);
+        }
         self.history.record(key, entry);
         self.history_dirty = true;
     }
 
     /// Whether the in-memory progress has been idle long enough to write.
+    fn state_key(state: &RemoteReadState) -> String {
+        format!(
+            "{}\n{}\n{}",
+            state.source_id, state.manga_url, state.chapter_url
+        )
+    }
+
+    fn queue_remote_state(
+        &mut self,
+        manga: &RemoteManga,
+        chapter: &RemoteChapter,
+        page: usize,
+        pages: usize,
+    ) {
+        let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
+        let state = RemoteReadState {
+            source_id: manga.source_id.clone(),
+            manga_url: manga.url.clone(),
+            chapter_url: chapter.url.clone(),
+            page,
+            pages,
+            read: pages > 0 && page + 1 >= pages,
+            bookmark: self.bookmarks.is_bookmarked(&key),
+        };
+        self.pending_states.insert(Self::state_key(&state), state);
+        self.state_dirty = true;
+        self.progress_changed_at = Some(Instant::now());
+    }
+
+    /// Merge host read-state into local stores. Local values win when both exist.
+    pub fn load_remote_states(&mut self) {
+        if self.host_states_loaded {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let states = match client.read_states() {
+            Ok(states) => states,
+            Err(_) => {
+                self.host_states_loaded = true;
+                return;
+            }
+        };
+        let mut applied = false;
+        for state in states {
+            let key = remote_progress_key(&state.source_id, &state.manga_url, &state.chapter_url);
+            let local = self.progress.entry(&key);
+            let local_bookmark = self.bookmarks.is_bookmarked(&key);
+            if local.is_none() && !local_bookmark {
+                applied = true;
+                if state.read {
+                    let pages = state.pages.max(1);
+                    self.progress.update(&key, pages.saturating_sub(1), pages);
+                } else if state.page > 0 {
+                    let pages = state.pages.max(state.page + 2);
+                    self.progress.update(&key, state.page, pages);
+                }
+                if state.bookmark {
+                    self.bookmarks.set(&key, true);
+                }
+            } else {
+                let pages = local.map(|entry| entry.pages).unwrap_or(0);
+                let page = local.map(|entry| entry.page).unwrap_or(0);
+                self.pending_states.insert(
+                    Self::state_key(&state),
+                    RemoteReadState {
+                        source_id: state.source_id.clone(),
+                        manga_url: state.manga_url.clone(),
+                        chapter_url: state.chapter_url.clone(),
+                        page,
+                        pages,
+                        read: pages > 0 && page + 1 >= pages,
+                        bookmark: local_bookmark,
+                    },
+                );
+                self.state_dirty = true;
+            }
+        }
+        self.host_states_loaded = true;
+        if applied {
+            self.progress_dirty = true;
+            self.progress_changed_at = Some(Instant::now());
+            let _ = self.bookmarks.save();
+        }
+        if self.state_dirty {
+            self.flush_remote_states();
+        }
+    }
+
+    /// Push pending remote read-state to the host, including removals.
+    pub fn flush_remote_states(&mut self) {
+        if !self.state_dirty || self.pending_states.is_empty() {
+            self.state_dirty = false;
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let mut chapters = Vec::new();
+        let mut clear = Vec::new();
+        for (key, state) in &self.pending_states {
+            if state.page == 0 && state.pages == 0 && !state.read && !state.bookmark {
+                clear.push(key.clone());
+            } else {
+                chapters.push(state.clone());
+            }
+        }
+        if client.put_read_states(&chapters, &clear).is_err() {
+            return;
+        }
+        self.pending_states.clear();
+        self.state_dirty = false;
+    }
+
     pub fn progress_save_due(&self) -> bool {
-        (self.progress_dirty || self.history_dirty)
+        (self.progress_dirty || self.history_dirty || self.state_dirty)
             && self
                 .progress_changed_at
                 .is_some_and(|changed| changed.elapsed() >= Duration::from_millis(500))
@@ -11014,6 +11201,7 @@ impl AppState {
     }
 
     pub fn flush_progress(&mut self) {
+        self.flush_remote_states();
         if self.progress_dirty {
             let _ = self.progress.save();
             self.progress_dirty = false;

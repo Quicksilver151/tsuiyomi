@@ -177,6 +177,23 @@ impl InstallJob {
     }
 }
 
+/// Remote chapter progress/bookmark state mirrored to the host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteReadState {
+    pub source_id: String,
+    pub manga_url: String,
+    pub chapter_url: String,
+    #[serde(default)]
+    pub page: usize,
+    #[serde(default)]
+    pub pages: usize,
+    #[serde(default)]
+    pub read: bool,
+    #[serde(default)]
+    pub bookmark: bool,
+}
+
 /// A manga saved in the host's library (favorites table).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteFavorite {
@@ -623,6 +640,46 @@ impl HostClient {
             &format!("/api/v1/extensions/jobs/{}/cancel", encode(job_id)),
             json!({}),
         )
+    }
+
+    /// Read mirrored remote chapter state from the host.
+    pub fn read_states(&self) -> Result<Vec<RemoteReadState>, CoreError> {
+        #[derive(Deserialize)]
+        struct Data {
+            #[serde(default)]
+            chapters: Vec<RemoteReadState>,
+        }
+        let data: Data = self.get("/api/v1/state")?;
+        Ok(data.chapters)
+    }
+
+    /// Upload mirrored remote chapter state. `clear` removes entries by state key.
+    pub fn put_read_states(
+        &self,
+        chapters: &[RemoteReadState],
+        clear: &[String],
+    ) -> Result<(), CoreError> {
+        #[derive(Deserialize)]
+        struct Result_ {
+            #[serde(default)]
+            ok: bool,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        let result: Result_ = self.post(
+            "/api/v1/state/chapters",
+            json!({ "chapters": chapters, "clear": clear }),
+        )?;
+        if result.ok {
+            Ok(())
+        } else {
+            Err(CoreError::Network {
+                url: self.absolute_url("/api/v1/state/chapters"),
+                message: result
+                    .error
+                    .unwrap_or_else(|| "could not mirror read state".to_owned()),
+            })
+        }
     }
 
     pub fn not_loaded_extensions(&self) -> Result<Vec<NotLoadedExtension>, CoreError> {
@@ -1380,6 +1437,29 @@ mod tests {
             .recv()
             .unwrap()
             .starts_with("POST /api/v1/extensions/install"));
+    }
+
+    #[test]
+    fn mirrors_remote_read_state() {
+        let (address, requests) = server(vec![
+            r#"{"chapters":[{"sourceId":"7","mangaUrl":"/m/1","chapterUrl":"/c/1","page":4,"pages":10,"read":false,"bookmark":true}]}"#,
+            r#"{"ok":true}"#,
+        ]);
+        let client = HostClient::new(address);
+        let states = client.read_states().unwrap();
+        assert_eq!(states[0].chapter_url, "/c/1");
+        assert!(states[0].bookmark);
+        client
+            .put_read_states(&states, &["7\n/m/1\n/c/2".to_owned()])
+            .unwrap();
+        let mut seen = Vec::new();
+        for _ in 0..2 {
+            seen.push(requests.recv().unwrap());
+        }
+        assert!(seen.iter().any(|path| path.contains("/api/v1/state")));
+        assert!(seen
+            .iter()
+            .any(|path| path.contains("/api/v1/state/chapters")));
     }
 
     #[test]

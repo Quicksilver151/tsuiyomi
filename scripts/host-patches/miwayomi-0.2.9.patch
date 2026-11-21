@@ -15,10 +15,10 @@ index 6405438..13bd319 100644
      if (config.flareSolverrUrl != null) {
          println("[miwayomi] FlareSolverr enabled at ${config.flareSolverrUrl}")
 diff --git a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
-index f5b623f..94bb147 100644
+index f5b623f..93d14ce 100644
 --- a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
 +++ b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
-@@ -80,6 +80,7 @@ fun Application.registerApi() {
+@@ -80,9 +80,11 @@ fun Application.registerApi() {
      }
  
      registerMangaApi()
@@ -26,6 +26,10 @@ index f5b623f..94bb147 100644
      registerAnimeApi()
      registerStreamingApi()
      registerExtensionApi()
++    registerStateApi()
+     registerSourcePrefsApi()
+     registerFavoritesApi()
+     registerWatchApi()
 diff --git a/server/src/main/kotlin/miwayomi/api/Dtos.kt b/server/src/main/kotlin/miwayomi/api/Dtos.kt
 index 54c1a1f..aea14e1 100644
 --- a/server/src/main/kotlin/miwayomi/api/Dtos.kt
@@ -872,6 +876,98 @@ index 6c0c3c0..d14dcd8 100644
  )
  
  fun Page.toDto(): PageDto = PageDto(
+diff --git a/server/src/main/kotlin/miwayomi/api/StateRoutes.kt b/server/src/main/kotlin/miwayomi/api/StateRoutes.kt
+new file mode 100644
+index 0000000..83134ea
+--- /dev/null
++++ b/server/src/main/kotlin/miwayomi/api/StateRoutes.kt
+@@ -0,0 +1,86 @@
++package miwayomi.api
++
++import io.ktor.http.HttpStatusCode
++import io.ktor.server.application.Application
++import io.ktor.server.application.call
++import io.ktor.server.request.receive
++import io.ktor.server.response.respond
++import io.ktor.server.routing.get
++import io.ktor.server.routing.post
++import io.ktor.server.routing.routing
++import kotlinx.serialization.Serializable
++import kotlinx.serialization.encodeToString
++import kotlinx.serialization.json.Json
++import miwayomi.di.ConfigHolder
++import java.io.File
++import java.util.concurrent.ConcurrentHashMap
++
++/**
++ * Read-state/bookmark mirror for remote chapters. Mihon keeps this in its database;
++ * miwayomi stores a small JSON file in the host data directory so a client restart
++ * does not lose progress. Keys are `sourceId\nmangaUrl\nchapterUrl`.
++ */
++@Serializable
++data class ReadStateDto(
++    val sourceId: String,
++    val mangaUrl: String,
++    val chapterUrl: String,
++    val page: Int = 0,
++    val pages: Int = 0,
++    val read: Boolean = false,
++    val bookmark: Boolean = false,
++)
++
++@Serializable
++data class ReadStatesDto(val chapters: List<ReadStateDto> = emptyList())
++
++@Serializable
++data class ReadStateBatchDto(
++    val chapters: List<ReadStateDto> = emptyList(),
++    val clear: List<String> = emptyList(),
++)
++
++@Serializable
++data class StateResultDto(val ok: Boolean, val error: String? = null)
++
++fun Application.registerStateApi() {
++    val file = File(ConfigHolder.config.dataDir, "read_state.json")
++    val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
++    val states = ConcurrentHashMap<String, ReadStateDto>()
++
++    fun key(state: ReadStateDto): String = "${state.sourceId}\n${state.mangaUrl}\n${state.chapterUrl}"
++
++    if (file.exists()) {
++        runCatching {
++            json.decodeFromString<ReadStatesDto>(file.readText()).chapters.forEach {
++                states[key(it)] = it
++            }
++        }.onFailure { println("[miwayomi] could not read read_state.json: $it") }
++    }
++
++    fun save() {
++        synchronized(states) {
++            val temp = File(file.parentFile, file.name + ".tmp")
++            temp.writeText(json.encodeToString(ReadStatesDto(states.values.toList())))
++            if (!temp.renameTo(file)) {
++                file.writeText(temp.readText())
++                temp.delete()
++            }
++        }
++    }
++
++    routing {
++        get("/api/v1/state") {
++            call.respond(ReadStatesDto(states.values.sortedWith(compareBy({ it.sourceId }, { it.mangaUrl }, { it.chapterUrl }))))
++        }
++
++        post("/api/v1/state/chapters") {
++            val req = runCatching { call.receive<ReadStateBatchDto>() }.getOrNull()
++                ?: return@post call.respond(HttpStatusCode.BadRequest, StateResultDto(false, "invalid body"))
++            req.clear.forEach { states.remove(it) }
++            req.chapters.forEach { states[key(it)] = it }
++            save()
++            call.respond(StateResultDto(true))
++        }
++    }
++}
 diff --git a/server/src/main/kotlin/miwayomi/extension/ExtensionManager.kt b/server/src/main/kotlin/miwayomi/extension/ExtensionManager.kt
 index 44faf60..0a7ed57 100644
 --- a/server/src/main/kotlin/miwayomi/extension/ExtensionManager.kt

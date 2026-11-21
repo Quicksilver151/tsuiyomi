@@ -30,12 +30,12 @@ Legend:
 | 3. Browse, sources, and global search | 28 | 3 | 1 | 0 | 92.2% |
 | 4. Extensions and host lifecycle | 22 | 1 | 2 | 0 | 90.0% |
 | 5. Shared story / chapter screen | 39 | 1 | 7 | 0 | 84.0% |
-| 6. Reader | 14 | 1 | 1 | 0 | 90.6% |
+| 6. Reader | 15 | 1 | 1 | 0 | 91.2% |
 | 7. History and Stats | 19 | 0 | 0 | 0 | 100.0% |
 | 8. Migrate | 16 | 2 | 2 | 0 | 85.0% |
 | 9. Settings, security, and data | 10 | 3 | 1 | 0 | 82.1% |
 | 10. Documented TUI deviations | 2 | 1 | 1 | 2 | 62.5% |
-| **All feature tables** | **179** | **17** | **19** | **2** | **87.2%** |
+| **All feature tables** | **180** | **17** | **19** | **2** | **87.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` marks intentional TUI
 deviations and is excluded. Recompute with `python3 scripts/parity-score.py` after changing status rows.
@@ -215,7 +215,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Gestures | Swipe to read/bookmark/download | Yes | ❌ | ❌ | TUI uses keys and menu actions. |
 
 ## 6. Reader
-<!-- parity-score --> *Completion: **90.6%** · 14 ✅ · 1 🟡 · 1 ❌*
+<!-- parity-score --> *Completion: **91.2%** · 15 ✅ · 1 🟡 · 1 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -231,6 +231,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Zoom | Retransmit-free Kitty placement zoom | Yes | ❌ | ❌ | Pending. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |
 | Progress | Read-state derivation | Yes | ✅ | ✅ | Page/pages. |
+| Progress | Host read-state mirror | Yes | ✅ | ✅ | Remote progress/bookmarks upload in batches and merge back when local state is missing. |
 | Navigation | Previous/next chapter | Yes | ✅ | ✅ | Follows filtered list. |
 | Bookmarks | Toggle bookmark | Yes | ✅ | ✅ | `b`. |
 | Downloads | Download current chapter | Yes | ✅ | ✅ | `D`, active cancellation now works. |

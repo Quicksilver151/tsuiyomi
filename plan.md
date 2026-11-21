@@ -205,7 +205,7 @@ Chapter/story parity plan: `story-parity-plan.md`.
       loads, migration matching, and library rescans. Mutations and migration apply still
       block.
 - [x] Pagination controls in the results grid.
-- [ ] Read-state mirroring back to the host.
+- [x] Read-state mirroring back to the host (remote progress/bookmarks, JSON-backed host state).
 - [x] Optional FlareSolverr configuration in Settings.
 - [ ] Optional remote-WebView bridge for the ~1% of sources that need one.
 
