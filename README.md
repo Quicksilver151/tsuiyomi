@@ -363,7 +363,8 @@ incognito = false
 ```
 
 Library sort, default category, and Incognito mode live under
-**More → Settings → Library** and **Security**. Incognito stops writing
+**More → Settings → Library** (natural, title, chapter count, latest chapter, unread) and
+**Security**. Incognito stops writing
 `progress.json` while leaving existing progress readable.
 
 Scroll mode measures page sizes in the background and shows the first page while it

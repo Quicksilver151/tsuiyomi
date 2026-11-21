@@ -26,6 +26,12 @@ pub enum LibrarySort {
     Natural,
     TitleAsc,
     TitleDesc,
+    /// Most chapters first.
+    ChapterCountDesc,
+    /// Series whose newest chapter is newest first.
+    LatestChapterDesc,
+    /// Most unread chapters first.
+    UnreadDesc,
 }
 
 /// How a page image fills the reader viewport.

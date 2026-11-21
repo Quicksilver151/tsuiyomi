@@ -5348,6 +5348,9 @@ fn library_sort_label(sort: LibrarySort) -> &'static str {
         LibrarySort::Natural => "Natural",
         LibrarySort::TitleAsc => "Title A–Z",
         LibrarySort::TitleDesc => "Title Z–A",
+        LibrarySort::ChapterCountDesc => "Most chapters",
+        LibrarySort::LatestChapterDesc => "Latest chapter",
+        LibrarySort::UnreadDesc => "Most unread",
     }
 }
 

@@ -8367,6 +8367,56 @@ impl AppState {
                     .to_lowercase()
                     .cmp(&self.library.series[*left].title.to_lowercase())
             }),
+            LibrarySort::ChapterCountDesc => indices.sort_by(|left, right| {
+                self.library.series[*right]
+                    .chapters
+                    .len()
+                    .cmp(&self.library.series[*left].chapters.len())
+                    .then_with(|| {
+                        self.library.series[*left]
+                            .title
+                            .cmp(&self.library.series[*right].title)
+                    })
+            }),
+            LibrarySort::LatestChapterDesc => indices.sort_by(|left, right| {
+                let latest = |index: usize| {
+                    self.library.series[index]
+                        .chapters
+                        .iter()
+                        .filter_map(|chapter| {
+                            chapter.date.map(|date| (date.year, date.month, date.day))
+                        })
+                        .max()
+                };
+                latest(*right).cmp(&latest(*left)).then_with(|| {
+                    self.library.series[*left]
+                        .title
+                        .cmp(&self.library.series[*right].title)
+                })
+            }),
+            LibrarySort::UnreadDesc => indices.sort_by(|left, right| {
+                let unread = |index: usize| {
+                    self.library.series[index]
+                        .chapters
+                        .iter()
+                        .filter(|chapter| {
+                            !matches!(
+                                read_state(
+                                    self.progress
+                                        .entry(&chapter.path)
+                                        .map(|entry| (entry.page, entry.pages))
+                                ),
+                                ReadState::Read
+                            )
+                        })
+                        .count()
+                };
+                unread(*right).cmp(&unread(*left)).then_with(|| {
+                    self.library.series[*left]
+                        .title
+                        .cmp(&self.library.series[*right].title)
+                })
+            }),
         }
         indices
     }
@@ -11885,6 +11935,9 @@ impl AppState {
                     LibrarySort::Natural,
                     LibrarySort::TitleAsc,
                     LibrarySort::TitleDesc,
+                    LibrarySort::ChapterCountDesc,
+                    LibrarySort::LatestChapterDesc,
+                    LibrarySort::UnreadDesc,
                 ];
                 let index = sorts
                     .iter()
@@ -14236,6 +14289,29 @@ mod tests {
         app.apply_scanned_library(library(), &context);
         assert_eq!(
             app.selected_series().map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+    }
+
+    #[test]
+    fn library_sort_uses_chapter_and_unread_counts() {
+        let mut app = AppState::new(library(), None);
+        app.config.library_sort = LibrarySort::ChapterCountDesc;
+        assert_eq!(
+            app.visible_indices()
+                .first()
+                .and_then(|index| app.library.series.get(*index))
+                .map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+
+        app.progress.update(Path::new("Chapter 1"), 0, 1);
+        app.config.library_sort = LibrarySort::UnreadDesc;
+        assert_eq!(
+            app.visible_indices()
+                .first()
+                .and_then(|index| app.library.series.get(*index))
+                .map(|series| series.title.as_str()),
             Some("Berserk")
         );
     }
