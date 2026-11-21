@@ -868,6 +868,15 @@ pub struct HistoryDeleteDialog {
     pub all_series: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadedSeries {
+    pub source: String,
+    pub series: String,
+    pub chapters: usize,
+    pub bytes: u64,
+    pub path: PathBuf,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct StorageSnapshot {
     pub library_bytes: u64,
@@ -1019,6 +1028,10 @@ pub struct AppState {
     scan_context: Option<ScanContext>,
     pub storage_snapshot: Option<StorageSnapshot>,
     pub storage_clear_downloads_confirm: bool,
+    pub downloaded_series: Vec<DownloadedSeries>,
+    pub downloads_selection: usize,
+    pub downloads_loaded: bool,
+    pub downloads_delete_confirm: bool,
     pending_states: BTreeMap<String, RemoteReadState>,
     host_states_loaded: bool,
     state_dirty: bool,
@@ -1170,6 +1183,10 @@ impl AppState {
             scan_context: None,
             storage_snapshot: None,
             storage_clear_downloads_confirm: false,
+            downloaded_series: Vec::new(),
+            downloads_selection: 0,
+            downloads_loaded: false,
+            downloads_delete_confirm: false,
             pending_states: BTreeMap::new(),
             host_states_loaded: false,
             state_dirty: false,
@@ -11614,6 +11631,9 @@ impl AppState {
         if self.more_section == MoreSection::Storage && self.storage_snapshot.is_none() {
             self.refresh_storage();
         }
+        if self.more_section == MoreSection::Downloads && !self.downloads_loaded {
+            self.refresh_downloads();
+        }
     }
 
     pub fn category_manage_previous(&mut self) {
@@ -11806,6 +11826,75 @@ impl AppState {
             }
             Err(error) => {
                 self.status = Some(format!("Could not clear downloads: {error}"));
+                self.remote.error = true;
+            }
+        }
+    }
+
+    pub fn refresh_downloads(&mut self) {
+        self.downloaded_series = scan_downloaded_series(&self.config);
+        self.downloads_loaded = true;
+        self.downloads_selection = self
+            .downloads_selection
+            .min(self.downloaded_series.len().saturating_sub(1));
+        self.status = Some(format!(
+            "{} downloaded series",
+            self.downloaded_series.len()
+        ));
+    }
+
+    pub fn downloads_previous(&mut self) {
+        self.downloads_selection = self.downloads_selection.saturating_sub(1);
+    }
+
+    pub fn downloads_next(&mut self) {
+        if !self.downloaded_series.is_empty() {
+            self.downloads_selection =
+                (self.downloads_selection + 1).min(self.downloaded_series.len() - 1);
+        }
+    }
+
+    pub fn open_downloads_delete_confirm(&mut self) {
+        if self.downloaded_series.is_empty() {
+            self.status = Some("No downloaded series to delete.".to_owned());
+            return;
+        }
+        self.downloads_delete_confirm = true;
+        let name = self
+            .downloaded_series
+            .get(self.downloads_selection)
+            .map(|series| format!("{} · {}", series.source, series.series))
+            .unwrap_or_default();
+        self.status = Some(format!("Press y/Enter to delete downloads for {name}"));
+    }
+
+    pub fn cancel_downloads_delete(&mut self) {
+        self.downloads_delete_confirm = false;
+    }
+
+    pub fn confirm_downloads_delete(&mut self) {
+        self.downloads_delete_confirm = false;
+        let Some(series) = self
+            .downloaded_series
+            .get(self.downloads_selection)
+            .cloned()
+        else {
+            return;
+        };
+        match std::fs::remove_dir_all(&series.path) {
+            Ok(()) => {
+                self.refresh_downloads();
+                if self.storage_snapshot.is_some() {
+                    self.refresh_storage();
+                }
+                self.status = Some(format!(
+                    "Deleted downloads for {} · {}",
+                    series.source, series.series
+                ));
+                self.remote.error = false;
+            }
+            Err(error) => {
+                self.status = Some(format!("Could not delete downloads: {error}"));
                 self.remote.error = true;
             }
         }
@@ -13761,6 +13850,54 @@ fn migrate_legacy_cover(path: &Path, source_id: &str, manga_url: &str) -> bool {
     true
 }
 
+fn scan_downloaded_series(config: &Config) -> Vec<DownloadedSeries> {
+    let Some(root) = downloads_dir(config) else {
+        return Vec::new();
+    };
+    let mut series = Vec::new();
+    let Ok(sources) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    for source in sources.filter_map(Result::ok) {
+        if !source.path().is_dir() {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(source.path()) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            if !entry.path().is_dir() {
+                continue;
+            }
+            let chapters = std::fs::read_dir(entry.path())
+                .map(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .filter(|chapter| chapter.path().is_dir())
+                        .count()
+                })
+                .unwrap_or(0);
+            if chapters == 0 {
+                continue;
+            }
+            series.push(DownloadedSeries {
+                source: source.file_name().to_string_lossy().into_owned(),
+                series: entry.file_name().to_string_lossy().into_owned(),
+                chapters,
+                bytes: directory_size(&entry.path()),
+                path: entry.path(),
+            });
+        }
+    }
+    series.sort_by(|left, right| {
+        left.source
+            .to_lowercase()
+            .cmp(&right.source.to_lowercase())
+            .then_with(|| left.series.to_lowercase().cmp(&right.series.to_lowercase()))
+    });
+    series
+}
+
 fn directory_size(path: &Path) -> u64 {
     let Ok(metadata) = std::fs::metadata(path) else {
         return 0;
@@ -14291,6 +14428,80 @@ mod tests {
             app.selected_series().map(|series| series.title.as_str()),
             Some("Berserk")
         );
+    }
+
+    fn downloads_app(root: &std::path::Path) -> AppState {
+        let mut app = AppState::new(library(), None);
+        app.config.downloads_path = Some(root.to_path_buf());
+        app
+    }
+
+    #[test]
+    fn downloads_manager_scans_series_with_chapters() {
+        let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let root = temp.path();
+        let chapters = root.join("Asura Scans").join("Berserk");
+        std::fs::create_dir_all(chapters.join("Chapter 1"))
+            .unwrap_or_else(|error| panic!("{error}"));
+        std::fs::create_dir_all(chapters.join("Chapter 2"))
+            .unwrap_or_else(|error| panic!("{error}"));
+        std::fs::write(chapters.join("Chapter 1").join("001.jpg"), b"page")
+            .unwrap_or_else(|error| panic!("{error}"));
+        // A series directory without chapter directories is not downloaded content.
+        std::fs::create_dir_all(root.join("Asura Scans").join("Empty"))
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        let mut app = downloads_app(root);
+        app.refresh_downloads();
+
+        assert!(app.downloads_loaded);
+        assert_eq!(app.downloaded_series.len(), 1);
+        let series = &app.downloaded_series[0];
+        assert_eq!(series.source, "Asura Scans");
+        assert_eq!(series.series, "Berserk");
+        assert_eq!(series.chapters, 2);
+        assert!(series.bytes > 0);
+    }
+
+    #[test]
+    fn downloads_manager_deletes_selected_series_only() {
+        let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let root = temp.path();
+        let target = root.join("Source").join("Berserk");
+        let keep = root.join("Source").join("Vagabond");
+        for series in [&target, &keep] {
+            let chapter = series.join("Chapter 1");
+            std::fs::create_dir_all(&chapter).unwrap_or_else(|error| panic!("{error}"));
+            std::fs::write(chapter.join("001.jpg"), b"page")
+                .unwrap_or_else(|error| panic!("{error}"));
+        }
+
+        let mut app = downloads_app(root);
+        app.refresh_downloads();
+        assert_eq!(app.downloaded_series.len(), 2);
+
+        // Selection is alphabetical: Berserk is first.
+        assert_eq!(app.downloads_selection, 0);
+        app.open_downloads_delete_confirm();
+        assert!(app.downloads_delete_confirm);
+        app.confirm_downloads_delete();
+
+        assert!(!app.downloads_delete_confirm);
+        assert!(!target.exists());
+        assert!(keep.exists());
+        assert_eq!(app.downloaded_series.len(), 1);
+        assert_eq!(app.downloaded_series[0].series, "Vagabond");
+    }
+
+    #[test]
+    fn downloads_manager_selection_stays_in_bounds() {
+        let mut app = AppState::default();
+        app.downloads_previous();
+        assert_eq!(app.downloads_selection, 0);
+        app.downloads_next();
+        assert_eq!(app.downloads_selection, 0);
+        app.open_downloads_delete_confirm();
+        assert!(!app.downloads_delete_confirm);
     }
 
     #[test]

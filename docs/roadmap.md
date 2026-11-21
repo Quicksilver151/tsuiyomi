@@ -13,13 +13,13 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Library](#library) | 12 | 1 | 3 | 0 | 78.1% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 39 | 1 | 7 | 0 | 84.0% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 39 | 2 | 6 | 0 | 85.1% |
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 16 | 2 | 2 | 0 | 85.0% |
-| [Settings, security, and data](#settings-security-and-data) | 10 | 3 | 1 | 0 | 82.1% |
+| [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **180** | **17** | **19** | **2** | **87.3%** |
+| **All categories** | **182** | **16** | **18** | **2** | **88.0%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -188,7 +188,7 @@ table below.
 | Downloads | Cancel queue / active chapter | Yes | ✅ | ✅ | Core cancellation hook. |
 | Downloads | Delete selected downloads | Yes | ✅ | ✅ | Confirmed. |
 | Downloads | Auto-download new chapters | Yes | ✅ | ✅ | Per-series setting. |
-| Downloads | Series download queue screen | Yes | ❌ | ❌ | Queue is transient; no dedicated screen. |
+| Downloads | Series download screen | Yes | 🟡 | 🟡 | More → Downloads lists downloaded series with sizes and deletes them; the live queue stays transient. |
 | Actions | Copy/open, cover overlay | Yes | ✅ | ✅ | `C`, `o`, `w`. |
 | Actions | Custom cover | Yes | ✅ | ✅ | Local and saved source manga; `W`. |
 | Actions | Remote cover share/delete | Yes | ❌ | ❌ | Replace/remove only. |
@@ -279,10 +279,10 @@ table below.
 | Advanced | FlareSolverr URL | Yes | ✅ | ✅ | Validated, persisted, host restart. |
 | Security | Global Incognito | Yes | ✅ | ✅ | |
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
-| Downloads | Download settings/management page | Yes | 🟡 | 🟡 | Configurable downloads folder; no per-series download list/queue screen yet. |
+| Downloads | Download settings/management page | Yes | ✅ | ✅ | Folder setting plus a downloaded-series list with sizes and per-series deletion. |
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
 | Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
-| Data | Storage statistics/cleanup | Yes | 🟡 | 🟡 | Sizes/counts, clear cover cache, and clear all downloads; per-series cleanup pending. |
+| Data | Storage statistics/cleanup | Yes | ✅ | ✅ | Sizes/counts, cover-cache cleanup, clear-all, and per-series deletion. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
 | Statistics | Dedicated statistics screen | Yes | 🟡 | 🟡 | History → Stats mini-tab. |
 

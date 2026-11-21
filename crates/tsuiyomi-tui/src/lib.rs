@@ -232,6 +232,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.downloads_delete_confirm {
+            match action {
+                Action::Open | Action::Confirm => app.confirm_downloads_delete(),
+                Action::Back => app.cancel_downloads_delete(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.storage_clear_downloads_confirm {
             match action {
                 Action::Open | Action::Confirm => app.confirm_clear_downloads(),
@@ -582,6 +592,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         app.previous_more_section();
                     } else if app.more_section == MoreSection::Categories {
                         app.category_manage_previous();
+                    } else if app.more_section == MoreSection::Downloads {
+                        app.downloads_previous();
                     } else {
                         app.previous_setting();
                     }
@@ -601,6 +613,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         app.next_more_section();
                     } else if app.more_section == MoreSection::Categories {
                         app.category_manage_next();
+                    } else if app.more_section == MoreSection::Downloads {
+                        app.downloads_next();
                     } else {
                         app.next_setting();
                     }
@@ -681,6 +695,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         app.previous_more_section();
                     } else if app.more_section == MoreSection::Categories {
                         app.category_manage_previous();
+                    } else if app.more_section == MoreSection::Downloads {
+                        app.downloads_previous();
                     } else {
                         app.previous_setting();
                     }
@@ -696,6 +712,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                         app.next_more_section();
                     } else if app.more_section == MoreSection::Categories {
                         app.category_manage_next();
+                    } else if app.more_section == MoreSection::Downloads {
+                        app.downloads_next();
                     } else {
                         app.next_setting();
                     }
@@ -731,6 +749,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Refresh => {
                 if app.tab == 4 && app.more_section == MoreSection::Storage {
                     app.refresh_storage();
+                } else if app.tab == 4 && app.more_section == MoreSection::Downloads {
+                    app.refresh_downloads();
                 } else if app.tab == 3 {
                     app.refresh_browse();
                 } else if app.tab == 0 && app.view == LibraryView::RemoteDetails {
@@ -935,6 +955,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.remove_selected_store();
                 } else if app.tab == 4 && app.more_section == MoreSection::Storage {
                     app.open_clear_downloads_confirm();
+                } else if app.tab == 4 && app.more_section == MoreSection::Downloads {
+                    app.open_downloads_delete_confirm();
                 }
             }
             Action::Download => {

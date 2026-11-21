@@ -98,6 +98,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_migration_sources(frame, app);
     draw_migration_search(frame, app);
     draw_clear_downloads_confirm(frame, app);
+    draw_downloads_delete_confirm(frame, app);
 }
 
 fn draw_cover_overlay(frame: &mut Frame, app: &mut AppState) {
@@ -1468,6 +1469,15 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("q", "quit"),
                 ("↑↓", "section"),
                 ("↵", "enter"),
+                ("Esc", "back"),
+            ]
+        } else if app.more_section == MoreSection::Downloads {
+            vec![
+                ("q", "quit"),
+                ("↑↓", "series"),
+                ("r", "refresh"),
+                ("x/Del", "delete"),
+                ("[ ]", "sections"),
                 ("Esc", "back"),
             ]
         } else if app.more_section == MoreSection::Storage {
@@ -5381,35 +5391,104 @@ fn draw_more_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
     let root = downloads_dir(&app.config)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "(unavailable)".to_owned());
-    let lines = vec![
-        Line::from(Span::styled(
-            "Chapter downloads",
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from("Select a remote chapter and press D, or press D in the reader."),
-        Line::from("Downloaded chapters are read from disk, even when the source is offline."),
-        Line::from(""),
-        field("Folder", &root, c_blue()),
-        field(
-            "Layout",
-            "<source>/<series>/<chapter>/<page>.<ext>",
-            c_teal(),
-        ),
-    ];
     let block = panel(
         Line::from(Span::styled(
             " Downloads ",
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         )),
-        c_accent(),
+        more_content_border(app),
     );
     let inner = block.inner(area);
-    frame.render_widget(block, area);
+    frame.render_widget(&block, area);
+    let mut lines = vec![field("Folder", &root, c_blue()), Line::from("")];
+    if app.downloaded_series.is_empty() {
+        lines.push(Line::from(Span::styled(
+            if app.downloads_loaded {
+                "No downloaded chapters."
+            } else {
+                "Press Enter to load downloaded series."
+            },
+            Style::default().fg(c_overlay1()),
+        )));
+    } else {
+        for (index, series) in app.downloaded_series.iter().enumerate() {
+            let selected = index == app.downloads_selection;
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    format!("{} · {}", series.source, series.series),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+                Span::styled(
+                    format!(
+                        "  {} chapters · {}",
+                        series.chapters,
+                        format_bytes(series.bytes)
+                    ),
+                    Style::default().fg(c_overlay0()),
+                ),
+            ]));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "r refresh · x/Del delete selected series · Esc back",
+            Style::default().fg(c_overlay0()),
+        )));
+    }
     frame.render_widget(
         Paragraph::new(Text::from(lines))
             .style(Style::default().fg(c_subtext1()))
             .wrap(Wrap { trim: true }),
+        inner,
+    );
+}
+
+fn draw_downloads_delete_confirm(frame: &mut Frame, app: &AppState) {
+    if !app.downloads_delete_confirm {
+        return;
+    }
+    let Some(series) = app.downloaded_series.get(app.downloads_selection) else {
+        return;
+    };
+    let area = frame.area();
+    let width = 66.min(area.width).max(24);
+    let height = 7.min(area.height);
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Delete downloads ",
+            Style::default().fg(c_peach()).add_modifier(Modifier::BOLD),
+        )),
+        c_peach(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![
+            Line::from(format!("Delete downloaded chapters for {}?", series.series)),
+            Line::from(Span::styled(
+                format!("{} · {} chapters", series.source, series.chapters),
+                Style::default().fg(c_overlay1()),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Enter / y delete · Esc cancel",
+                Style::default().fg(c_overlay1()),
+            )),
+        ])),
         inner,
     );
 }

@@ -405,8 +405,9 @@ categories:
   categories, chapter state, bookmarks, notes, and history.
 - **Advanced** — optional FlareSolverr URL, used by the bundled host for Cloudflare
   challenges. Changing it restarts a running host.
-- **Downloads** — shows the download folder; `D` downloads the selected remote
-  chapter, and downloaded chapters are read from disk.
+- **Downloads** — shows the download folder and the downloaded series with their
+  chapter counts and sizes (`r` refreshes, `x`/Delete removes one after confirmation);
+  `D` downloads the selected remote chapter, and downloaded chapters are read from disk.
 - **Tracking** — informational; no remote tracking services.
 - **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.
