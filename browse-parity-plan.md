@@ -842,41 +842,41 @@ explicitly marked as a deliberate deviation.
 - [ ] Loading and end-of-list indicators.
 - [ ] Retry on error.
 - [ ] Empty-state retry, open-home, help.
-- [ ] Comfortable grid, compact grid, list modes.
-- [ ] Persisted display mode.
-- [ ] In-library badge.
+- [x] Comfortable grid, compact grid, list modes.
+- [x] Persisted display mode.
+- [x] In-library badge.
 - [ ] Dimmed saved covers.
-- [ ] Hide saved results setting.
-- [ ] Add to library.
-- [ ] Remove from library confirmation.
-- [ ] Default category behavior.
-- [ ] Category chooser when no default is configured.
-- [ ] Duplicate detection and dialog.
-- [ ] Add anyway.
-- [ ] Open duplicate.
+- [x] Hide saved results setting.
+- [x] Add to library.
+- [x] Remove from library confirmation.
+- [x] Default category behavior.
+- [x] Category chooser when no default is configured.
+- [x] Duplicate detection and dialog.
+- [x] Add anyway.
+- [x] Open duplicate.
 - [ ] Migrate duplicate.
-- [ ] Source preferences screen.
-- [ ] Batch save/remove preserved as a tsuiyomi extra.
+- [x] Source preferences screen.
+- [x] Batch save/remove preserved as a tsuiyomi extra.
 
 ### Global search
 
-- [ ] Pinned-only scope.
-- [ ] All-sources scope.
-- [ ] Persisted scope.
-- [ ] Only-with-results toggle.
-- [ ] Persisted only-with-results.
+- [x] Pinned-only scope.
+- [x] All-sources scope.
+- [x] Persisted scope.
+- [x] Only-with-results toggle.
+- [x] Persisted only-with-results.
 - [ ] Per-source loading row.
 - [ ] Per-source success row.
 - [ ] Per-source empty row when unfiltered.
-- [ ] Per-source error row and retry.
-- [ ] Progress count.
-- [ ] Progressive result updates.
-- [ ] Cancel previous search.
+- [x] Per-source error row and retry.
+- [x] Progress count.
+- [x] Progressive result updates.
+- [x] Cancel previous search.
 - [ ] Reuse results for same query/scope changes.
-- [ ] Group ordering (pinned first, empty last, name/language).
-- [ ] Open source with query from group header.
-- [ ] Result cards/navigation.
-- [ ] Save results.
+- [x] Group ordering (pinned first, empty last, name/language).
+- [x] Open source with query from group header.
+- [x] Result cards/navigation.
+- [x] Save results.
 - [ ] Migrate from results.
 
 ### Extensions
@@ -894,7 +894,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Obsolete/private indicators.
 - [x] Content-warning indicators.
 - [ ] Search by name/source/URL/id.
-- [ ] Comma-separated search terms.
+- [x] Comma-separated search terms.
 - [ ] Debounced search.
 - [x] Install.
 - [x] Update.
@@ -1169,3 +1169,19 @@ Implemented through the bundled host patch and TUI:
 Still open: signature trust, private/shared warnings, obsolete filtering, comma-separated
 debounced search across source URLs/ids, store website/copy/open actions, and a modal
 not-loaded reason dialog.
+
+
+## Browse polish status
+
+Latest pass:
+
+- Global results can open the selected item, open the selected source with the query
+  filled in (`o`), retry the search (`r`), save results, and hide empty/failed sources.
+- Extension search accepts comma-separated terms and matches names, packages, languages,
+  and source names.
+- Store rows copy (`C`) and open (`o`) their index URL and refresh with `r`.
+- Saving a new remote manga opens a category chooser instead of silently using Default.
+
+Still open: debounced extension search over source URLs/ids, source-result pagination
+that loads automatically at the last row, a full background Browse worker, and category
+migration from duplicate dialogs.

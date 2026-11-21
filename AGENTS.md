@@ -189,7 +189,9 @@ Rules:
   progress, cancellation (`c`), and retry; rows show job state, versions, languages,
   source counts, and content warnings. A failed file appears under Not loaded with its
   reason and can be inspected or deleted. Extension language filtering follows
-  `enabled_languages`, and `show_nsfw_extensions` hides NSFW entries. `o` on Extensions
+  `enabled_languages`, and `show_nsfw_extensions` hides NSFW entries. Extension search
+  accepts comma-separated terms matched against names, packages, languages, and source
+  names. `o` on Extensions
   opens extension details with per-source toggles, enable/disable-all actions, source
   preferences, per-extension Incognito, clear-cookies, and uninstall. Signature trust is
   not implemented: the host cannot verify extension signatures, so there is no trust
@@ -198,8 +200,9 @@ Rules:
   migrates (`M`) or copies (`C`) progress/bookmarks/history/categories. `/` on Sources
   runs a background global search over enabled pinned
   sources with per-source progress; empty and failed sources are rows, `h` toggles
-  only-with-results, and `A` switches between pinned and all enabled sources. Results are
-  grouped by source.
+  only-with-results, and `A` switches between pinned and all enabled sources. `o` opens
+  the selected group's source with the query, `r` retries the search, and `Enter` opens
+  the selected result. Results are grouped by source.
   `C` opens a configurable remote source's preferences (switch, text, and list values;
   multi-select is waiting on the host array contract). `z` opens source filters for
   search: checkbox, tri-state, text, select, sort, and nested groups. `v` cycles

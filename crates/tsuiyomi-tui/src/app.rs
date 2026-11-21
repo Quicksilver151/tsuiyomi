@@ -794,6 +794,12 @@ pub struct CategoryPicker {
     pub chosen: HashSet<String>,
 }
 
+pub struct SaveCategories {
+    pub manga: RemoteManga,
+    pub selected: usize,
+    pub chosen: HashSet<String>,
+}
+
 pub struct HistoryDeleteDialog {
     pub keys: Vec<String>,
     pub series_keys: Vec<String>,
@@ -986,6 +992,7 @@ pub struct AppState {
     pub download_menu: Option<DownloadMenu>,
     pub download_delete_confirm: bool,
     pub category_picker: Option<CategoryPicker>,
+    pub save_categories: Option<SaveCategories>,
     pub cover_overlay: bool,
     pub status: Option<String>,
 }
@@ -1093,6 +1100,7 @@ impl AppState {
             download_menu: None,
             download_delete_confirm: false,
             category_picker: None,
+            save_categories: None,
             cover_overlay: false,
             status,
         }
@@ -1324,7 +1332,8 @@ impl AppState {
             BrowseView::Extensions => self.install_selected_extension(),
             BrowseView::ExtensionDetails => self.activate_extension_detail_selection(),
             BrowseView::Migrate => self.migrate_open(),
-            BrowseView::Stores | BrowseView::GlobalResults => {}
+            BrowseView::GlobalResults => self.global_open(),
+            BrowseView::Stores => {}
         }
     }
 
@@ -1399,7 +1408,7 @@ impl AppState {
             BrowseView::ExtensionDetails => self.load_extensions(),
             BrowseView::Chapters => self.refresh(),
             BrowseView::Migrate => self.migrate_refresh(),
-            BrowseView::GlobalResults => {}
+            BrowseView::GlobalResults => self.retry_global_search(),
         }
         self.clamp_browse_selection();
     }
@@ -2941,7 +2950,12 @@ impl AppState {
     }
 
     fn matching_extension_indices(&self) -> Vec<usize> {
-        let query = self.extension_query.trim().to_lowercase();
+        let terms: Vec<String> = self
+            .extension_query
+            .split(',')
+            .map(|term| term.trim().to_lowercase())
+            .filter(|term| !term.is_empty())
+            .collect();
         let languages = self.config.enabled_languages.as_ref();
         self.remote
             .extensions
@@ -2958,12 +2972,15 @@ impl AppState {
                 {
                     return false;
                 }
-                query.is_empty()
-                    || extension.name.to_lowercase().contains(&query)
-                    || extension.pkg.to_lowercase().contains(&query)
-                    || extension.sources.iter().any(|source| {
-                        source.name.to_lowercase().contains(&query)
-                            || source.lang.to_lowercase().contains(&query)
+                terms.is_empty()
+                    || terms.iter().all(|term| {
+                        extension.name.to_lowercase().contains(term)
+                            || extension.pkg.to_lowercase().contains(term)
+                            || extension.lang.to_lowercase().contains(term)
+                            || extension.sources.iter().any(|source| {
+                                source.name.to_lowercase().contains(term)
+                                    || source.lang.to_lowercase().contains(term)
+                            })
                     })
             })
             .map(|(index, _)| index)
@@ -2971,17 +2988,24 @@ impl AppState {
     }
 
     fn matching_not_loaded_indices(&self) -> Vec<usize> {
-        let query = self.extension_query.trim().to_lowercase();
+        let terms: Vec<String> = self
+            .extension_query
+            .split(',')
+            .map(|term| term.trim().to_lowercase())
+            .filter(|term| !term.is_empty())
+            .collect();
         self.remote
             .not_loaded
             .iter()
             .enumerate()
             .filter(|(_, extension)| {
-                query.is_empty()
-                    || extension.name.to_lowercase().contains(&query)
-                    || extension.pkg.to_lowercase().contains(&query)
-                    || extension.file.to_lowercase().contains(&query)
-                    || extension.reason.to_lowercase().contains(&query)
+                terms.is_empty()
+                    || terms.iter().all(|term| {
+                        extension.name.to_lowercase().contains(term)
+                            || extension.pkg.to_lowercase().contains(term)
+                            || extension.file.to_lowercase().contains(term)
+                            || extension.reason.to_lowercase().contains(term)
+                    })
             })
             .map(|(index, _)| index)
             .collect()
@@ -3388,7 +3412,7 @@ impl AppState {
             .cloned()
             .collect();
         if duplicates.is_empty() {
-            self.add_manga_to_library(manga);
+            self.open_save_categories(manga);
         } else {
             self.duplicate_dialog = Some(DuplicateDialog {
                 manga,
@@ -3398,7 +3422,72 @@ impl AppState {
         }
     }
 
-    fn add_manga_to_library(&mut self, manga: RemoteManga) {
+    fn open_save_categories(&mut self, manga: RemoteManga) {
+        let default = self.favorite_category();
+        let mut chosen = HashSet::new();
+        chosen.insert(default);
+        self.save_categories = Some(SaveCategories {
+            manga,
+            selected: 0,
+            chosen,
+        });
+    }
+
+    pub fn save_categories_previous(&mut self) {
+        if let Some(dialog) = self.save_categories.as_mut() {
+            dialog.selected = dialog.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn save_categories_next(&mut self) {
+        let count = self.library.categories.len();
+        if let Some(dialog) = self.save_categories.as_mut() {
+            if count > 0 {
+                dialog.selected = (dialog.selected + 1).min(count - 1);
+            }
+        }
+    }
+
+    pub fn save_categories_toggle(&mut self) {
+        let Some(dialog) = self.save_categories.as_mut() else {
+            return;
+        };
+        let Some(category) = self.library.categories.get(dialog.selected).cloned() else {
+            return;
+        };
+        if !dialog.chosen.remove(&category) {
+            dialog.chosen.insert(category);
+        }
+    }
+
+    pub fn cancel_save_categories(&mut self) {
+        self.save_categories = None;
+    }
+
+    pub fn confirm_save_categories(&mut self) {
+        let Some(dialog) = self.save_categories.take() else {
+            return;
+        };
+        let mut categories: Vec<String> = dialog.chosen.into_iter().collect();
+        categories.sort();
+        let manga = dialog.manga.clone();
+        self.add_manga_to_library(manga.clone());
+        if self.is_favorite(&manga.source_id, &manga.url) {
+            if let Some(favorite) =
+                self.config.remote_library.iter_mut().find(|favorite| {
+                    favorite.source_id == manga.source_id && favorite.url == manga.url
+                })
+            {
+                favorite.categories = categories;
+            }
+            self.persist_settings();
+            self.merge_remote_library();
+            self.remote.status = Some(format!("Added {} to library", manga.title));
+            self.remote.error = false;
+        }
+    }
+
+    pub fn add_manga_to_library(&mut self, manga: RemoteManga) {
         if self.host_client.is_none() && !self.ensure_host() {
             return;
         }
@@ -3814,6 +3903,86 @@ impl AppState {
 
     pub fn global_previous_item(&mut self) {
         self.remote.global_item = self.remote.global_item.saturating_sub(1);
+    }
+
+    pub fn retry_global_search(&mut self) {
+        let query = self.remote.global_query.clone();
+        if query.trim().is_empty() {
+            self.remote.status = Some("Run a global search first (/)".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        self.global_search(&query);
+    }
+
+    /// Open the selected global-search source with the global query filled in.
+    pub fn global_open_group(&mut self) {
+        let Some(group) = self
+            .remote
+            .global_groups
+            .get(self.remote.global_group)
+            .cloned()
+        else {
+            return;
+        };
+        let query = self.remote.global_query.clone();
+        self.record_source_opened_source(&group.source);
+        self.remote.source = Some(group.source);
+        self.remote.query = query;
+        self.remote.listing = RemoteListing::Search;
+        self.remote.page = 1;
+        self.remote.filters.clear();
+        self.remote.default_filters.clear();
+        self.remote.filters_loaded = false;
+        self.load_remote_filters();
+        self.load_remote_results(RemoteListing::Search);
+        self.browse_view = BrowseView::RemoteResults;
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(0);
+    }
+
+    fn record_source_opened_source(&mut self, source: &RemoteSource) {
+        if self.config.incognito {
+            return;
+        }
+        let key = source_pin_key(source);
+        if self.config.last_used_source.as_deref() != Some(key.as_str()) {
+            self.config.last_used_source = Some(key);
+            self.persist_settings();
+        }
+    }
+
+    pub fn copy_store_url(&mut self) {
+        let Some(store) = self.selected_store().cloned() else {
+            return;
+        };
+        match write_osc52_clipboard(&store) {
+            Ok(()) => self.remote.status = Some(format!("Copied {store}")),
+            Err(error) => self.remote.status = Some(format!("Could not copy: {error}")),
+        }
+        self.remote.error = false;
+    }
+
+    pub fn open_store_url(&mut self) {
+        let Some(store) = self.selected_store().cloned() else {
+            return;
+        };
+        if !(store.starts_with("http://") || store.starts_with("https://")) {
+            self.remote.status = Some("This store URL is not an absolute web URL.".to_owned());
+            self.remote.error = true;
+            return;
+        }
+        let opener = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        match std::process::Command::new(opener).arg(&store).spawn() {
+            Ok(_) => self.remote.status = Some(format!("Opened {store}")),
+            Err(error) => self.remote.status = Some(format!("Could not open {store}: {error}")),
+        }
+        self.remote.error = false;
     }
 
     pub fn global_open(&mut self) {
@@ -12243,6 +12412,37 @@ mod tests {
     }
 
     #[test]
+    fn saving_a_new_manga_opens_the_category_choice() {
+        let mut app = remote_app();
+        let manga = RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/new".to_owned(),
+            title: "New Manga".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+
+        app.request_save_manga(manga);
+
+        let dialog = app.save_categories.as_ref().expect("save categories");
+        assert!(dialog.chosen.contains("Default"));
+        assert_eq!(dialog.manga.title, "New Manga");
+        app.save_categories_next();
+        app.save_categories_toggle();
+        assert!(app
+            .save_categories
+            .as_ref()
+            .is_some_and(|dialog| dialog.chosen.contains("Reading")));
+        app.cancel_save_categories();
+        assert!(app.save_categories.is_none());
+    }
+
+    #[test]
     fn saving_a_duplicate_opens_the_duplicate_dialog() {
         let mut app = remote_app();
         app.remote.favorites = vec![RemoteFavorite {
@@ -13513,6 +13713,75 @@ mod tests {
                 _ => None,
             }),
             Some("English")
+        );
+    }
+
+    #[test]
+    fn extension_search_accepts_comma_separated_terms() {
+        let mut app = remote_app();
+        let extension = |name: &str| ExtensionInfo {
+            name: name.to_owned(),
+            pkg: format!("pkg.{name}"),
+            lang: "en".to_owned(),
+            version: "1.0".to_owned(),
+            apk: format!("{name}.apk"),
+            installed: false,
+            nsfw: false,
+            source_count: 1,
+            sources: vec![ExtensionSource {
+                name: name.to_owned(),
+                lang: "en".to_owned(),
+            }],
+            repo_url: "https://repo/index.min.json".to_owned(),
+            available_version: Some("1.0".to_owned()),
+        };
+        app.remote.extensions = vec![extension("Alpha Beta"), extension("Alpha Gamma")];
+
+        app.extension_query = "alpha, beta".to_owned();
+        assert_eq!(app.filtered_extension_count(), 1);
+        app.extension_query = "alpha, missing".to_owned();
+        assert_eq!(app.filtered_extension_count(), 0);
+    }
+
+    #[test]
+    fn global_search_group_and_item_actions_navigate() {
+        let mut app = remote_app();
+        app.remote.global_query = "berserk".to_owned();
+        app.remote.global_groups = vec![GlobalGroup {
+            source: app.remote.sources[0].clone(),
+            mangas: vec![RemoteManga {
+                source_id: "1".to_owned(),
+                url: "/manga/berserk".to_owned(),
+                title: "Berserk".to_owned(),
+                author: None,
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "ongoing".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            }],
+            error: None,
+        }];
+        app.remote.global_group = 0;
+        app.remote.global_item = 0;
+
+        app.browse_view = BrowseView::GlobalResults;
+        app.global_open();
+        assert_eq!(app.browse_view, BrowseView::RemoteDetails);
+        assert_eq!(
+            app.remote.manga.as_ref().map(|manga| manga.title.as_str()),
+            Some("Berserk")
+        );
+
+        app.browse_view = BrowseView::GlobalResults;
+        app.global_open_group();
+        assert_eq!(app.browse_view, BrowseView::RemoteResults);
+        assert_eq!(app.remote.query, "berserk");
+        assert_eq!(app.remote.listing, RemoteListing::Search);
+        assert_eq!(
+            app.remote.source.as_ref().map(|source| source.id.as_str()),
+            Some("1")
         );
     }
 

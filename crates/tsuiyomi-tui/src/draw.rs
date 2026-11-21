@@ -93,6 +93,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_download_menu(frame, app);
     draw_download_delete_confirm(frame, app);
     draw_category_picker(frame, app);
+    draw_save_categories(frame, app);
 }
 
 fn draw_cover_overlay(frame: &mut Frame, app: &mut AppState) {
@@ -205,6 +206,82 @@ fn draw_download_delete_confirm(frame: &mut Frame, app: &AppState) {
         ])),
         inner,
     );
+}
+
+fn draw_save_categories(frame: &mut Frame, app: &AppState) {
+    let Some(dialog) = app.save_categories.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let height = (app.library.categories.len() as u16 + 3)
+        .min(area.height)
+        .max(4);
+    let width = 58.min(area.width).max(20);
+    if width < 16 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Save to library ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Space toggle · Enter save · Esc cancel ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let title = Line::from(Span::styled(
+        truncate_text(&dialog.manga.title, inner.width),
+        Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+    ));
+    let rows: Vec<ListItem> = app
+        .library
+        .categories
+        .iter()
+        .enumerate()
+        .map(|(index, category)| {
+            let selected = index == dialog.selected;
+            let checked = dialog.chosen.contains(category);
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    format!("{} {category}", if checked { "[x]" } else { "[ ]" }),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(inner);
+    frame.render_widget(Paragraph::new(title), chunks[0]);
+    let mut state = ListState::default();
+    state.select(Some(
+        dialog
+            .selected
+            .min(app.library.categories.len().saturating_sub(1)),
+    ));
+    frame.render_stateful_widget(List::new(rows), chunks[1], &mut state);
 }
 
 fn draw_category_picker(frame: &mut Frame, app: &AppState) {
@@ -1087,6 +1164,8 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("h", "results only"),
                 ("F", "library"),
                 ("↵", "open"),
+                ("o", "source"),
+                ("r", "retry"),
                 ("Esc", "back"),
             ],
             BrowseView::Extensions => vec![
@@ -1109,6 +1188,9 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("↑↓", "store"),
                 ("a", "add"),
                 ("d", "remove"),
+                ("C", "copy URL"),
+                ("o", "open"),
+                ("r", "refresh"),
                 ("t", "extensions"),
                 ("[ ]", "tabs"),
                 ("Esc", "back"),

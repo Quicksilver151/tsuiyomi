@@ -134,7 +134,8 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   root, never saved remote manga or downloads. On Local, `s` searches folder titles, `l`
   switches between all and recently modified series, and `v` reverses the title order.
 - **Extensions** — updates, not-loaded files, installed extensions, and available
-  extensions by language. `/` searches by name or package, `i` or `Enter` installs or
+  extensions by language. `/` searches comma-separated terms across names, packages,
+  languages, and source names, `i` or `Enter` installs or
   retries available extensions, `x` or `Delete` uninstalls installed extensions or
   deletes failed files after a `y` confirmation, `u` updates the selected extension, `U`
   updates every extension with a pending update, `c` cancels running installs, `P` pins
@@ -149,6 +150,12 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   favorites with `Space`, and press `M` to search enabled sources and preview matches.
   `M` migrates matched entries (removing the old favorite) or `C` copies them. Progress,
   bookmarks, history, categories, and reading time move with the matched chapters.
+- **Global search** — `o` opens the selected source with the query filled in, `r`
+  retries the search, `F` saves results, and `h` hides empty/failed sources.
+- **Stores** — `a` adds a URL, `d` removes it, `C` copies it, `o` opens it in the system
+  browser, and `r` refreshes the extension lists.
+- Saving a new remote manga opens a category chooser with the default category
+  preselected. `Space` toggles categories, `Enter` saves, and `Esc` cancels.
 
 Controls:
 

@@ -191,6 +191,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.save_categories.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.save_categories_previous(),
+                Action::Next => app.save_categories_next(),
+                Action::Select => app.save_categories_toggle(),
+                Action::Open | Action::Confirm => app.confirm_save_categories(),
+                Action::Back => app.cancel_save_categories(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.category_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -712,6 +726,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::SourceFilters => {
                 if app.story_screen_active() {
                     app.open_story_source();
+                } else if app.tab == 3 && app.browse_view == BrowseView::GlobalResults {
+                    app.global_open_group();
+                } else if app.tab == 3 && app.browse_view == BrowseView::Stores {
+                    app.open_store_url();
                 } else if app.tab == 2 {
                     app.open_history_details();
                 } else if app.tab == 3 {
@@ -727,6 +745,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::SourcePrefs => {
                 if app.story_screen_active() {
                     app.copy_story_reference();
+                } else if app.tab == 3 && app.browse_view == BrowseView::Stores {
+                    app.copy_store_url();
                 } else if app.tab == 3 {
                     match app.browse_view {
                         BrowseView::Sources => app.open_source_prefs(),
