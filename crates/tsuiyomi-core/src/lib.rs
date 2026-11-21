@@ -53,8 +53,8 @@ pub use host::{
     RemoteMangaPage, RemoteSource,
 };
 pub use library::{
-    ensure_series_cover, read_cover, scan_library, Chapter, ChapterKind, Library, RemoteSeries,
-    ScanError, Series,
+    ensure_series_cover, load_category_entries, read_cover, save_category_entries, scan_library,
+    CategoryEntry, Chapter, ChapterKind, Library, RemoteSeries, ScanError, Series,
 };
 pub use migration::{best_match, deep_queries, title_similarity, MigrationMatch, MATCH_THRESHOLD};
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};

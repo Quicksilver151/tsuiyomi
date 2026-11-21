@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     archive,
@@ -94,17 +94,55 @@ struct DetailsJson {
     status: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct CategoriesFile {
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct CategoriesFile {
     #[serde(default)]
-    categories: Vec<CategoryEntry>,
+    pub categories: Vec<CategoryEntry>,
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct CategoryEntry {
-    name: String,
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CategoryEntry {
+    pub name: String,
     #[serde(default)]
-    series: Vec<String>,
+    pub series: Vec<String>,
+}
+
+/// Read `categories.json` tolerantly. Empty names and duplicates are dropped.
+pub fn load_category_entries(root: &Path) -> Vec<CategoryEntry> {
+    let mut entries: Vec<CategoryEntry> = Vec::new();
+    let Ok(text) = fs::read_to_string(root.join("categories.json")) else {
+        return entries;
+    };
+    let Ok(file) = serde_json::from_str::<CategoriesFile>(&text) else {
+        return entries;
+    };
+    for mut entry in file.categories {
+        entry.name = entry.name.trim().to_owned();
+        if entry.name.is_empty()
+            || entry.name == "Default"
+            || entries.iter().any(|known| known.name == entry.name)
+        {
+            continue;
+        }
+        entry.series.retain(|title| !title.trim().is_empty());
+        entry.series.sort();
+        entry.series.dedup();
+        entries.push(entry);
+    }
+    entries
+}
+
+/// Write `categories.json`, excluding the system `Default` category.
+pub fn save_category_entries(root: &Path, entries: &[CategoryEntry]) -> std::io::Result<()> {
+    let mut categories: Vec<CategoryEntry> = entries
+        .iter()
+        .filter(|entry| entry.name != "Default" && !entry.name.trim().is_empty())
+        .cloned()
+        .collect();
+    categories.sort_by_key(|entry| entry.name.to_lowercase());
+    let file = CategoriesFile { categories };
+    let bytes = serde_json::to_vec_pretty(&file).map_err(std::io::Error::other)?;
+    fs::write(root.join("categories.json"), bytes)
 }
 
 /// Assign categories from `categories.json` in the library root.
@@ -123,28 +161,23 @@ struct CategoryEntry {
 fn apply_categories(library: &mut Library) {
     let mut categories = Vec::new();
 
-    if let Ok(text) = fs::read_to_string(library.root.join("categories.json")) {
-        if let Ok(file) = serde_json::from_str::<CategoriesFile>(&text) {
-            for entry in file.categories {
-                let name = entry.name.trim();
-                if name.is_empty() || categories.iter().any(|existing| existing == name) {
-                    continue;
+    for entry in load_category_entries(&library.root) {
+        let name = entry.name;
+        if categories.iter().any(|existing| existing == &name) {
+            continue;
+        }
+        for title in entry.series {
+            if let Some(series) = library
+                .series
+                .iter_mut()
+                .find(|series| series.title == title)
+            {
+                if !series.categories.contains(&name) {
+                    series.categories.push(name.clone());
                 }
-                let name = name.to_owned();
-                for title in entry.series {
-                    if let Some(series) = library
-                        .series
-                        .iter_mut()
-                        .find(|series| series.title == title)
-                    {
-                        if !series.categories.contains(&name) {
-                            series.categories.push(name.clone());
-                        }
-                    }
-                }
-                categories.push(name);
             }
         }
+        categories.push(name);
     }
 
     for series in &mut library.series {

@@ -1293,6 +1293,16 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("↵", "enter"),
                 ("Esc", "back"),
             ]
+        } else if app.more_section == MoreSection::Categories {
+            vec![
+                ("q", "quit"),
+                ("↑↓", "category"),
+                ("a", "add"),
+                ("↵", "rename"),
+                ("x/Del", "remove"),
+                ("[ ]", "sections"),
+                ("Esc", "back"),
+            ]
         } else if app.more_section == MoreSection::About {
             vec![
                 ("q", "quit"),
@@ -5200,18 +5210,41 @@ fn draw_more_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
 
 fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     let mut lines = Vec::new();
-    for category in &app.library.categories {
+    for (index, category) in app.library.categories.iter().enumerate() {
         let count = app
             .library
             .series
             .iter()
             .filter(|series| series.categories.iter().any(|name| name == category))
             .count();
-        lines.push(field(category, &format!("{count} series"), c_text()));
+        let selected = index == app.category_manage_index;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if selected { "› " } else { "  " },
+                Style::default().fg(c_accent()),
+            ),
+            Span::styled(
+                category.clone(),
+                if selected {
+                    Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(c_text())
+                },
+            ),
+            Span::styled(
+                format!("  {count} series"),
+                Style::default().fg(c_overlay0()),
+            ),
+        ]));
     }
     if lines.is_empty() {
         lines.push(Line::from("No categories found."));
     }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "a add · Enter rename · x/Del remove · Esc back",
+        Style::default().fg(c_overlay0()),
+    )));
 
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(

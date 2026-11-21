@@ -54,7 +54,7 @@ Legend:
 | Grid | Generated/placeholder covers | Yes | Yes | ✅ | Initials placeholder when no image. |
 | Grid | Saved source manga merged in | Yes | Yes | ✅ | Mirrored in `remote_library`. |
 | Categories | Category tabs/filtering | Yes | ✅ | ✅ | `[`/`]`; default category. |
-| Categories | Edit categories from story | Yes | ✅ | ✅ | Saved source manga. Local categories remain `categories.json`. |
+| Categories | Edit categories from story | Yes | ✅ | ✅ | Local and saved source manga; local assignments write `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
 | Sorting | Other Mihon sort fields | Yes | ❌ | ❌ | Last-read, unread count, date added, etc. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
@@ -272,7 +272,7 @@ Legend:
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
 | Data | Backup import/export | Yes | ❌ | ❌ | |
 | Data | Storage statistics/cleanup | Yes | ❌ | ❌ | |
-| Categories | Category management screen | Yes | ❌ | ❌ | `categories.json` only. |
+| Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
 | Statistics | Dedicated statistics screen | Yes | 🟡 | 🟡 | History → Stats mini-tab. |
 
 ## 10. Documented TUI deviations

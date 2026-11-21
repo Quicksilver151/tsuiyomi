@@ -212,6 +212,12 @@ chapter between page fetches and removes its partial `.tmp` directory.
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.
 
+## Categories
+
+More → Categories lists categories and their series counts. `a` adds a category, `Enter`
+renames the selected category, and `x`/Delete removes it. Local story screens also edit
+category assignments, writing `categories.json` in the Mihon library root.
+
 ## History
 
 The History tab shows one row per manga: its most recently read chapter. Rows have a

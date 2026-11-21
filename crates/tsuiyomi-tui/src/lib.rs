@@ -539,6 +539,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
+                    } else if app.more_section == MoreSection::Categories {
+                        app.category_manage_previous();
                     } else {
                         app.previous_setting();
                     }
@@ -556,6 +558,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
+                    } else if app.more_section == MoreSection::Categories {
+                        app.category_manage_next();
                     } else {
                         app.next_setting();
                     }
@@ -634,6 +638,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
+                    } else if app.more_section == MoreSection::Categories {
+                        app.category_manage_previous();
                     } else {
                         app.previous_setting();
                     }
@@ -647,6 +653,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
+                    } else if app.more_section == MoreSection::Categories {
+                        app.category_manage_next();
                     } else {
                         app.next_setting();
                     }
@@ -853,6 +861,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::AddStore => {
                 if app.story_screen_active() {
                     app.select_all_story_chapters();
+                } else if app.tab == 4 && app.more_section == MoreSection::Categories {
+                    app.open_add_category();
                 } else {
                     if app.tab == 3
                         && matches!(app.browse_view, BrowseView::Extensions | BrowseView::Stores)
@@ -939,6 +949,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.open_library_delete_dialog();
                 } else if app.tab == 2 {
                     app.open_history_delete_dialog();
+                } else if app.tab == 4 && app.more_section == MoreSection::Categories {
+                    app.delete_manage_category();
                 }
             }
             Action::Open => {
@@ -951,6 +963,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.focus_more_content();
+                    } else if app.more_section == MoreSection::Categories {
+                        app.open_rename_category();
                     } else {
                         app.activate_setting();
                     }

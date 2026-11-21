@@ -305,6 +305,8 @@ pub enum TextAction {
     SetHostUrl,
     SetFlareSolverr,
     SetDownloadsPath,
+    AddCategory,
+    RenameCategory,
     StoryNotes,
     SetCustomCover,
 }
@@ -818,6 +820,7 @@ pub struct DownloadMenu {
 pub struct CategoryPicker {
     pub selected: usize,
     pub chosen: HashSet<String>,
+    pub local: bool,
 }
 
 pub struct SaveCategories {
@@ -929,6 +932,7 @@ pub struct AppState {
     /// then instant; `r` refreshes it.
     remote_chapter_cache: HashMap<String, (RemoteManga, Vec<RemoteChapter>)>,
     pub category_index: usize,
+    pub category_manage_index: usize,
     pub selected: usize,
     pub library_query: String,
     pub library_search: bool,
@@ -1073,6 +1077,7 @@ impl AppState {
             library_remote: LibraryRemoteState::default(),
             remote_chapter_cache: HashMap::new(),
             category_index: 0,
+            category_manage_index: 0,
             selected: 0,
             library_query: String::new(),
             library_search: false,
@@ -5139,6 +5144,8 @@ impl AppState {
             TextAction::SetHostUrl => self.set_host_url(&input.value),
             TextAction::SetFlareSolverr => self.set_flaresolverr_url(&input.value),
             TextAction::SetDownloadsPath => self.set_downloads_path(&input.value),
+            TextAction::AddCategory => self.add_category(&input.value),
+            TextAction::RenameCategory => self.rename_category(&input.value),
             TextAction::StoryNotes => self.save_story_notes(&input.value),
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
         }
@@ -8352,22 +8359,38 @@ impl AppState {
     }
 
     pub fn open_category_picker(&mut self) {
-        let Some(manga) = self.remote_story_manga().cloned() else {
-            self.status = Some("Local categories are managed by categories.json.".to_owned());
-            return;
-        };
-        let Some(favorite) =
-            self.config.remote_library.iter().find(|favorite| {
+        if let Some(manga) = self.remote_story_manga().cloned() {
+            let Some(favorite) = self.config.remote_library.iter().find(|favorite| {
                 favorite.source_id == manga.source_id && favorite.url == manga.url
-            })
-        else {
-            self.status = Some("Save this manga to the library to change categories.".to_owned());
+            }) else {
+                self.status =
+                    Some("Save this manga to the library to change categories.".to_owned());
+                return;
+            };
+            let chosen = favorite.categories.iter().cloned().collect();
+            self.category_picker = Some(CategoryPicker {
+                selected: 0,
+                chosen,
+                local: false,
+            });
+            return;
+        }
+        let series = if self.tab == 0 && self.view == LibraryView::Chapters {
+            self.selected_series().cloned()
+        } else if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            self.selected_browse_local_series().cloned()
+        } else {
+            None
+        };
+        let Some(series) = series else {
+            self.status = Some("Open a story to change its categories.".to_owned());
             return;
         };
-        let chosen = favorite.categories.iter().cloned().collect();
+        let chosen = series.categories.iter().cloned().collect();
         self.category_picker = Some(CategoryPicker {
             selected: 0,
             chosen,
+            local: true,
         });
     }
 
@@ -8406,11 +8429,37 @@ impl AppState {
         let Some(picker) = self.category_picker.take() else {
             return;
         };
+        let mut categories: Vec<String> = picker.chosen.into_iter().collect();
+        categories.sort();
+        if picker.local {
+            let series = if self.tab == 0 && self.view == LibraryView::Chapters {
+                self.selected_series().cloned()
+            } else if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+                self.selected_browse_local_series().cloned()
+            } else {
+                None
+            };
+            let Some(series) = series else {
+                return;
+            };
+            if categories.is_empty() {
+                categories.push("Default".to_owned());
+            }
+            if let Some(target) = self
+                .library
+                .series
+                .iter_mut()
+                .find(|candidate| candidate.path == series.path)
+            {
+                target.categories = categories;
+            }
+            self.save_library_categories();
+            self.status = Some("Updated categories".to_owned());
+            return;
+        }
         let Some(manga) = self.remote_story_manga().cloned() else {
             return;
         };
-        let mut categories: Vec<String> = picker.chosen.into_iter().collect();
-        categories.sort();
         if let Some(favorite) = self
             .config
             .remote_library
@@ -10478,6 +10527,135 @@ impl AppState {
 
     pub fn focus_more_content(&mut self) {
         self.more_focus = MoreFocus::Content;
+    }
+
+    pub fn category_manage_previous(&mut self) {
+        self.category_manage_index = self.category_manage_index.saturating_sub(1);
+    }
+
+    pub fn category_manage_next(&mut self) {
+        let count = self.library.categories.len();
+        if count > 0 {
+            self.category_manage_index =
+                (self.category_manage_index + 1).min(count.saturating_sub(1));
+        }
+    }
+
+    fn selected_manage_category(&self) -> Option<String> {
+        self.library
+            .categories
+            .get(self.category_manage_index)
+            .cloned()
+    }
+
+    pub fn open_add_category(&mut self) {
+        if self.tab == 4 && self.more_section == MoreSection::Categories {
+            self.open_text_input(TextAction::AddCategory, "New category", "");
+        }
+    }
+
+    pub fn open_rename_category(&mut self) {
+        if self.tab != 4 || self.more_section != MoreSection::Categories {
+            return;
+        }
+        let Some(name) = self.selected_manage_category() else {
+            return;
+        };
+        if name == "Default" {
+            self.status = Some("Default cannot be renamed.".to_owned());
+            return;
+        }
+        self.open_text_input(TextAction::RenameCategory, "Rename category", &name);
+    }
+
+    pub fn delete_manage_category(&mut self) {
+        if self.tab != 4 || self.more_section != MoreSection::Categories {
+            return;
+        }
+        let Some(name) = self.selected_manage_category() else {
+            return;
+        };
+        if name == "Default" {
+            self.status = Some("Default cannot be removed.".to_owned());
+            return;
+        }
+        self.library.categories.retain(|category| category != &name);
+        for series in &mut self.library.series {
+            series.categories.retain(|category| category != &name);
+        }
+        self.category_manage_index = self
+            .category_manage_index
+            .min(self.library.categories.len().saturating_sub(1));
+        self.save_library_categories();
+        self.status = Some(format!("Removed category {name}"));
+    }
+
+    fn add_category(&mut self, value: &str) {
+        let name = value.trim();
+        if name.is_empty() {
+            return;
+        }
+        if name == "Default" || self.library.categories.iter().any(|known| known == name) {
+            self.status = Some(format!("Category {name} already exists"));
+            return;
+        }
+        self.library.categories.push(name.to_owned());
+        self.save_library_categories();
+        self.status = Some(format!("Added category {name}"));
+    }
+
+    fn rename_category(&mut self, value: &str) {
+        let name = value.trim();
+        let Some(old) = self.selected_manage_category() else {
+            return;
+        };
+        if name.is_empty() || old == "Default" || name == old {
+            return;
+        }
+        if name == "Default" || self.library.categories.iter().any(|known| known == name) {
+            self.status = Some(format!("Category {name} already exists"));
+            return;
+        }
+        if let Some(category) = self
+            .library
+            .categories
+            .iter_mut()
+            .find(|category| **category == old)
+        {
+            *category = name.to_owned();
+        }
+        for series in &mut self.library.series {
+            for category in &mut series.categories {
+                if category == &old {
+                    *category = name.to_owned();
+                }
+            }
+        }
+        self.save_library_categories();
+        self.status = Some(format!("Renamed {old} to {name}"));
+    }
+
+    fn save_library_categories(&mut self) {
+        let entries: Vec<tsuiyomi_core::CategoryEntry> = self
+            .library
+            .categories
+            .iter()
+            .filter(|category| category.as_str() != "Default")
+            .map(|category| tsuiyomi_core::CategoryEntry {
+                name: category.clone(),
+                series: self
+                    .library
+                    .series
+                    .iter()
+                    .filter(|series| series.categories.contains(category))
+                    .map(|series| series.title.clone())
+                    .collect(),
+            })
+            .collect();
+        match tsuiyomi_core::save_category_entries(&self.library.root, &entries) {
+            Ok(()) => {}
+            Err(error) => self.status = Some(format!("Could not save categories: {error}")),
+        }
     }
 
     pub fn leave_more(&mut self) {
@@ -12834,6 +13012,62 @@ mod tests {
         app.set_reading_mode(ReadingMode::LeftToRight);
         assert_eq!(app.reading_direction, ReadingDirection::LeftToRight);
         assert!(!app.previous_page_key_advances());
+    }
+
+    #[test]
+    fn local_story_categories_can_be_edited() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = AppState::new(library(), None);
+        app.library.root = root.path().to_path_buf();
+        app.select_index(1);
+        app.open();
+        app.open_category_picker();
+        assert!(app
+            .category_picker
+            .as_ref()
+            .is_some_and(|picker| picker.local));
+        app.category_picker_toggle();
+        app.confirm_category_picker();
+        let series = app
+            .library
+            .series
+            .iter()
+            .find(|series| series.title == "Berserk")
+            .expect("series");
+        assert_eq!(series.categories, ["Reading"]);
+        assert!(root.path().join("categories.json").exists());
+    }
+
+    #[test]
+    fn category_management_renames_and_removes_categories() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = AppState::new(library(), None);
+        app.library.root = root.path().to_path_buf();
+        app.tab = 4;
+        app.more_section = MoreSection::Categories;
+        app.more_focus = MoreFocus::Content;
+        app.category_manage_index = 1;
+
+        app.rename_category("Favorites");
+        assert!(app.library.categories.contains(&"Favorites".to_owned()));
+        assert!(!app.library.categories.contains(&"Reading".to_owned()));
+        assert!(app
+            .library
+            .series
+            .iter()
+            .any(|series| series.categories.contains(&"Favorites".to_owned())));
+        assert!(root.path().join("categories.json").exists());
+
+        app.delete_manage_category();
+        assert!(!app.library.categories.contains(&"Favorites".to_owned()));
+        assert!(app
+            .library
+            .series
+            .iter()
+            .all(|series| !series.categories.contains(&"Favorites".to_owned())));
+
+        app.add_category("Plan to Read");
+        assert!(app.library.categories.contains(&"Plan to Read".to_owned()));
     }
 
     #[test]
