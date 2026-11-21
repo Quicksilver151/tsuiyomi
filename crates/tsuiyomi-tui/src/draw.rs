@@ -5140,12 +5140,20 @@ mod tests {
         let mut app = test_app();
         app.tab = 2;
         app.history_section = HistorySection::Stats;
-        app.reading_stats.record_session(
-            "local:/library/Test Series",
-            "Test Series",
-            125,
-            &today_key(),
+        let mut entry = HistoryEntry::local(
+            "Test Series".to_owned(),
+            "Chapter 1".to_owned(),
+            PathBuf::from("/library/Test Series"),
+            PathBuf::from("/library/Test Series/Chapter 1"),
+            None,
+            0,
+            10,
         );
+        entry.read_duration_secs = 125;
+        entry.daily_duration_secs.insert(today_key(), 125);
+        app.history
+            .record("/library/Test Series/Chapter 1".to_owned(), entry);
+        app.reading_stats = app.history.reading_stats();
 
         let text = render(&mut app, 100, 40);
         assert!(text.contains("Stats"));
@@ -5175,6 +5183,7 @@ mod tests {
                 pages: 10,
                 last_read: 1,
                 read_duration_secs: 0,
+                daily_duration_secs: std::collections::BTreeMap::new(),
             },
         );
         let text = render(&mut app, 100, 30);

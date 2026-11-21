@@ -31,7 +31,7 @@ Implemented:
 - Latest-per-series History view with date headers and title search.
 - Compact 4×3 cover rows in a vertical list.
 - History / Stats mini-tabs.
-- Reading-session duration tracking and `reading_stats.json`.
+- Reading-session duration tracking stored in each history entry.
 - Stats totals, 7/30-day windows, 14-day chart, top series, streak, and counts.
 - Permanent single/all-series deletion with chapter-progress clearing.
 - Multi-select deletion.
@@ -261,29 +261,21 @@ Rules:
 Deletion remains permanent in the visible model. Internally, tombstones are only
 used to avoid a full rewrite on every delete; compaction removes them.
 
-### 5.4 Reading-time ledger
+### 5.4 Reading-time aggregation
 
-Time statistics must survive permanent history deletion. Deleting history should
-not silently erase the fact that time was spent reading, matching Mihon's
-behavior where resetting history keeps `read_duration`.
+Time statistics are derived from live history. Removing a history row removes its
+time from total, daily, and series statistics.
 
-Use a separate small file:
-
-`$XDG_DATA_HOME/tsuiyomi/reading_stats.json`
-
-Contents:
+Each history entry carries:
 
 ```text
-total_seconds
-daily_seconds: { "YYYY-MM-DD": seconds }
-series_seconds: { series_key: { title, seconds } }
+read_duration_secs
+daily_duration_secs: { "YYYY-MM-DD": seconds }
 ```
 
-This file is small and bounded by days + series count, so ordinary atomic JSON
-writes are fine.
-
-History entries also carry `read_duration_secs` for per-chapter context, but the
-Stats mini-tab reads the ledger.
+The Stats view builds an in-memory aggregate by walking live history. No separate
+statistics file is persisted. Entries created before daily buckets existed fall
+back to their last-read date when aggregating.
 
 ## 6. Read-session tracking
 
@@ -483,9 +475,8 @@ Metrics:
 - optional average per active day
 - optional most-used source
 
-Stats uses the reading-time ledger, not the live history list, so deleting
-history does not erase accumulated time. Add a footnote/help line explaining
-this.
+Stats aggregates live history, so deleting history removes that chapter's or
+series' time from totals, the daily chart, and top series.
 
 No reset-statistics action is required for parity. If added later, it needs a
 separate confirmation.
@@ -594,11 +585,9 @@ Persist progress immediately after deletion.
 
 ### 9.4 Statistics after deletion
 
-Deleting history does not delete reading-time statistics. This mirrors Mihon,
-where resetting history keeps `read_duration`. The Stats mini-tab can therefore
-show more time than the currently visible history accounts for.
-
-Document this behavior in the Stats mini-tab.
+Deleting history also removes its duration from the Stats mini-tab. Totals, daily
+buckets, streaks, and top-series entries are rebuilt from the remaining history.
+Clear-all produces an empty Stats view.
 
 ## 10. Resume / next-chapter logic
 
@@ -780,7 +769,7 @@ format can move to SQLite later without changing the UI contract.
   duration.
 - Implement JSONL load/append/delete/compaction.
 - Migrate `history.json` to `history.jsonl`.
-- Add `reading_stats.json` and its daily/series ledger.
+- Add per-chapter daily duration buckets; Stats aggregates live history.
 - Remove the 500-entry cap.
 - Add progress removal APIs.
 - Tests for migration, append/tombstone/compaction, duplicate records, stats
@@ -1011,6 +1000,6 @@ Docs:
 - History deletion clears corresponding chapter progress.
 - Multi-select deletion is supported.
 - History storage is unbounded.
-- Time statistics survive history deletion.
+- Time statistics are derived from live history, so deletion removes them.
 - Clear-all history clears all chapter progress after confirmation.
 - Bookmarks and downloads are not affected.

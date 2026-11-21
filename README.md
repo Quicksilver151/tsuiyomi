@@ -190,13 +190,12 @@ bookmarks and downloads are untouched.
 
 `[` and `]` switch between History and Stats inside the panel. Stats shows total, today,
 7-day, and 30-day reading time, a 14-day bar chart, top series, reading streak, and
-trend counts. Reading time is accumulated while the reader is open and is kept separately
-so deleting history does not erase statistics.
+trend counts. Reading time is accumulated while the reader is open and aggregated from live
+history, so removing a history row also removes its time from Stats.
 
 History is stored as an unbounded append-only
 `$XDG_DATA_HOME/tsuiyomi/history.jsonl`; the old `history.json` is imported on first
-start. Reading-time totals live in `reading_stats.json`. Incognito and per-extension
-Incognito stop new history and time recording.
+start. Incognito and per-extension Incognito stop new history and time recording.
 
 ## Remote sources and extensions
 

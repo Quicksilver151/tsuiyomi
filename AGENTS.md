@@ -268,10 +268,10 @@ Rules:
   remote manga, `x`/Delete opens a single/all-series delete dialog, `X` clears all
   history, `/` searches titles, and `Space` multi-selects. Deletion is permanent and
   clears matching chapter progress so chapters become unread again. History and Stats
-  are mini-tabs inside the panel (`[`/`]`); Stats uses a separate
-  `reading_stats.json` daily/series ledger so history deletion does not erase reading
-  time. `record_progress` flushes history with progress; global and per-extension
-  Incognito suppress history and time.
+  are mini-tabs inside the panel (`[`/`]`); Stats is derived from live history and
+  per-chapter daily buckets, so deleting history removes its time from totals, charts,
+  and top series. `record_progress` flushes history with progress; global and
+  per-extension Incognito suppress history and time.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,
   `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,

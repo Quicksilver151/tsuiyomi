@@ -29,7 +29,7 @@ use crossterm::{
 };
 use ratatui::{layout::Rect, DefaultTerminal};
 use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
-use tsuiyomi_core::{BookmarkStore, HistoryStore, ProgressStore, ReadingStats};
+use tsuiyomi_core::{BookmarkStore, HistoryStore, ProgressStore};
 
 use crate::{
     app::{
@@ -70,7 +70,6 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_progress(ProgressStore::load_default());
     app.set_bookmarks(BookmarkStore::load_default());
     app.set_history(HistoryStore::load_default());
-    app.set_reading_stats(ReadingStats::load_default());
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());

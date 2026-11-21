@@ -15,7 +15,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::host::{RemoteChapter, RemoteManga};
+use crate::{
+    host::{RemoteChapter, RemoteManga},
+    reading_stats::{date_key_for_unix, ReadingStats},
+};
 
 const COMPACT_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -51,6 +54,9 @@ pub struct HistoryEntry {
     /// Time spent reading this chapter, accumulated across sessions.
     #[serde(default)]
     pub read_duration_secs: u64,
+    /// Local-date buckets for this chapter's reading time.
+    #[serde(default)]
+    pub daily_duration_secs: BTreeMap<String, u64>,
 }
 
 impl HistoryEntry {
@@ -77,6 +83,7 @@ impl HistoryEntry {
             pages,
             last_read: unix_seconds(),
             read_duration_secs: 0,
+            daily_duration_secs: BTreeMap::new(),
         }
     }
 
@@ -100,6 +107,7 @@ impl HistoryEntry {
             pages,
             last_read: unix_seconds(),
             read_duration_secs: 0,
+            daily_duration_secs: BTreeMap::new(),
         }
     }
 
@@ -237,6 +245,7 @@ impl HistoryStore {
         if let Some(previous) = self.entries.get(&key) {
             if entry.read_duration_secs == 0 {
                 entry.read_duration_secs = previous.read_duration_secs;
+                entry.daily_duration_secs = previous.daily_duration_secs.clone();
             }
         }
         self.entries.insert(key, entry.clone());
@@ -246,15 +255,36 @@ impl HistoryStore {
     }
 
     /// Accumulate reading time without changing the last-read timestamp.
-    pub fn add_duration(&mut self, key: &str, seconds: u64) {
+    pub fn add_duration(&mut self, key: &str, seconds: u64, date_key: &str) {
         let Some(entry) = self.entries.get_mut(key) else {
             return;
         };
         entry.read_duration_secs = entry.read_duration_secs.saturating_add(seconds);
+        let day = entry
+            .daily_duration_secs
+            .entry(date_key.to_owned())
+            .or_default();
+        *day = day.saturating_add(seconds);
         let entry = entry.clone();
         self.pending.push(HistoryRecord::Entry {
             entry: Box::new(entry),
         });
+    }
+
+    /// Rebuild the Stats view from the live history. Deleting history therefore
+    /// removes its time from Stats.
+    pub fn reading_stats(&self) -> ReadingStats {
+        let mut stats = ReadingStats::default();
+        for entry in self.entries.values() {
+            stats.record_entry(
+                &entry.series_key(),
+                &entry.series_title,
+                entry.read_duration_secs,
+                &entry.daily_duration_secs,
+                &date_key_for_unix(entry.last_read),
+            );
+        }
+        stats
     }
 
     pub fn remove(&mut self, key: &str) -> bool {
@@ -424,6 +454,7 @@ mod tests {
             pages: 10,
             last_read: time,
             read_duration_secs: 0,
+            daily_duration_secs: BTreeMap::new(),
         }
     }
 
@@ -523,13 +554,35 @@ mod tests {
         first.read_duration_secs = 20;
         let key = history_key(&first);
         store.record(key.clone(), first);
-        store.add_duration(&key, 15);
+        store.add_duration(&key, 15, "2026-01-01");
         assert_eq!(store.get(&key).unwrap().read_duration_secs, 35);
+        assert_eq!(store.reading_stats().total_seconds, 35);
 
         let mut refresh = entry("A", "Chapter 1", 2);
         refresh.read_duration_secs = 0;
         store.record(key.clone(), refresh);
         assert_eq!(store.get(&key).unwrap().read_duration_secs, 35);
+    }
+
+    #[test]
+    fn stats_drop_when_history_is_removed() {
+        let mut store = HistoryStore::default();
+        let a = entry("A", "Chapter 1", 1);
+        let b = entry("B", "Chapter 1", 2);
+        let a_key = history_key(&a);
+        let b_key = history_key(&b);
+        store.record(a_key.clone(), a);
+        store.record(b_key, b);
+        store.add_duration(&a_key, 30, "2026-01-01");
+
+        let stats = store.reading_stats();
+        assert_eq!(stats.total_seconds, 30);
+        assert_eq!(stats.top_series(1)[0].1.title, "A");
+
+        store.remove(&a_key);
+        let stats = store.reading_stats();
+        assert_eq!(stats.total_seconds, 0);
+        assert!(stats.top_series(1).is_empty());
     }
 
     #[test]

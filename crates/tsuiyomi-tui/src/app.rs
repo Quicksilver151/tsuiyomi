@@ -650,8 +650,6 @@ pub struct HistoryDeleteDialog {
 pub struct ReadingSession {
     started: Instant,
     chapter_key: String,
-    series_key: String,
-    series_title: String,
 }
 
 pub struct ReaderState {
@@ -740,7 +738,6 @@ pub struct AppState {
     pub history: HistoryStore,
     pub reading_stats: ReadingStats,
     reading_session: Option<ReadingSession>,
-    reading_stats_dirty: bool,
     pub history_selection: usize,
     pub history_section: HistorySection,
     pub history_query: String,
@@ -854,7 +851,6 @@ impl AppState {
             history: HistoryStore::default(),
             reading_stats: ReadingStats::default(),
             reading_session: None,
-            reading_stats_dirty: false,
             history_selection: 0,
             history_section: HistorySection::History,
             history_query: String::new(),
@@ -5114,10 +5110,7 @@ impl AppState {
 
     pub fn set_history(&mut self, history: HistoryStore) {
         self.history = history;
-    }
-
-    pub fn set_reading_stats(&mut self, stats: ReadingStats) {
-        self.reading_stats = stats;
+        self.reading_stats = self.history.reading_stats();
     }
 
     /// Whether the current screen has a chapter that can be bookmarked.
@@ -6286,6 +6279,7 @@ impl AppState {
         }
         let _ = self.history.save();
         let _ = self.progress.save();
+        self.reading_stats = self.history.reading_stats();
         self.history_dirty = false;
         self.multi_select = None;
         self.clamp_history_selection();
@@ -6333,6 +6327,7 @@ impl AppState {
         self.progress.clear();
         let _ = self.history.save();
         let _ = self.progress.save();
+        self.reading_stats = self.history.reading_stats();
         self.history_dirty = false;
         self.history_selection = 0;
         self.history_scroll = 0;
@@ -6684,7 +6679,7 @@ impl AppState {
 
     /// Whether the in-memory progress has been idle long enough to write.
     pub fn progress_save_due(&self) -> bool {
-        (self.progress_dirty || self.history_dirty || self.reading_stats_dirty)
+        (self.progress_dirty || self.history_dirty)
             && self
                 .progress_changed_at
                 .is_some_and(|changed| changed.elapsed() >= Duration::from_millis(500))
@@ -6717,56 +6712,10 @@ impl AppState {
             return;
         }
 
-        let (series_key, series_title) = self.reading_series_identity(&chapter_path);
         self.reading_session = Some(ReadingSession {
             started: Instant::now(),
             chapter_key,
-            series_key,
-            series_title,
         });
-    }
-
-    fn reading_series_identity(&self, chapter: &std::path::Path) -> (String, String) {
-        if let Some(entry) = self.history.get(&chapter.to_string_lossy()) {
-            return (entry.series_key(), entry.series_title.clone());
-        }
-        if let Some(series) = self
-            .library
-            .series
-            .iter()
-            .find(|series| series.chapters.iter().any(|known| known.path == chapter))
-        {
-            return (
-                format!("local:{}", series.path.display()),
-                series.title.clone(),
-            );
-        }
-        if let Some(manga) = self.remote.manga.as_ref() {
-            return (
-                format!("remote:{}\n{}", manga.source_id, manga.url),
-                manga.title.clone(),
-            );
-        }
-        if let Some(manga) = self.library_remote.manga.as_ref() {
-            return (
-                format!("remote:{}\n{}", manga.source_id, manga.url),
-                manga.title.clone(),
-            );
-        }
-        let key = chapter.to_string_lossy();
-        let series_key = key
-            .strip_prefix("remote://")
-            .and_then(|rest| {
-                let mut parts = rest.splitn(3, '/');
-                Some(format!("remote:{}\n{}", parts.next()?, parts.next()?))
-            })
-            .unwrap_or_else(|| format!("local:{}", chapter.parent().unwrap_or(chapter).display()));
-        let title = self
-            .reader
-            .as_ref()
-            .map(|reader| reader.series_title.clone())
-            .unwrap_or_default();
-        (series_key, title)
     }
 
     pub fn flush_reading_session(&mut self) {
@@ -6778,15 +6727,10 @@ impl AppState {
         if seconds == 0 {
             return;
         }
-        self.history.add_duration(&session.chapter_key, seconds);
-        self.reading_stats.record_session(
-            &session.series_key,
-            &session.series_title,
-            seconds,
-            &today_key(),
-        );
+        self.history
+            .add_duration(&session.chapter_key, seconds, &today_key());
+        self.reading_stats = self.history.reading_stats();
         self.history_dirty = true;
-        self.reading_stats_dirty = true;
         self.progress_changed_at = Some(Instant::now());
     }
 
@@ -6804,10 +6748,6 @@ impl AppState {
         if self.history_dirty {
             let _ = self.history.save();
             self.history_dirty = false;
-        }
-        if self.reading_stats_dirty {
-            let _ = self.reading_stats.save();
-            self.reading_stats_dirty = false;
         }
     }
 
@@ -10405,6 +10345,7 @@ mod tests {
             pages: 10,
             last_read: time,
             read_duration_secs: 0,
+            daily_duration_secs: std::collections::BTreeMap::new(),
         };
         app.history.record(
             "/library/Alpha/Chapter 1".to_owned(),
@@ -10440,6 +10381,28 @@ mod tests {
 
         assert_eq!(app.history_count(), 0);
         assert!(app.progress.entry(root.path()).is_none());
+    }
+
+    #[test]
+    fn deleting_history_removes_its_stats() {
+        let (mut app, root) = local_reader_app();
+        let chapter = root.path().to_path_buf();
+        let key = chapter.to_string_lossy().into_owned();
+        app.history
+            .add_duration(&key, 45, &tsuiyomi_core::today_key());
+        app.reading_stats = app.history.reading_stats();
+        assert!(app.reading_stats.total_seconds >= 45);
+        assert!(!app.reading_stats.top_series(1).is_empty());
+
+        app.back();
+        app.tab = 2;
+        app.open_history_delete_dialog();
+        app.confirm_history_delete();
+
+        assert_eq!(app.history_count(), 0);
+        assert_eq!(app.reading_stats.total_seconds, 0);
+        assert!(app.reading_stats.top_series(1).is_empty());
+        assert_eq!(app.reading_stats.range_seconds(30), 0);
     }
 
     #[test]
