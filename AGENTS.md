@@ -202,7 +202,14 @@ Rules:
   asks before removing an existing favorite. Saved manga keep their tsuiyomi categories in
   `remote_library` and are merged into the one Library grid under those categories, or
   the default category when none is recorded, and read through the same remote
-  chapter/reader path. Panels with item actions support
+  chapter/reader path. The shared story screen applies persisted chapter settings
+  (`chapter_settings`, falling back to `chapter_defaults`): tri-state downloaded/unread/
+  bookmarked filters, excluded scanlators, source/number/date/title sorting with
+  direction, and title/number display. Rows show unread/in-progress/read markers, dates,
+  scanlators, bookmarks, and download queue state. Chapter actions cover select all/
+  invert, mark read/unread/previous, continue reading, single and batch downloads
+  (selected, next 1/5/10/25, unread, bookmarked), queue cancellation, download deletion,
+  categories, notes, migrate, copy/open, cover overlay, and custom local covers. Panels with item actions support
   multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
   clears); delete, install/uninstall/update/pin, source pinning, store removal, save to
   library, chapter download, and bookmark all operate on the selection. In the Library
@@ -250,12 +257,15 @@ Rules:
   browser; users place folders in local/ and rescan. Browse's Local source lists only
   `series.remote.is_none()` entries; saved source manga and downloads are not mixed in.
 - Chapter downloads land in `<downloads>/<source>/<series>/<chapter>/<page>.<ext>` using
-  Mihon's sanitized directory names (`downloads.rs`). `D` on a remote story screen or in
-  the reader downloads the selected chapter on a worker thread; downloaded chapters are
-  read from disk through the same reader path. The root comes from `TSUIYOMI_DOWNLOADS`
+  Mihon's sanitized directory names (`downloads.rs`). `D` on a remote story screen opens
+  a batch menu (selected, next N, unread, bookmarked) and the UI queue dispatches one
+  chapter at a time on a worker thread; the reader downloads the current chapter
+  directly. Queued and active rows show transient markers, `x`/Delete removes selected
+  downloads after confirmation, and downloaded chapters are read from disk through the
+  same reader path. Cancelling drops pending chapters; an in-flight chapter finishes
+  because the download core has no abort hook yet. The root comes from `TSUIYOMI_DOWNLOADS`
   (runtime-only and never persisted), `downloads_path`, a sibling `downloads/` when the
-  library lives in `local/`, or the app data directory. There is no series-level queue or
-  delete UI yet.
+  library lives in `local/`, or the app data directory.
 - Saved-source details and chapters are cached per story in
   `$XDG_DATA_HOME/tsuiyomi/stories/<hash>.json` (`story_cache.rs`), including the source
   display name and description. The first open after saving fetches from the host, but

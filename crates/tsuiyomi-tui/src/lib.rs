@@ -188,6 +188,43 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.category_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.category_picker_previous(),
+                Action::Next => app.category_picker_next(),
+                Action::Select => app.category_picker_toggle(),
+                Action::Open | Action::Confirm => app.confirm_category_picker(),
+                Action::Back => app.cancel_category_picker(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.download_delete_confirm {
+            match action {
+                Action::Open | Action::Confirm => app.confirm_download_delete(),
+                Action::Back => app.cancel_download_delete(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.download_menu.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.download_menu_previous(),
+                Action::Next => app.download_menu_next(),
+                Action::Open | Action::Confirm | Action::Select => app.download_menu_confirm(),
+                Action::Back => app.close_download_menu(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.chapter_settings_modal.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -670,7 +707,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::SourceFilters => {
-                if app.tab == 2 {
+                if app.story_screen_active() {
+                    app.open_story_source();
+                } else if app.tab == 2 {
                     app.open_history_details();
                 } else if app.tab == 3 {
                     if app.browse_view == BrowseView::SourceFilters {
@@ -683,7 +722,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::SourcePrefs => {
-                if app.tab == 3 {
+                if app.story_screen_active() {
+                    app.copy_story_reference();
+                } else if app.tab == 3 {
                     match app.browse_view {
                         BrowseView::Sources => app.open_source_prefs(),
                         BrowseView::ExtensionDetails => app.open_source_prefs_for_selected(),
@@ -732,7 +773,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Download => {
-                if app.has_downloadable_chapter() {
+                if app.story_screen_active() {
+                    app.open_download_menu();
+                } else if app.has_downloadable_chapter() {
                     app.download_selected_chapter();
                 }
             }
@@ -762,7 +805,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Migrate => {
-                if app.tab == 3 && app.browse_view == BrowseView::Migrate {
+                if app.story_screen_active() {
+                    app.migrate_this_story();
+                } else if app.tab == 3 && app.browse_view == BrowseView::Migrate {
                     match app.migrate.screen {
                         app::MigrateScreen::Favorites => app.migrate_start_matching(),
                         app::MigrateScreen::Matches => app.migrate_apply(true),
@@ -781,7 +826,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::UninstallExtension => {
-                if app.tab == 3 && app.browse_view == BrowseView::Extensions {
+                if app.story_screen_active() {
+                    app.open_download_delete_confirm();
+                } else if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.uninstall_selected_extension();
                 } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.open_library_delete_dialog();
@@ -809,7 +856,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Back => {
-                if app.tab == 3 {
+                if app.cover_overlay {
+                    app.cover_overlay = false;
+                } else if app.tab == 3 {
                     app.browse_parent();
                 } else if app.tab == 4 {
                     app.leave_more();
@@ -855,7 +904,28 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.zoom_out();
                 }
             }
-            Action::OpenConfig => app.select_tab(4),
+            Action::OpenConfig => {
+                if app.story_screen_active() {
+                    app.open_category_picker();
+                } else {
+                    app.select_tab(4);
+                }
+            }
+            Action::StoryNotes => {
+                if app.story_screen_active() {
+                    app.edit_story_notes();
+                }
+            }
+            Action::ToggleCover => {
+                if app.story_screen_active() {
+                    app.toggle_cover_overlay();
+                }
+            }
+            Action::CustomCover => {
+                if app.story_screen_active() {
+                    app.edit_custom_cover();
+                }
+            }
             Action::Redraw | Action::Char(_) | Action::Backspace => {}
             Action::Click { column, row } => {
                 let (width, height) = crossterm::terminal::size()?;

@@ -140,6 +140,9 @@ pub struct Config {
     /// Per-series chapter settings, keyed by the history series key
     /// (`local:<path>` or `remote:<source>\n<url>`).
     pub chapter_settings: BTreeMap<String, ChapterSettings>,
+    /// Free-form per-series notes, using the same keys as `chapter_settings`.
+    /// Mihon keeps notes in its manga table; local JSON is the TUI equivalent.
+    pub story_notes: BTreeMap<String, String>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -182,6 +185,7 @@ impl Default for Config {
             hidden_series: Vec::new(),
             chapter_defaults: ChapterSettings::default(),
             chapter_settings: BTreeMap::new(),
+            story_notes: BTreeMap::new(),
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,

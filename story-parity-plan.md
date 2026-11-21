@@ -380,3 +380,37 @@ Chapter/story-screen parity is complete when:
 - Continue reading and full refresh work.
 - Library/category/migrate/notes/share/cover/source actions are reachable.
 - The shared story screen behaves consistently from Library, Browse, and History.
+
+
+## 11. Implementation status
+
+Implemented:
+
+- Per-series chapter settings and global defaults.
+- Tri-state filters, scanlator exclusion, sort modes/direction, and display mode.
+- Shared filtered/sorted chapter list with read, in-progress, and unread markers,
+  dates, scanlators, and source-index cursor mapping.
+- Chapter settings modal.
+- Select all/invert and mark selected read/unread/previous.
+- Continue reading in display order.
+- Missing-chapter count in the chapter header.
+- Download menu (selected, next 1/5/10/25, unread, bookmarked), UI queue,
+  per-chapter state markers, cancellation of pending chapters, and confirmed
+  download deletion.
+- Remote details + chapter refresh and local rescan.
+- Categories for saved source manga.
+- Story notes persisted in config.
+- Story-level migration entry.
+- URL copy through OSC 52, local folder or absolute source URL opening, cover
+  overlay, and custom local covers.
+
+Remaining or intentionally deferred:
+
+- Tracking integration (separate milestone).
+- Android swipe gestures; TUI keys and the download menu replace them.
+- Source-site WebView; `C` and `o` cover copy/open behavior instead.
+- Cover editing for remote favorites and cover share/delete.
+- Downloading newly discovered chapters automatically on refresh.
+- Aborting an in-flight download (the core download loop has no cancellation hook).
+- Tag search/copy actions.
+- Per-series tracking/update fields the host does not expose.

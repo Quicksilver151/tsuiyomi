@@ -162,8 +162,13 @@ Controls:
 - `F` adds or removes the open manga from the library. Adding a title that matches a
   saved manga opens a duplicate dialog (`a` add anyway, `Enter` open the existing entry);
   removing a saved result asks for confirmation. New saves use the default category.
-- `D` downloads the selected remote chapter (also available in the reader).
+- `D` opens the downloads menu for the open remote story: selected, next 1/5/10/25,
+  unread, or bookmarked chapters, plus queue cancellation.
 - `b` bookmarks or unbookmarks the selected chapter (also available in the reader).
+- On a story screen, `f` opens chapter settings (downloaded/unread/bookmarked filters,
+  scanlators, sort, direction, display), `s` cycles sort, and `v` cycles title/number
+  display. `a`/`I` select all or invert, `m`/`u` mark selected chapters read or unread,
+  `U` marks previous chapters read, and `n` continues with the next unread chapter.
 - `/` on the Sources tab runs a background global search over enabled pinned sources,
   showing progress and grouping hits by source. Empty and failed sources appear as rows;
   `h` hides them. `A` switches between pinned and all enabled sources.
@@ -173,9 +178,14 @@ sorting, and the reader. New saved manga go to the default category. Saved entri
 mirrored into the config so they appear before the extension host starts.
 
 Local and saved-source series open the same story screen: chapter list on the left,
-cover and metadata on the right. Browse uses that screen too. Remote chapters can be
-downloaded with `D`; they are read from disk afterwards, even when the source is
-offline.
+cover and metadata on the right. Browse uses that screen too. Rows show unread,
+in-progress, and read state, chapter dates, scanlators, bookmarks, and download state;
+chapter filters, sorting, and display mode persist per series. `x`/Delete removes
+selected downloads after confirmation, `c` edits categories for saved source manga,
+`M` opens Migrate with the manga selected, `N` edits notes, `C` copies the URL, `o`
+opens the local folder or an absolute source URL, and `w`/`W` show the cover or set a
+custom local cover. Remote chapters can be downloaded with `D`; they are read from disk
+afterwards, even when the source is offline.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
 in the Mihon `local/` directory and rescan.

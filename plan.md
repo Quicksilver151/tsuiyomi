@@ -106,6 +106,7 @@ database rows. tsuiyomi owns reading progress.
 
 Detailed feature-parity plan: `browse-parity-plan.md`.
 History parity and reading-time stats plan: `history-parity-plan.md`.
+Chapter/story parity plan: `story-parity-plan.md`.
 
 - [x] Mihon-style Sources / Extensions / Migrate tabs, switched with `[`/`]`.
 - [x] Sources grouped by last used, pinned, and language, with a persistent `Pinned`
@@ -187,6 +188,11 @@ History parity and reading-time stats plan: `history-parity-plan.md`.
       migrate/copy with progress/bookmarks/history/categories transfer, and old-favorite
       removal on replace. Manual search, per-item skip, source configuration, and
       progress dialogs remain.
+- [x] Chapter/story parity: persisted per-series filters/sort/display, read-state
+      markers and mark-read actions, select all/invert, continue reading, missing
+      chapters, chapter settings modal, download queue and batch menu, download
+      deletion, categories, notes, story migrate entry, copy/open, cover overlay, and
+      custom local covers. Tracking remains a separate integration.
 
 ## Phase 5 — Later
 

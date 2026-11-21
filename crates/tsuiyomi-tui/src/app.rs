@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
@@ -253,6 +253,8 @@ pub enum TextAction {
     FilterText,
     AddExtensionStore,
     SetHostUrl,
+    StoryNotes,
+    SetCustomCover,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -689,6 +691,74 @@ pub struct ChapterSettingsModal {
     pub list_state: ListState,
 }
 
+/// In-memory state for a chapter in the download queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadState {
+    Queued,
+    Downloading,
+    Done,
+    Error,
+}
+
+pub struct DownloadTask {
+    pub key: String,
+    request: DownloadRequest,
+}
+
+#[derive(Default)]
+pub struct DownloadQueue {
+    pub pending: VecDeque<DownloadTask>,
+    pub active: Option<(String, String)>,
+    pub total: usize,
+    pub completed: usize,
+    pub failed: usize,
+    pub cancelling: bool,
+}
+
+impl DownloadQueue {
+    pub fn running(&self) -> bool {
+        self.active.is_some() || !self.pending.is_empty()
+    }
+
+    pub fn label(&self) -> Option<String> {
+        let total = self.total;
+        if total == 0 {
+            return None;
+        }
+        if self.cancelling {
+            return Some(format!("cancelling · {}/{}", self.completed, total));
+        }
+        if self.running() {
+            return Some(format!(
+                "downloading · {}/{}",
+                (self.completed + self.failed).min(total),
+                total
+            ));
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadMenuChoice {
+    Selected,
+    Next(usize),
+    Unread,
+    Bookmarked,
+    Cancel,
+}
+
+#[derive(Debug, Default)]
+pub struct DownloadMenu {
+    pub selected: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct CategoryPicker {
+    pub selected: usize,
+    pub chosen: HashSet<String>,
+}
+
 pub struct HistoryDeleteDialog {
     pub keys: Vec<String>,
     pub series_keys: Vec<String>,
@@ -876,7 +946,12 @@ pub struct AppState {
     pub remove_favorite: Option<RemoteManga>,
     pub multi_select: Option<MultiSelect>,
     /// Chapter download currently running, if any.
-    pub downloading: Option<String>,
+    pub download_queue: DownloadQueue,
+    pub download_states: BTreeMap<String, DownloadState>,
+    pub download_menu: Option<DownloadMenu>,
+    pub download_delete_confirm: bool,
+    pub category_picker: Option<CategoryPicker>,
+    pub cover_overlay: bool,
     pub status: Option<String>,
 }
 
@@ -978,7 +1053,12 @@ impl AppState {
             extension_details: None,
             remove_favorite: None,
             multi_select: None,
-            downloading: None,
+            download_queue: DownloadQueue::default(),
+            download_states: BTreeMap::new(),
+            download_menu: None,
+            download_delete_confirm: false,
+            category_picker: None,
+            cover_overlay: false,
             status,
         }
     }
@@ -1275,7 +1355,11 @@ impl AppState {
             BrowseView::RemoteResults => {
                 self.load_remote_results(self.remote.listing);
             }
-            BrowseView::RemoteDetails => self.load_remote_chapters(),
+            BrowseView::RemoteDetails => {
+                self.load_remote_details();
+                self.load_remote_chapters();
+                self.status = Some("Refreshed details and chapters".to_owned());
+            }
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
             BrowseView::ExtensionDetails => self.load_extensions(),
             BrowseView::Chapters => self.refresh(),
@@ -4210,6 +4294,8 @@ impl AppState {
             }
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
             TextAction::SetHostUrl => self.set_host_url(&input.value),
+            TextAction::StoryNotes => self.save_story_notes(&input.value),
+            TextAction::SetCustomCover => self.set_custom_cover(&input.value),
         }
     }
 
@@ -4859,12 +4945,22 @@ impl AppState {
         let count = self.browse_item_count();
         if self.browse_view == BrowseView::Chapters {
             self.browse_local_chapter = index;
+            let indices = self.story_chapter_indices();
+            if !indices.is_empty() && !indices.contains(&index) {
+                self.browse_local_chapter = indices[0];
+            }
             let position = self.story_chapter_position();
+            let count = indices.len();
             self.browse_local_list_state
                 .select((count > 0).then_some(position.min(count.saturating_sub(1))));
         } else if self.browse_view == BrowseView::RemoteDetails {
             self.browse_selection = index;
+            let indices = self.story_chapter_indices();
+            if !indices.is_empty() && !indices.contains(&index) {
+                self.browse_selection = indices[0];
+            }
             let position = self.story_chapter_position();
+            let count = indices.len();
             self.browse_list_state
                 .select((count > 0).then_some(position.min(count.saturating_sub(1))));
         } else if self.browse_view == BrowseView::SourceFilters {
@@ -4902,6 +4998,7 @@ impl AppState {
         self.browse_view = BrowseView::Chapters;
         self.browse_selection = 0;
         self.status = None;
+        self.clamp_story_cursor();
         self.select_browse_entry(0);
     }
 
@@ -5271,7 +5368,8 @@ impl AppState {
         changed
     }
 
-    /// Apply finished chapter downloads. Returns whether the UI changed.
+    /// Apply finished chapter downloads and start the next queued chapter.
+    /// Returns whether the UI changed.
     pub fn poll_downloads(&mut self) -> bool {
         let mut changed = false;
         while let Some(result) = self
@@ -5279,13 +5377,29 @@ impl AppState {
             .as_ref()
             .and_then(DownloadWorker::try_result)
         {
-            self.downloading = None;
-            let (message, error) = match &result.result {
-                Ok(dir) => (
+            let active = self.download_queue.active.take();
+            if let Some((key, _)) = &active {
+                let state = if result.result.is_ok() {
+                    self.download_queue.completed += 1;
+                    DownloadState::Done
+                } else {
+                    self.download_queue.failed += 1;
+                    DownloadState::Error
+                };
+                self.download_states.insert(key.clone(), state);
+            }
+            let cancelled = self.download_queue.cancelling;
+            if cancelled {
+                self.download_queue.pending.clear();
+                self.download_queue.cancelling = false;
+            }
+            let (message, error) = match (&result.result, cancelled) {
+                (_, true) => ("Download queue cancelled".to_owned(), false),
+                (Ok(dir), false) => (
                     format!("Downloaded {} to {}", result.label, dir.display()),
                     false,
                 ),
-                Err(error) => (
+                (Err(error), false) => (
                     format!("Download failed for {}: {error}", result.label),
                     true,
                 ),
@@ -5295,9 +5409,52 @@ impl AppState {
                 self.remote.status = Some(message);
                 self.remote.error = error;
             }
+            self.refresh_download_marks();
+            self.pump_download_queue();
             changed = true;
         }
         changed
+    }
+
+    fn pump_download_queue(&mut self) {
+        if self.download_queue.active.is_some()
+            || self.download_queue.cancelling
+            || self.download_queue.pending.is_empty()
+        {
+            return;
+        }
+        let Some(worker) = self.download_worker.as_ref() else {
+            self.download_queue.pending.clear();
+            self.status = Some("The download worker is unavailable.".to_owned());
+            return;
+        };
+        if let Some(task) = self.download_queue.pending.pop_front() {
+            self.download_states
+                .insert(task.key.clone(), DownloadState::Downloading);
+            self.download_queue.active = Some((task.key, task.request.label.clone()));
+            worker.request(task.request);
+        }
+    }
+
+    fn enqueue_downloads(&mut self, tasks: Vec<DownloadTask>) {
+        if tasks.is_empty() {
+            return;
+        }
+        if !self.download_queue.running() {
+            self.download_queue = DownloadQueue::default();
+            self.download_states
+                .retain(|_, state| *state == DownloadState::Done);
+        }
+        for task in tasks {
+            self.download_states
+                .insert(task.key.clone(), DownloadState::Queued);
+            self.download_queue.pending.push_back(task);
+        }
+        self.download_queue.total = self.download_queue.pending.len()
+            + self.download_queue.completed
+            + self.download_queue.failed
+            + usize::from(self.download_queue.active.is_some());
+        self.pump_download_queue();
     }
 
     /// Whether the scroll view still has a freshly built block to reveal.
@@ -5313,7 +5470,83 @@ impl AppState {
         self.active_remote_chapter().is_some()
     }
 
-    /// Download the selected remote chapter to the Mihon-style downloads tree.
+    pub fn open_download_menu(&mut self) {
+        if !self.has_downloadable_chapter() {
+            self.status = Some("Open a remote chapter to download it.".to_owned());
+            return;
+        }
+        self.download_menu = Some(DownloadMenu::default());
+    }
+
+    pub fn close_download_menu(&mut self) {
+        self.download_menu = None;
+    }
+
+    pub fn download_menu_previous(&mut self) {
+        if let Some(menu) = self.download_menu.as_mut() {
+            menu.selected = menu.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn download_menu_next(&mut self) {
+        let count = self.download_menu_rows().len();
+        if let Some(menu) = self.download_menu.as_mut() {
+            if count > 0 {
+                menu.selected = (menu.selected + 1).min(count - 1);
+            }
+        }
+    }
+
+    pub fn download_menu_rows(&self) -> Vec<(String, DownloadMenuChoice)> {
+        let mut rows = vec![(
+            "Download selected chapters".to_owned(),
+            DownloadMenuChoice::Selected,
+        )];
+        for count in [1usize, 5, 10, 25] {
+            rows.push((
+                format!(
+                    "Download next {count} chapter{}",
+                    if count == 1 { "" } else { "s" }
+                ),
+                DownloadMenuChoice::Next(count),
+            ));
+        }
+        rows.push((
+            "Download unread chapters".to_owned(),
+            DownloadMenuChoice::Unread,
+        ));
+        rows.push((
+            "Download bookmarked chapters".to_owned(),
+            DownloadMenuChoice::Bookmarked,
+        ));
+        if self.download_queue.running() {
+            rows.push((
+                "Cancel the download queue".to_owned(),
+                DownloadMenuChoice::Cancel,
+            ));
+        }
+        rows
+    }
+
+    pub fn download_menu_confirm(&mut self) {
+        let Some(menu) = self.download_menu.as_ref() else {
+            return;
+        };
+        let rows = self.download_menu_rows();
+        let Some((_, choice)) = rows.get(menu.selected).cloned() else {
+            return;
+        };
+        self.download_menu = None;
+        match choice {
+            DownloadMenuChoice::Selected => self.download_selected_chapter(),
+            DownloadMenuChoice::Next(count) => self.download_next(count),
+            DownloadMenuChoice::Unread => self.download_unread(),
+            DownloadMenuChoice::Bookmarked => self.download_bookmarked(),
+            DownloadMenuChoice::Cancel => self.cancel_downloads(),
+        }
+    }
+
+    /// Download the selected remote chapters to the Mihon-style downloads tree.
     pub fn download_selected_chapter(&mut self) {
         let Some((manga, chapters)) = self.selected_remote_chapters() else {
             self.status = Some("Open a remote chapter to download it.".to_owned());
@@ -5321,6 +5554,71 @@ impl AppState {
         };
         if chapters.is_empty() {
             self.status = Some("No remote chapters selected.".to_owned());
+            return;
+        }
+        self.enqueue_chapters(&manga, chapters);
+    }
+
+    pub fn download_next(&mut self, count: usize) {
+        let indices = self.story_chapter_indices();
+        let position = self.story_chapter_position();
+        let selected: Vec<usize> = indices.into_iter().skip(position).take(count).collect();
+        self.download_indices(selected);
+    }
+
+    pub fn download_unread(&mut self) {
+        let selected: Vec<usize> = self
+            .story_chapter_indices()
+            .into_iter()
+            .filter(|index| self.story_chapter_read_state(*index) != ReadState::Read)
+            .collect();
+        self.download_indices(selected);
+    }
+
+    pub fn download_bookmarked(&mut self) {
+        let Some((source_id, manga_url)) = self.remote_story_identity() else {
+            return;
+        };
+        let selected: Vec<usize> = self
+            .story_chapter_indices()
+            .into_iter()
+            .filter(|index| {
+                self.story_remote_chapters()
+                    .and_then(|chapters| chapters.get(*index))
+                    .is_some_and(|chapter| {
+                        let key = remote_progress_key(&source_id, &manga_url, &chapter.url);
+                        self.bookmarks.is_bookmarked(&key)
+                    })
+            })
+            .collect();
+        self.download_indices(selected);
+    }
+
+    fn remote_story_identity(&self) -> Option<(String, String)> {
+        self.remote_story_manga()
+            .map(|manga| (manga.source_id.clone(), manga.url.clone()))
+    }
+
+    fn download_indices(&mut self, indices: Vec<usize>) {
+        let Some(manga) = self.remote_story_manga().cloned() else {
+            self.status = Some("Downloads are only available for remote chapters.".to_owned());
+            return;
+        };
+        let chapters: Vec<RemoteChapter> = self
+            .story_remote_chapters()
+            .map(|chapters| {
+                indices
+                    .iter()
+                    .filter_map(|index| chapters.get(*index).cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.enqueue_chapters(&manga, chapters);
+    }
+
+    fn enqueue_chapters(&mut self, manga: &RemoteManga, chapters: Vec<RemoteChapter>) {
+        if chapters.is_empty() {
+            self.status = Some("No chapters to download.".to_owned());
             return;
         }
         if self.host_client.is_none() && !self.ensure_host() {
@@ -5333,11 +5631,27 @@ impl AppState {
             self.status = Some("Cannot resolve the downloads directory.".to_owned());
             return;
         };
+        if self.download_worker.is_none() {
+            self.status = Some("The download worker is unavailable.".to_owned());
+            return;
+        }
         let source = self.remote_source_name(&manga.source_id);
-        let mut queued = 0usize;
+        let queued_keys: HashSet<String> = self
+            .download_queue
+            .pending
+            .iter()
+            .map(|task| task.key.clone())
+            .chain(
+                self.download_queue
+                    .active
+                    .iter()
+                    .map(|(key, _)| key.clone()),
+            )
+            .collect();
+        let mut tasks = Vec::new();
         let mut already = 0usize;
         let mut failed = 0usize;
-        for chapter in &chapters {
+        for chapter in chapters {
             if is_downloaded(
                 &root,
                 &source,
@@ -5348,30 +5662,35 @@ impl AppState {
                 already += 1;
                 continue;
             }
-            let pages = match self.remote_chapter_pages(&manga, chapter) {
+            let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url)
+                .to_string_lossy()
+                .into_owned();
+            if queued_keys.contains(&key) {
+                already += 1;
+                continue;
+            }
+            let pages = match self.remote_chapter_pages(manga, &chapter) {
                 Ok(pages) => pages,
                 Err(_) => {
                     failed += 1;
                     continue;
                 }
             };
-            let Some(worker) = self.download_worker.as_ref() else {
-                self.status = Some("The download worker is unavailable.".to_owned());
-                return;
-            };
-            worker.request(DownloadRequest {
-                label: format!("{} · {}", manga.title, chapter.name),
-                root: root.clone(),
-                source_name: source.clone(),
-                series_title: manga.title.clone(),
-                chapter_name: chapter.name.clone(),
-                scanlator: chapter.scanlator.clone(),
-                pages,
+            tasks.push(DownloadTask {
+                key,
+                request: DownloadRequest {
+                    label: format!("{} · {}", manga.title, chapter.name),
+                    root: root.clone(),
+                    source_name: source.clone(),
+                    series_title: manga.title.clone(),
+                    chapter_name: chapter.name.clone(),
+                    scanlator: chapter.scanlator.clone(),
+                    pages,
+                },
             });
-            queued += 1;
         }
 
-        if queued == 0 {
+        if tasks.is_empty() {
             self.status = Some(if failed > 0 {
                 format!("Could not download {failed} chapters")
             } else if already > 0 {
@@ -5381,17 +5700,77 @@ impl AppState {
             });
             return;
         }
+        let count = tasks.len();
+        self.enqueue_downloads(tasks);
         let message = format!(
-            "Downloading {queued} {}…",
-            if queued == 1 { "chapter" } else { "chapters" }
+            "Downloading {count} {}…",
+            if count == 1 { "chapter" } else { "chapters" }
         );
-        self.downloading = Some(message.clone());
         self.status = Some(message.clone());
         if self.tab == 3 {
             self.remote.status = Some(message);
             self.remote.error = false;
         }
         self.multi_select = None;
+    }
+
+    pub fn cancel_downloads(&mut self) {
+        if !self.download_queue.running() {
+            self.status = Some("No downloads are running.".to_owned());
+            return;
+        }
+        for task in self.download_queue.pending.drain(..) {
+            self.download_states.remove(&task.key);
+        }
+        if self.download_queue.active.is_some() {
+            self.download_queue.cancelling = true;
+            self.status = Some("Cancelling the download queue…".to_owned());
+        } else {
+            self.download_queue = DownloadQueue::default();
+            self.status = Some("Download queue cancelled".to_owned());
+        }
+    }
+
+    pub fn open_download_delete_confirm(&mut self) {
+        if !self.has_downloadable_chapter() {
+            self.status = Some("No downloaded chapters are selected.".to_owned());
+            return;
+        }
+        self.download_delete_confirm = true;
+    }
+
+    pub fn cancel_download_delete(&mut self) {
+        self.download_delete_confirm = false;
+    }
+
+    pub fn confirm_download_delete(&mut self) {
+        self.download_delete_confirm = false;
+        let Some((manga, chapters)) = self.selected_remote_chapters() else {
+            self.status = Some("No downloaded chapters are selected.".to_owned());
+            return;
+        };
+        let mut removed = 0usize;
+        for chapter in &chapters {
+            let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url)
+                .to_string_lossy()
+                .into_owned();
+            if let Some(dir) = self.downloaded_chapter_dir(&manga, chapter) {
+                if std::fs::remove_dir_all(&dir).is_ok() {
+                    removed += 1;
+                }
+                self.download_states.remove(&key);
+            }
+        }
+        self.refresh_download_marks();
+        self.multi_select = None;
+        self.status = Some(if removed > 0 {
+            format!(
+                "Deleted {removed} downloaded {}",
+                if removed == 1 { "chapter" } else { "chapters" }
+            )
+        } else {
+            "Selected chapters are not downloaded".to_owned()
+        });
     }
 
     /// The remote story and chapter list under the cursor.
@@ -6382,6 +6761,265 @@ impl AppState {
         self.update_chapter_settings(|settings| settings.display = settings.display.next());
     }
 
+    /// Copy the story path or source URL through OSC 52, the clipboard sequence
+    /// supported by most terminals without an extra dependency.
+    pub fn copy_story_reference(&mut self) {
+        let Some(value) = self.story_reference() else {
+            return;
+        };
+        match write_osc52_clipboard(&value) {
+            Ok(()) => self.status = Some(format!("Copied {value}")),
+            Err(error) => self.status = Some(format!("Could not copy: {error}")),
+        }
+    }
+
+    /// Open a local series folder or an absolute source URL in the system handler.
+    pub fn open_story_source(&mut self) {
+        let Some(value) = self.story_reference() else {
+            return;
+        };
+        let is_url = value.starts_with("http://") || value.starts_with("https://");
+        if !is_url && !Path::new(&value).exists() {
+            self.status =
+                Some("This source returns a relative URL; copy it with C instead.".to_owned());
+            return;
+        }
+        let opener = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        match std::process::Command::new(opener).arg(&value).spawn() {
+            Ok(_) => self.status = Some(format!("Opened {value}")),
+            Err(error) => self.status = Some(format!("Could not open {value}: {error}")),
+        }
+    }
+
+    fn story_reference(&self) -> Option<String> {
+        if let Some(manga) = self.remote_story_manga() {
+            return Some(manga.url.clone());
+        }
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            return self
+                .selected_series()
+                .map(|series| series.path.display().to_string());
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            return self
+                .selected_browse_local_series()
+                .map(|series| series.path.display().to_string());
+        }
+        None
+    }
+
+    pub fn toggle_cover_overlay(&mut self) {
+        self.cover_overlay = !self.cover_overlay;
+    }
+
+    pub fn edit_custom_cover(&mut self) {
+        if self.tab == 0 && self.view == LibraryView::Chapters
+            || self.tab == 3 && self.browse_view == BrowseView::Chapters
+        {
+            self.open_text_input(TextAction::SetCustomCover, "Custom cover path", "");
+        } else {
+            self.status = Some("Custom covers are currently local-series only.".to_owned());
+        }
+    }
+
+    fn set_custom_cover(&mut self, value: &str) {
+        let path = PathBuf::from(value.trim());
+        if !path.is_file() {
+            self.status = Some(format!("Cover file not found: {}", path.display()));
+            return;
+        }
+        let series_path = if self.tab == 0 && self.view == LibraryView::Chapters {
+            self.selected_series().map(|series| series.path.clone())
+        } else if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            self.selected_browse_local_series()
+                .map(|series| series.path.clone())
+        } else {
+            None
+        };
+        let Some(series_path) = series_path else {
+            return;
+        };
+        let extension = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("jpg")
+            .to_ascii_lowercase();
+        if !matches!(extension.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif") {
+            self.status = Some("Use a jpg, png, webp, or gif image.".to_owned());
+            return;
+        }
+        let target = series_path.join(format!("cover.{extension}"));
+        match std::fs::copy(&path, &target) {
+            Ok(_) => {
+                if let Some(series) = self
+                    .library
+                    .series
+                    .iter_mut()
+                    .find(|series| series.path == series_path)
+                {
+                    series.cover = Some(target.clone());
+                }
+                self.tile_covers.clear();
+                self.status = Some(format!("Set cover {}", target.display()));
+            }
+            Err(error) => self.status = Some(format!("Could not set cover: {error}")),
+        }
+    }
+
+    /// Cover file for the open story, if one exists.
+    pub fn current_story_cover(&mut self) -> Option<PathBuf> {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            return self
+                .selected_series()
+                .and_then(|series| series.cover.clone());
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            return self
+                .selected_browse_local_series()
+                .and_then(|series| series.cover.clone());
+        }
+        let (source_id, url, thumbnail) = self.remote_story_manga().map(|manga| {
+            (
+                manga.source_id.clone(),
+                manga.url.clone(),
+                manga.thumbnail_url.clone(),
+            )
+        })?;
+        self.ensure_remote_cover(&source_id, &url, thumbnail.as_deref())
+    }
+
+    pub fn edit_story_notes(&mut self) {
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let value = self
+            .config
+            .story_notes
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
+        self.open_text_input(TextAction::StoryNotes, "Story notes", &value);
+    }
+
+    fn save_story_notes(&mut self, value: &str) {
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let value = value.trim().to_owned();
+        if value.is_empty() {
+            self.config.story_notes.remove(&key);
+        } else {
+            self.config.story_notes.insert(key, value);
+        }
+        self.persist_settings();
+        self.status = Some("Saved story notes".to_owned());
+    }
+
+    pub fn open_category_picker(&mut self) {
+        let Some(manga) = self.remote_story_manga().cloned() else {
+            self.status = Some("Local categories are managed by categories.json.".to_owned());
+            return;
+        };
+        let Some(favorite) =
+            self.config.remote_library.iter().find(|favorite| {
+                favorite.source_id == manga.source_id && favorite.url == manga.url
+            })
+        else {
+            self.status = Some("Save this manga to the library to change categories.".to_owned());
+            return;
+        };
+        let chosen = favorite.categories.iter().cloned().collect();
+        self.category_picker = Some(CategoryPicker {
+            selected: 0,
+            chosen,
+        });
+    }
+
+    pub fn category_picker_previous(&mut self) {
+        if let Some(picker) = self.category_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn category_picker_next(&mut self) {
+        let count = self.library.categories.len();
+        if let Some(picker) = self.category_picker.as_mut() {
+            if count > 0 {
+                picker.selected = (picker.selected + 1).min(count - 1);
+            }
+        }
+    }
+
+    pub fn category_picker_toggle(&mut self) {
+        let Some(picker) = self.category_picker.as_mut() else {
+            return;
+        };
+        let Some(category) = self.library.categories.get(picker.selected).cloned() else {
+            return;
+        };
+        if !picker.chosen.remove(&category) {
+            picker.chosen.insert(category);
+        }
+    }
+
+    pub fn cancel_category_picker(&mut self) {
+        self.category_picker = None;
+    }
+
+    pub fn confirm_category_picker(&mut self) {
+        let Some(picker) = self.category_picker.take() else {
+            return;
+        };
+        let Some(manga) = self.remote_story_manga().cloned() else {
+            return;
+        };
+        let mut categories: Vec<String> = picker.chosen.into_iter().collect();
+        categories.sort();
+        if let Some(favorite) = self
+            .config
+            .remote_library
+            .iter_mut()
+            .find(|favorite| favorite.source_id == manga.source_id && favorite.url == manga.url)
+        {
+            favorite.categories = categories;
+        }
+        self.persist_settings();
+        self.merge_remote_library();
+        self.status = Some("Updated categories".to_owned());
+    }
+
+    /// Jump to Migrate with this saved manga selected.
+    pub fn migrate_this_story(&mut self) {
+        let Some(manga) = self.remote_story_manga().cloned() else {
+            self.status = Some("Migration is only available for source manga.".to_owned());
+            return;
+        };
+        let Some(favorite) = self
+            .config
+            .remote_library
+            .iter()
+            .find(|favorite| favorite.source_id == manga.source_id && favorite.url == manga.url)
+            .cloned()
+        else {
+            self.status = Some("Save this manga to the library before migrating.".to_owned());
+            return;
+        };
+        self.tab = 3;
+        self.browse_tab = BrowseTab::Migrate;
+        self.browse_view = BrowseView::Migrate;
+        self.migrate.screen = MigrateScreen::Favorites;
+        self.migrate.source_id = Some(manga.source_id.clone());
+        self.migrate.favorites = vec![favorite];
+        self.migrate.list_state = ListState::default();
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+        self.status = Some("Press M to match this manga against enabled sources.".to_owned());
+    }
+
     pub fn open_chapter_settings(&mut self) {
         self.chapter_settings_modal = Some(ChapterSettingsModal::default());
     }
@@ -6495,8 +7133,7 @@ impl AppState {
                         self.view = LibraryView::Chapters;
                         self.chapter_index = 0;
                         self.status = None;
-                        let count = self.chapter_count();
-                        self.chapter_list_state.select((count > 0).then_some(0));
+                        self.clamp_story_cursor();
                     }
                 }
             }
@@ -8678,45 +9315,55 @@ impl AppState {
     }
 
     pub fn next_chapter(&mut self) {
-        if self.reader.is_none() {
-            return;
-        }
-        if self.reader_origin == ReaderOrigin::History {
-            return;
-        }
-        if self.remote.reader {
-            if self.remote.chapter_index > 0 {
-                self.remote.chapter_index -= 1;
-                self.open_remote_chapter(self.remote.chapter_index);
-            }
-            return;
-        }
-        if self.chapter_index == 0 {
-            return;
-        }
-        self.chapter_index -= 1;
-        self.open_chapter();
+        self.step_reader_chapter(-1);
     }
 
     pub fn previous_chapter(&mut self) {
-        if self.reader.is_none() {
+        self.step_reader_chapter(1);
+    }
+
+    /// Move through the filtered chapter list in reader order (newest first).
+    fn step_reader_chapter(&mut self, delta: isize) {
+        if self.reader.is_none() || self.reader_origin == ReaderOrigin::History {
             return;
         }
-        if self.reader_origin == ReaderOrigin::History {
+        let origin = self.reader_origin;
+        let indices = self.story_chapter_indices();
+        let current = match origin {
+            ReaderOrigin::Remote => self.remote.chapter_index,
+            ReaderOrigin::LibraryRemote => self.library_remote.chapter_index,
+            ReaderOrigin::BrowseLocal => self.browse_local_chapter,
+            ReaderOrigin::Library => self.chapter_index,
+            ReaderOrigin::History => return,
+        };
+        let Some(position) = indices.iter().position(|index| *index == current) else {
             return;
-        }
-        if self.remote.reader {
-            if self.remote.chapter_index + 1 < self.remote.chapters.len() {
-                self.remote.chapter_index += 1;
-                self.open_remote_chapter(self.remote.chapter_index);
+        };
+        let Some(target) = position
+            .checked_add_signed(delta)
+            .and_then(|next| indices.get(next).copied())
+        else {
+            return;
+        };
+        match origin {
+            ReaderOrigin::Remote => {
+                self.remote.chapter_index = target;
+                self.open_remote_chapter(target);
             }
-            return;
+            ReaderOrigin::LibraryRemote => {
+                self.library_remote.chapter_index = target;
+                self.open_library_remote_chapter(target);
+            }
+            ReaderOrigin::BrowseLocal => {
+                self.browse_local_chapter = target;
+                self.open_browse_local_chapter(target);
+            }
+            ReaderOrigin::Library => {
+                self.chapter_index = target;
+                self.open_chapter();
+            }
+            ReaderOrigin::History => {}
         }
-        if self.chapter_index + 1 >= self.chapter_count() {
-            return;
-        }
-        self.chapter_index += 1;
-        self.open_chapter();
     }
 
     fn load_page(&mut self) {
@@ -9471,7 +10118,6 @@ impl AppState {
         self.library_remote.source_name = source_name;
         self.library_remote.chapter_index = selected;
         self.library_remote.list_state = ListState::default();
-        self.library_remote.list_state.select(Some(selected));
         self.library_remote.downloaded = self
             .library_remote
             .manga
@@ -9479,6 +10125,7 @@ impl AppState {
             .map(|manga| self.mark_downloaded(manga, &self.library_remote.chapters))
             .unwrap_or_default();
         self.view = LibraryView::RemoteDetails;
+        self.clamp_story_cursor();
         self.status = None;
     }
 
@@ -10122,6 +10769,38 @@ fn migrate_legacy_cover(path: &Path, source_id: &str, manga_url: &str) -> bool {
     true
 }
 
+fn write_osc52_clipboard(text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let encoded = base64_encode(text.as_bytes());
+    let mut stdout = std::io::stdout();
+    write!(stdout, "\x1b]52;c;{encoded}\x07")?;
+    stdout.flush()
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let value = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        output.push(TABLE[((value >> 18) & 0x3f) as usize] as char);
+        output.push(TABLE[((value >> 12) & 0x3f) as usize] as char);
+        output.push(if chunk.len() > 1 {
+            TABLE[((value >> 6) & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+        output.push(if chunk.len() > 2 {
+            TABLE[(value & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    output
+}
+
 fn remote_story_key(source_id: &str, url: &str) -> String {
     format!("{source_id}\n{url}")
 }
@@ -10577,6 +11256,104 @@ mod tests {
         app.chapter_index = 1;
         app.continue_reading();
         assert_eq!(app.chapter_index, 0);
+    }
+
+    #[test]
+    fn story_notes_and_categories_persist_in_config() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.open();
+        app.save_story_notes("reread the eclipse arc");
+        assert_eq!(
+            app.config
+                .story_notes
+                .get("local:Berserk")
+                .map(String::as_str),
+            Some("reread the eclipse arc")
+        );
+        app.save_story_notes("  ");
+        assert!(!app.config.story_notes.contains_key("local:Berserk"));
+
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::RemoteDetails;
+        app.remote.manga = Some(RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "ongoing".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        });
+        app.config.remote_library = vec![RemoteFavorite {
+            source_id: "1".to_owned(),
+            url: "/manga/alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+            categories: Vec::new(),
+        }];
+        app.open_category_picker();
+        app.category_picker_next();
+        app.category_picker_toggle();
+        app.confirm_category_picker();
+        assert!(app.config.remote_library[0]
+            .categories
+            .contains(&"Reading".to_owned()));
+    }
+
+    #[test]
+    fn download_menu_lists_mihon_batch_actions() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::RemoteDetails;
+        app.remote.manga = Some(RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "ongoing".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        });
+        app.remote.chapters = vec![RemoteChapter {
+            url: "/manga/alpha/1".to_owned(),
+            name: "Chapter 1".to_owned(),
+            chapter_number: 1.0,
+            scanlator: None,
+            upload_date: 0,
+            memo: None,
+        }];
+        app.open_download_menu();
+        let rows = app.download_menu_rows();
+        assert!(rows
+            .iter()
+            .any(|(_, choice)| *choice == DownloadMenuChoice::Next(25)));
+        assert!(rows
+            .iter()
+            .any(|(_, choice)| *choice == DownloadMenuChoice::Unread));
+        assert!(
+            rows.iter()
+                .any(|(_, choice)| *choice == DownloadMenuChoice::Cancel)
+                == app.download_queue.running()
+        );
+    }
+
+    #[test]
+    fn osc52_base64_matches_standard_encoding() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"manga/1"), "bWFuZ2EvMQ==");
     }
 
     #[test]

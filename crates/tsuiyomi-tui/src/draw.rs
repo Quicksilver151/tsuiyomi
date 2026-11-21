@@ -1,4 +1,7 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+};
 
 use chrono::{DateTime, Local};
 use ratatui::{
@@ -23,7 +26,7 @@ use tsuiyomi_core::{
 
 use crate::{
     app::{
-        AppState, BrowseTab, BrowseView, ChapterSettingRow, ExtensionRow, FilterRow,
+        AppState, BrowseTab, BrowseView, ChapterSettingRow, DownloadState, ExtensionRow, FilterRow,
         HistorySection, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind, PickerState,
         ReaderMode, SelectionScope, SettingId, SettingsPage, SourceFilterRow, SourceRow,
         MORE_SECTIONS, SETTINGS_PAGES,
@@ -74,6 +77,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
         draw_commands(frame, commands, app);
     }
 
+    draw_cover_overlay(frame, app);
     draw_picker(frame, app);
     draw_source_pref_picker(frame, app);
     draw_filter_picker(frame, app);
@@ -86,6 +90,188 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_history_clear_confirm(frame, app);
     draw_text_input(frame, app);
     draw_chapter_settings(frame, app);
+    draw_download_menu(frame, app);
+    draw_download_delete_confirm(frame, app);
+    draw_category_picker(frame, app);
+}
+
+fn draw_cover_overlay(frame: &mut Frame, app: &mut AppState) {
+    if !app.cover_overlay {
+        return;
+    }
+    let Some(path) = app.current_story_cover() else {
+        return;
+    };
+    if let Some(protocol) = app.tile_covers.get_mut(&path) {
+        let area = frame.area();
+        let popup = Rect::new(
+            area.x + 4.min(area.width / 4),
+            area.y + 2.min(area.height / 4),
+            area.width.saturating_sub(8.min(area.width / 2)),
+            area.height.saturating_sub(4.min(area.height / 2)),
+        );
+        frame.render_widget(Clear, popup);
+        render_centered_image(frame, popup, protocol);
+    }
+}
+
+fn draw_download_menu(frame: &mut Frame, app: &AppState) {
+    let Some(menu) = app.download_menu.as_ref() else {
+        return;
+    };
+    let rows = app.download_menu_rows();
+    if rows.is_empty() {
+        return;
+    }
+    let area = frame.area();
+    let width = 58.min(area.width).max(20);
+    let height = (rows.len() as u16 + 2).min(area.height);
+    if width < 16 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Downloads ",
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (label, _))| {
+            let selected = index == menu.selected;
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    label.clone(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(menu.selected.min(rows.len().saturating_sub(1))));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_download_delete_confirm(frame: &mut Frame, app: &AppState) {
+    if !app.download_delete_confirm {
+        return;
+    }
+    let area = frame.area();
+    let width = 54.min(area.width).max(20);
+    let height = 6.min(area.height);
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Delete downloads ",
+            Style::default().fg(c_peach()).add_modifier(Modifier::BOLD),
+        )),
+        c_peach(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![
+            Line::from("Delete the selected downloaded chapters from disk?"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Enter / y delete · Esc cancel",
+                Style::default().fg(c_overlay1()),
+            )),
+        ])),
+        inner,
+    );
+}
+
+fn draw_category_picker(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.category_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let height = (app.library.categories.len() as u16 + 3)
+        .min(area.height)
+        .max(4);
+    let width = 52.min(area.width).max(20);
+    if width < 16 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Categories ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Space toggle · Enter apply · Esc cancel ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = app
+        .library
+        .categories
+        .iter()
+        .enumerate()
+        .map(|(index, category)| {
+            let selected = index == picker.selected;
+            let checked = picker.chosen.contains(category);
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    format!("{} {category}", if checked { "[x]" } else { "[ ]" }),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(
+        picker
+            .selected
+            .min(app.library.categories.len().saturating_sub(1)),
+    ));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
 fn draw_chapter_settings(frame: &mut Frame, app: &AppState) {
@@ -854,6 +1040,10 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("m/u", "read"),
                 ("a/I", "select"),
                 ("b", "bookmark"),
+                ("c", "categories"),
+                ("N", "notes"),
+                ("C", "copy URL"),
+                ("o", "open source"),
                 ("Esc", "back"),
             ],
             BrowseView::RemoteResults => vec![
@@ -881,6 +1071,11 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("m/u", "read"),
                 ("a/I", "select"),
                 ("F", "library"),
+                ("M", "migrate"),
+                ("c", "categories"),
+                ("N", "notes"),
+                ("C/o", "copy/open"),
+                ("w/W", "cover"),
                 ("r", "refresh"),
                 ("Esc", "back"),
             ],
@@ -1039,7 +1234,14 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
 
     if app.has_downloadable_chapter() && !items.iter().any(|(key, _)| *key == "D") {
         let at = items.len().saturating_sub(1);
-        items.insert(at, ("D", "download"));
+        items.insert(at, ("D", "downloads"));
+    }
+    if app.story_screen_active()
+        && app.has_downloadable_chapter()
+        && !items.iter().any(|(key, _)| *key == "x/Del")
+    {
+        let at = items.len().saturating_sub(1);
+        items.insert(at, ("x/Del", "delete downloads"));
     }
     if app.tab == 3
         && app.browse_view == BrowseView::Extensions
@@ -1135,6 +1337,7 @@ fn draw_library_chapters(
         progress: &app.progress,
         bookmarks: &app.bookmarks,
         selected: app.selected_keys(SelectionScope::LocalChapters),
+        download_states: &app.download_states,
     };
     let items = local_chapter_items(&series.chapters, &indices, &row_state);
     let position = app.story_chapter_position();
@@ -1143,6 +1346,7 @@ fn draw_library_chapters(
         indices.len(),
         app.story_chapter_total(),
         app.story_missing_chapters(),
+        app.download_queue.label(),
     );
     draw_story_chapters(
         frame,
@@ -1158,16 +1362,12 @@ fn draw_library_chapters(
     if let Some(path) = &cover_path {
         app.ensure_tile_cover(path);
     }
+    let mut lines = series_lines(&series);
+    append_story_notes(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
-    draw_story_info(
-        frame,
-        details_area,
-        &series.title,
-        series_lines(&series),
-        cover,
-    );
+    draw_story_info(frame, details_area, &series.title, lines, cover);
 }
 
 fn draw_library_remote_detail(
@@ -1193,6 +1393,7 @@ fn draw_library_remote_detail(
         progress: &app.progress,
         bookmarks: &app.bookmarks,
         selected: app.selected_keys(SelectionScope::RemoteChapters),
+        download_states: &app.download_states,
     };
     let items = remote_chapter_items(
         &manga,
@@ -1207,6 +1408,7 @@ fn draw_library_remote_detail(
         indices.len(),
         app.story_chapter_total(),
         app.story_missing_chapters(),
+        app.download_queue.label(),
     );
     draw_story_chapters(
         frame,
@@ -1220,7 +1422,8 @@ fn draw_library_remote_detail(
 
     let cover_path =
         app.ensure_remote_cover(&manga.source_id, &manga.url, manga.thumbnail_url.as_deref());
-    let lines = remote_story_lines(&manga, &chapters, source.as_deref(), "saved to library");
+    let mut lines = remote_story_lines(&manga, &chapters, source.as_deref(), "saved to library");
+    append_story_notes(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
@@ -3131,6 +3334,7 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         progress: &app.progress,
         bookmarks: &app.bookmarks,
         selected: app.selected_keys(SelectionScope::RemoteChapters),
+        download_states: &app.download_states,
     };
     let items = remote_chapter_items(
         &manga,
@@ -3145,6 +3349,7 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         indices.len(),
         app.story_chapter_total(),
         app.story_missing_chapters(),
+        app.download_queue.label(),
     );
     draw_story_chapters(
         frame,
@@ -3166,7 +3371,8 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
     } else {
         "not saved · F adds"
     };
-    let lines = remote_story_lines(&manga, &chapters, source.as_deref(), note);
+    let mut lines = remote_story_lines(&manga, &chapters, source.as_deref(), note);
+    append_story_notes(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
@@ -3217,6 +3423,21 @@ fn remote_story_lines(
         lines.push(Line::from(description.to_owned()));
     }
     lines
+}
+
+fn append_story_notes(lines: &mut Vec<Line<'static>>, app: &AppState) {
+    let Some(key) = app.current_story_key() else {
+        return;
+    };
+    let Some(note) = app
+        .config
+        .story_notes
+        .get(&key)
+        .filter(|note| !note.is_empty())
+    else {
+        return;
+    };
+    lines.push(field("Notes", note, c_yellow()));
 }
 
 fn source_display_name(app: &AppState, source_id: &str) -> Option<String> {
@@ -3566,6 +3787,7 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
         progress: &app.progress,
         bookmarks: &app.bookmarks,
         selected: app.selected_keys(SelectionScope::LocalChapters),
+        download_states: &app.download_states,
     };
     let items = local_chapter_items(&series.chapters, &indices, &row_state);
     let position = app.story_chapter_position();
@@ -3574,6 +3796,7 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
         indices.len(),
         app.story_chapter_total(),
         app.story_missing_chapters(),
+        app.download_queue.label(),
     );
     draw_story_chapters(
         frame,
@@ -3588,16 +3811,12 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
     if let Some(path) = &cover_path {
         app.ensure_tile_cover(path);
     }
+    let mut lines = series_lines(&series);
+    append_story_notes(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
-    draw_story_info(
-        frame,
-        layout.details,
-        &series.title,
-        series_lines(&series),
-        cover,
-    );
+    draw_story_info(frame, layout.details, &series.title, lines, cover);
 }
 
 fn draw_browse_empty(frame: &mut Frame, area: Rect, message: &str) {
@@ -3824,6 +4043,7 @@ fn story_chapter_summary(
     visible: usize,
     total: usize,
     missing: usize,
+    queue: Option<String>,
 ) -> String {
     let mut parts = Vec::new();
     if visible != total {
@@ -3833,19 +4053,31 @@ fn story_chapter_summary(
         parts.push(format!("{missing} missing"));
     }
     parts.push(settings.summary());
+    if let Some(queue) = queue {
+        parts.push(queue);
+    }
     parts.join(" · ")
 }
 
-fn chapter_marker_spans(bookmarked: bool, downloaded: Option<bool>) -> Vec<Span<'static>> {
+fn chapter_marker_spans(
+    bookmarked: bool,
+    downloaded: Option<bool>,
+    state: Option<DownloadState>,
+) -> Vec<Span<'static>> {
     let bookmark = if bookmarked {
         Span::styled("★ ", Style::default().fg(c_yellow()))
     } else {
         Span::styled("☆ ", Style::default().fg(c_overlay0()))
     };
-    let download = match downloaded {
-        Some(true) => Span::styled("⬇ ", Style::default().fg(c_green())),
-        Some(false) => Span::styled("↓ ", Style::default().fg(c_overlay0())),
-        None => Span::styled("· ", Style::default().fg(c_overlay0())),
+    let download = match state {
+        Some(DownloadState::Queued) => Span::styled("… ", Style::default().fg(c_blue())),
+        Some(DownloadState::Downloading) => Span::styled("⟳ ", Style::default().fg(c_yellow())),
+        Some(DownloadState::Error) => Span::styled("! ", Style::default().fg(c_peach())),
+        Some(DownloadState::Done) | None => match downloaded {
+            Some(true) => Span::styled("⬇ ", Style::default().fg(c_green())),
+            Some(false) => Span::styled("↓ ", Style::default().fg(c_overlay0())),
+            None => Span::styled("· ", Style::default().fg(c_overlay0())),
+        },
     };
     vec![bookmark, download]
 }
@@ -3884,6 +4116,7 @@ struct ChapterRowState<'a> {
     progress: &'a ProgressStore,
     bookmarks: &'a BookmarkStore,
     selected: Option<&'a HashSet<String>>,
+    download_states: &'a BTreeMap<String, DownloadState>,
 }
 
 fn local_chapter_items(
@@ -3896,6 +4129,7 @@ fn local_chapter_items(
         progress,
         bookmarks,
         selected,
+        download_states: _,
     } = *state;
     indices
         .iter()
@@ -3903,7 +4137,8 @@ fn local_chapter_items(
         .map(|chapter| {
             let entry = progress.entry(&chapter.path);
             let read = read_state(entry.map(|entry| (entry.page, entry.pages)));
-            let mut spans = chapter_marker_spans(bookmarks.is_bookmarked(&chapter.path), None);
+            let mut spans =
+                chapter_marker_spans(bookmarks.is_bookmarked(&chapter.path), None, None);
             spans.push(read_marker(read));
             if selected
                 .is_some_and(|keys| keys.contains(&format!("chapter:{}", chapter.path.display())))
@@ -3957,6 +4192,7 @@ fn remote_chapter_items(
         progress,
         bookmarks,
         selected,
+        download_states,
     } = *state;
     let source_id = &manga.source_id;
     let manga_url = &manga.url;
@@ -3970,6 +4206,9 @@ fn remote_chapter_items(
             let mut spans = chapter_marker_spans(
                 bookmarks.is_bookmarked(&key),
                 Some(downloaded.get(index).copied().unwrap_or(false)),
+                download_states
+                    .get(&key.to_string_lossy().into_owned())
+                    .copied(),
             );
             spans.push(read_marker(read));
             let selection_key = format!("rchap:{source_id}\n{manga_url}\n{}", chapter.url);
@@ -3996,7 +4235,12 @@ fn remote_chapter_items(
                 ));
             }
             if chapter.upload_date > 0 {
-                if let Some(date) = DateTime::from_timestamp(chapter.upload_date, 0) {
+                let seconds = if chapter.upload_date > 10_000_000_000 {
+                    chapter.upload_date / 1000
+                } else {
+                    chapter.upload_date
+                };
+                if let Some(date) = DateTime::from_timestamp(seconds, 0) {
                     spans.push(Span::styled(
                         format!("  {}", date.format("%Y-%m-%d")),
                         Style::default().fg(c_overlay0()),
