@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recompute the completion summary in parity.md.
+"""Recompute the completion summary in docs/parity.md.
 
 Score = (✅ + 0.5 × 🟡) / (✅ + 🟡 + ❌). The intentional-deviation marker (➖)
 is excluded from the denominator.
@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parent.parent
-PARITY = ROOT / "parity.md"
+PARITY = ROOT / "docs" / "parity.md"
 MARKERS = {
     "start": "<!-- parity-summary:start -->",
     "end": "<!-- parity-summary:end -->",
@@ -133,7 +133,7 @@ def main() -> None:
     updated = update(lines, sections)
     PARITY.write_text("\n".join(updated) + "\n")
     total = {key: sum(counts[key] for counts in sections.values()) for key in ("✅", "🟡", "❌", "➖")}
-    print(f"Updated parity.md: {score(total):.1f}% complete")
+    print(f"Updated docs/parity.md: {score(total):.1f}% complete")
     for name, counts in sections.items():
         print(f"  {score(counts):5.1f}%  {name}")
 

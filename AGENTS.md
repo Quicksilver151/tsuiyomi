@@ -14,7 +14,7 @@ compiling, but do not extend it. It will be replaced by the manga library.
 
 ## Status
 
-`parity.md` is the single maintained table of Mihon feature parity. Update the affected
+`docs/parity.md` is the single maintained table of Mihon feature parity. Update the affected
 rows whenever behavior changes or work lands, then run `python3 scripts/parity-score.py`
 to refresh the per-category and global percentages.
 

@@ -49,7 +49,8 @@ just test
 Machine-local paths and log settings live in `.env.local`, which is gitignored. The
 devshell sources it automatically.
 
-Current Mihon parity by area: [`parity.md`](parity.md).
+Documentation index: [`docs/`](docs/README.md). Current Mihon parity by area:
+[`docs/parity.md`](docs/parity.md).
 
 ## Library layout
 
@@ -434,7 +435,7 @@ without changing the saved default.
 
 ## Roadmap
 
-See [TODO.md](TODO.md) for the phased, step-by-step plan. Short version:
+See [docs/TODO.md](docs/TODO.md) for the phased, step-by-step plan. Short version:
 
 - [x] Split the backend into a UI-agnostic core crate and a TUI crate.
 - [x] Scan a Mihon `local/` library and list chapters.
