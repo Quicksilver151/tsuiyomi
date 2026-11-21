@@ -14,9 +14,10 @@ compiling, but do not extend it. It will be replaced by the manga library.
 
 ## Status
 
-`docs/parity.md` is the single maintained table of Mihon feature parity. Update the affected
-rows whenever behavior changes or work lands, then run `python3 scripts/parity-score.py`
-to refresh the per-category and global percentages.
+Parity details are split by category under `docs/parity/`. Update the affected category
+file whenever behavior changes or work lands, then run
+`python3 scripts/parity-score.py` to refresh the aggregate tables and percentages in
+`docs/roadmap.md`.
 
 Local-library and extension-host MVP: scanning, browsing, metadata, covers, reading,
 progress, settings, remote sources, extension management, and reading history work.

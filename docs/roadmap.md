@@ -1,4 +1,54 @@
-# Development plan
+# Roadmap
+
+Parity detail is split by category under [`parity/`](parity/). Feature status rows live
+in those files; the tables and percentages below are generated from them.
+
+<!-- parity-summary:start -->
+
+## Parity completion
+
+| Category | ✅ | 🟡 | ❌ | ➖ | Score |
+|---|---:|---:|---:|---:|---:|
+| [On-disk compatibility](parity/01-on-disk.md) | 17 | 4 | 1 | 0 | 86.4% |
+| [Library](parity/02-library.md) | 12 | 1 | 3 | 0 | 78.1% |
+| [Browse, sources, and global search](parity/03-browse.md) | 28 | 3 | 1 | 0 | 92.2% |
+| [Extensions and host lifecycle](parity/04-extensions.md) | 22 | 1 | 2 | 0 | 90.0% |
+| [Shared story / chapter screen](parity/05-story.md) | 39 | 1 | 7 | 0 | 84.0% |
+| [Reader](parity/06-reader.md) | 15 | 1 | 1 | 0 | 91.2% |
+| [History and Stats](parity/07-history.md) | 19 | 0 | 0 | 0 | 100.0% |
+| [Migrate](parity/08-migrate.md) | 16 | 2 | 2 | 0 | 85.0% |
+| [Settings, security, and data](parity/09-settings-data.md) | 10 | 3 | 1 | 0 | 82.1% |
+| [Documented TUI deviations](parity/10-tui-deviations.md) | 2 | 1 | 1 | 2 | 62.5% |
+| **All categories** | **180** | **17** | **19** | **2** | **87.3%** |
+
+Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
+excluded. Recompute with `python3 scripts/parity-score.py` after editing a
+category file.
+
+<!-- parity-summary:end -->
+
+## Verification snapshot
+
+| Check | Result |
+|---|---|
+| Core tests | 108 pass, 1 ignored |
+| TUI tests | 161 pass |
+| Clippy | Passes with `-D warnings` |
+| Release build | Passes |
+| Bundled host | Patched, rebuilt, embedded archive |
+| Live checks | Extension jobs, not-loaded delete, story filtering, downloads, cover overlay, history, categories, read-state mirroring |
+
+## Highest-impact remaining work
+
+1. Optional remote-WebView bridge for WebView-only sources.
+2. Tracking integration.
+3. Extension shared/signature states and richer store metadata.
+4. Background migration apply and remaining synchronous mutations.
+5. Real Mihon restore verification for exported backups.
+6. Reader retransmit-free Kitty placement zoom.
+7. Per-series storage cleanup.
+
+## Development phases
 
 Step-by-step roadmap for turning the 0.2 prototype into a usable manga library app.
 

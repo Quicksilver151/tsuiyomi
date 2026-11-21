@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
-"""Recompute the completion summary in docs/parity.md.
+"""Recompute parity completion in docs/roadmap.md from docs/parity/*.md.
 
 Score = (✅ + 0.5 × 🟡) / (✅ + 🟡 + ❌). The intentional-deviation marker (➖)
 is excluded from the denominator.
 """
 
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parent.parent
-PARITY = ROOT / "docs" / "parity.md"
-MARKERS = {
-    "start": "<!-- parity-summary:start -->",
-    "end": "<!-- parity-summary:end -->",
-}
-SCORE_MARKER = "<!-- parity-score -->"
+DOCS = ROOT / "docs"
+ROADMAP = DOCS / "roadmap.md"
+START = "<!-- parity-summary:start -->"
+END = "<!-- parity-summary:end -->"
+
+CATEGORIES = [
+    ("On-disk compatibility", "parity/01-on-disk.md"),
+    ("Library", "parity/02-library.md"),
+    ("Browse, sources, and global search", "parity/03-browse.md"),
+    ("Extensions and host lifecycle", "parity/04-extensions.md"),
+    ("Shared story / chapter screen", "parity/05-story.md"),
+    ("Reader", "parity/06-reader.md"),
+    ("History and Stats", "parity/07-history.md"),
+    ("Migrate", "parity/08-migrate.md"),
+    ("Settings, security, and data", "parity/09-settings-data.md"),
+    ("Documented TUI deviations", "parity/10-tui-deviations.md"),
+]
 
 
 def score(counts: dict[str, int]) -> float:
@@ -24,117 +34,62 @@ def score(counts: dict[str, int]) -> float:
     return (counts["✅"] + 0.5 * counts["🟡"]) / denominator * 100.0
 
 
-def status_of(cells: list[str]) -> str | None:
-    for cell in cells:
-        if cell in ("✅", "🟡", "❌", "➖"):
-            return cell
-    return None
-
-
-def parse(lines: list[str]) -> dict[str, dict[str, int]]:
-    sections: dict[str, dict[str, int]] = {}
-    current: str | None = None
-    for line in lines:
-        if line.startswith("## "):
-            current = line[3:].strip()
-            sections.setdefault(current, {"✅": 0, "🟡": 0, "❌": 0, "➖": 0})
-            continue
-        if not line.startswith("|") or current is None:
+def statuses(path: Path) -> dict[str, int]:
+    counts = {"✅": 0, "🟡": 0, "❌": 0, "➖": 0}
+    for line in path.read_text().splitlines():
+        if not line.startswith("|"):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        status = status_of(cells)
-        if status:
-            sections[current][status] += 1
-    return {name: counts for name, counts in sections.items() if sum(counts.values())}
+        for cell in cells:
+            if cell in counts:
+                counts[cell] += 1
+                break
+    return counts
 
 
-def summary_table(sections: dict[str, dict[str, int]]) -> list[str]:
-    total = {key: 0 for key in ("✅", "🟡", "❌", "➖")}
+def summary_table(results: list[tuple[str, str, dict[str, int]]]) -> list[str]:
+    total = {key: sum(counts[key] for _, _, counts in results) for key in ("✅", "🟡", "❌", "➖")}
     lines = [
-        "### Completion summary",
+        "## Parity completion",
         "",
         "| Category | ✅ | 🟡 | ❌ | ➖ | Score |",
         "|---|---:|---:|---:|---:|---:|",
     ]
-    for name, counts in sections.items():
-        for key in total:
-            total[key] += counts[key]
+    for name, link, counts in results:
         lines.append(
-            f"| {name} | {counts['✅']} | {counts['🟡']} | {counts['❌']} | "
+            f"| [{name}]({link}) | {counts['✅']} | {counts['🟡']} | {counts['❌']} | "
             f"{counts['➖']} | {score(counts):.1f}% |"
         )
     lines.append(
-        f"| **All feature tables** | **{total['✅']}** | **{total['🟡']}** | "
+        f"| **All categories** | **{total['✅']}** | **{total['🟡']}** | "
         f"**{total['❌']}** | **{total['➖']}** | **{score(total):.1f}%** |"
     )
     lines += [
         "",
-        "Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` marks intentional TUI",
-        "deviations and is excluded. Recompute with "
-        "`python3 scripts/parity-score.py` after changing status rows.",
-        "",
+        "Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are",
+        "excluded. Recompute with `python3 scripts/parity-score.py` after editing a",
+        "category file.",
     ]
     return lines
 
 
-def update(lines: list[str], sections: dict[str, dict[str, int]]) -> list[str]:
-    # Replace or insert the summary block after the Legend section.
-    try:
-        start = lines.index(MARKERS["start"])
-        end = lines.index(MARKERS["end"], start)
-        summary = [MARKERS["start"], ""] + summary_table(sections) + [MARKERS["end"]]
-        lines = lines[:start] + summary + lines[end + 1 :]
-    except ValueError:
-        insert_at = next(
-            (index + 1 for index, line in enumerate(lines) if line.startswith("- ✅")),
-            len(lines),
-        )
-        while insert_at < len(lines) and lines[insert_at].strip():
-            insert_at += 1
-        summary = ["", MARKERS["start"], ""] + summary_table(sections) + [MARKERS["end"]]
-        lines = lines[:insert_at] + summary + lines[insert_at:]
-
-    # Add or replace one score line directly below every scored section heading.
-    result: list[str] = []
-    for line in lines:
-        result.append(line)
-        if line.startswith("## "):
-            name = line[3:].strip()
-            counts = sections.get(name)
-            if counts:
-                result.append(
-                    f"{SCORE_MARKER} *Completion: **{score(counts):.1f}%** · "
-                    f"{counts['✅']} ✅ · {counts['🟡']} 🟡 · {counts['❌']} ❌"
-                    + (f" · {counts['➖']} ➖" if counts["➖"] else "")
-                    + "*"
-                )
-            continue
-        if line.startswith(SCORE_MARKER):
-            # The freshly inserted score line is already in the output.
-            continue
-
-    # The loop above appends old score lines too; remove duplicates/stale copies.
-    cleaned: list[str] = []
-    for index, line in enumerate(result):
-        if line.startswith(SCORE_MARKER):
-            previous = cleaned[-1] if cleaned else ""
-            if previous.startswith(SCORE_MARKER):
-                continue
-            if index > 0 and result[index - 1].startswith("## "):
-                cleaned.append(line)
-            continue
-        cleaned.append(line)
-    return cleaned
-
-
 def main() -> None:
-    lines = PARITY.read_text().splitlines()
-    sections = parse(lines)
-    updated = update(lines, sections)
-    PARITY.write_text("\n".join(updated) + "\n")
-    total = {key: sum(counts[key] for counts in sections.values()) for key in ("✅", "🟡", "❌", "➖")}
-    print(f"Updated docs/parity.md: {score(total):.1f}% complete")
-    for name, counts in sections.items():
+    results = []
+    for name, relative in CATEGORIES:
+        path = DOCS / relative
+        if not path.exists():
+            raise SystemExit(f"missing parity file: {path}")
+        results.append((name, relative, statuses(path)))
+
+    text = ROADMAP.read_text()
+    start = text.index(START) + len(START)
+    end = text.index(END)
+    block = "\n\n" + "\n".join(summary_table(results)) + "\n\n"
+    ROADMAP.write_text(text[:start] + block + text[end:])
+
+    total = {key: sum(counts[key] for _, _, counts in results) for key in ("✅", "🟡", "❌", "➖")}
+    print(f"Updated docs/roadmap.md: {score(total):.1f}% complete")
+    for name, _, counts in results:
         print(f"  {score(counts):5.1f}%  {name}")
 
 
