@@ -903,6 +903,7 @@ pub struct AppState {
     pub history_query: String,
     pub history_search: bool,
     pub history_scroll: usize,
+    pub history_stats_scroll: usize,
     pub history_list_state: ListState,
     pub history_delete: Option<HistoryDeleteDialog>,
     pub history_clear_confirm: bool,
@@ -1024,6 +1025,7 @@ impl AppState {
             history_query: String::new(),
             history_search: false,
             history_scroll: 0,
+            history_stats_scroll: 0,
             history_list_state: ListState::default(),
             history_delete: None,
             history_clear_confirm: false,
@@ -8445,6 +8447,10 @@ impl AppState {
     }
 
     pub fn history_next(&mut self) {
+        if self.history_section == HistorySection::Stats {
+            self.history_stats_scroll = self.history_stats_scroll.saturating_add(1);
+            return;
+        }
         if self.history_section != HistorySection::History {
             return;
         }
@@ -8455,6 +8461,10 @@ impl AppState {
     }
 
     pub fn history_previous(&mut self) {
+        if self.history_section == HistorySection::Stats {
+            self.history_stats_scroll = self.history_stats_scroll.saturating_sub(1);
+            return;
+        }
         if self.history_section != HistorySection::History {
             return;
         }
@@ -13157,6 +13167,22 @@ mod tests {
                 .map(|reader| reader.chapter_title.as_str()),
             Some("Chapter 2")
         );
+    }
+
+    #[test]
+    fn history_stats_scroll_uses_arrow_keys() {
+        let mut app = AppState {
+            history_section: HistorySection::Stats,
+            ..AppState::default()
+        };
+        app.history_next();
+        app.history_next();
+        assert_eq!(app.history_stats_scroll, 2);
+        app.history_previous();
+        assert_eq!(app.history_stats_scroll, 1);
+        app.history_previous();
+        app.history_previous();
+        assert_eq!(app.history_stats_scroll, 0);
     }
 
     #[test]

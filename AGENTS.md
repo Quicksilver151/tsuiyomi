@@ -289,10 +289,12 @@ Rules:
   chapter if unfinished or the next chapter otherwise; `o` opens details, `F` saves a
   remote manga, `x`/Delete opens a single/all-series delete dialog, `X` clears all
   history, `/` searches titles, and `Space` multi-selects. Deletion is permanent and
-  clears matching chapter progress so chapters become unread again. History and Stats
-  are mini-tabs inside the panel (`[`/`]`); Stats is derived from live history and
-  per-chapter daily buckets, so deleting history removes its time from totals, charts,
-  and top series. `record_progress` flushes history with progress; global and
+  clears matching chapter progress so chapters become unread again. Rows show parsed
+  chapter numbers, a star for saved remote manga, and omit the duration suffix when no
+  time was recorded; clicking a row or cover selects it. History and Stats are mini-tabs
+  inside the panel (`[`/`]`); Stats scrolls with the arrow keys, includes unique-series
+  counts, and is derived from live history and per-chapter daily buckets, so deleting
+  history removes its time from totals, charts, and top series. `record_progress` flushes history with progress; global and
   per-extension Incognito suppress history and time.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,

@@ -205,18 +205,21 @@ in the Mihon `local/` directory and rescan.
 ## History
 
 The History tab shows one row per manga: its most recently read chapter. Rows have a
-small cover, title, chapter, read time, source, page progress, and accumulated reading
-time, grouped by Today / Yesterday / date. `Enter` reopens the current chapter if it is
-unfinished, otherwise the next chapter. `o` opens manga details, `F` saves a remote manga
-to the library, `x`/`Delete` opens a delete dialog, `X` clears all history after
-confirmation, and `/` searches series titles. `Space` multi-selects rows. Deletion is
+small cover, title, parsed chapter number, read time, source, page progress, and
+accumulated reading time, grouped by Today / Yesterday / date. Saved remote manga carry a
+star marker, and remote rows omit the duration suffix when no time was recorded. Clicking
+a row or its cover selects it. `Enter` reopens the current chapter if it is unfinished,
+otherwise the next chapter. `o` opens manga details, `F` saves a remote manga to the
+library, `x`/`Delete` opens a delete dialog, `X` clears all history after confirmation,
+and `/` searches series titles. `Space` multi-selects rows. Deletion is
 permanent and clears the matching chapter progress, so chapters appear unread again;
 bookmarks and downloads are untouched.
 
 `[` and `]` switch between History and Stats inside the panel. Stats shows total, today,
-7-day, and 30-day reading time, a 14-day bar chart, top series, reading streak, and
-trend counts. Reading time is accumulated while the reader is open and aggregated from live
-history, so removing a history row also removes its time from Stats.
+7-day, and 30-day reading time, a 14-day bar chart, top series, reading streak, unique
+series count, and trend counts. Arrow keys scroll Stats. Reading time is accumulated while
+the reader is open and aggregated from live history, so removing a history row also
+removes its time from Stats.
 
 History is stored as an unbounded append-only
 `$XDG_DATA_HOME/tsuiyomi/history.jsonl`; the old `history.json` is imported on first

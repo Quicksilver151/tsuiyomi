@@ -18,10 +18,10 @@ use ratatui_image::{
 };
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    date_key_for_unix, downloads_dir, read_state, remote_cover_path, today_key, BookmarkStore,
-    Chapter, ChapterDisplay, ChapterSettings, HistoryEntry, LibrarySort, ProgressStore, ReadState,
-    ReadingMode, RemoteChapter, RemoteManga, RemoteSource, Series, SourceDisplayMode, SourceFilter,
-    SourcePreferenceKind, Theme,
+    date_key_for_unix, downloads_dir, parse_chapter_number, read_state, remote_cover_path,
+    today_key, BookmarkStore, Chapter, ChapterDisplay, ChapterSettings, HistoryEntry, LibrarySort,
+    ProgressStore, ReadState, ReadingMode, RemoteChapter, RemoteManga, RemoteSource, Series,
+    SourceDisplayMode, SourceFilter, SourcePreferenceKind, Theme,
 };
 
 use crate::{
@@ -1274,7 +1274,14 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                     ("[ ]", "tabs"),
                     ("Esc", "back"),
                 ],
-                HistorySection::Stats => vec![("q", "quit"), ("[ ]", "tabs"), ("Esc", "back")],
+                HistorySection::Stats => {
+                    vec![
+                        ("q", "quit"),
+                        ("↑↓", "scroll"),
+                        ("[ ]", "tabs"),
+                        ("Esc", "back"),
+                    ]
+                }
             }
         }
     } else if app.tab == 0 {
@@ -1875,10 +1882,17 @@ fn draw_history_recent(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 row,
             );
         }
-        let marker = if app.is_multi_selected(SelectionScope::History, &format!("history:{key}")) {
-            "✓ "
-        } else {
-            ""
+        let selected_marker =
+            app.is_multi_selected(SelectionScope::History, &format!("history:{key}"));
+        let favorite = entry
+            .remote
+            .as_ref()
+            .is_some_and(|remote| app.is_favorite(&remote.manga.source_id, &remote.manga.url));
+        let marker = match (selected_marker, favorite) {
+            (true, true) => "✓ ★ ",
+            (true, false) => "✓ ",
+            (false, true) => "★ ",
+            (false, false) => "",
         };
         let cover_width = if row.width >= 40 { 4 } else { 0 };
         if cover_width > 0 {
@@ -1918,20 +1932,33 @@ fn draw_history_recent(frame: &mut Frame, area: Rect, app: &mut AppState) {
         } else {
             entry.chapter_title.clone()
         };
-        let mut detail = format!("{chapter} · {}", history_time(entry.last_read));
+        let number = entry
+            .remote
+            .as_ref()
+            .map(|remote| remote.chapter.chapter_number)
+            .filter(|number| *number >= 0.0)
+            .or_else(|| parse_chapter_number(&chapter));
+        let mut detail = if let Some(number) = number {
+            format!(
+                "Ch. {} · {chapter} · {}",
+                chapter_number(Some(number)),
+                history_time(entry.last_read)
+            )
+        } else {
+            format!("{chapter} · {}", history_time(entry.last_read))
+        };
         if entry.pages > 0 {
             detail.push_str(&format!(" · {}/{}", entry.page + 1, entry.pages));
         }
-        let source = format!(
-            "{} · {}{}",
-            entry.source,
-            format_duration(entry.read_duration_secs),
-            if entry.read_duration_secs > 0 {
-                " read"
-            } else {
-                ""
-            }
-        );
+        let source = if entry.read_duration_secs > 0 {
+            format!(
+                "{} · {} read",
+                entry.source,
+                format_duration(entry.read_duration_secs)
+            )
+        } else {
+            entry.source.clone()
+        };
         let lines = vec![
             Line::from(vec![
                 Span::styled(marker, Style::default().fg(c_accent())),
@@ -2009,8 +2036,8 @@ fn history_time(unix_seconds: u64) -> String {
         .unwrap_or_else(|| "--:--".to_owned())
 }
 
-fn draw_history_stats(frame: &mut Frame, area: Rect, app: &AppState) {
-    let stats = &app.reading_stats;
+fn draw_history_stats(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let stats = app.reading_stats.clone();
     let mut lines = vec![
         Line::from(vec![
             Span::styled(" All time   ", Style::default().fg(c_overlay1())),
@@ -2109,14 +2136,21 @@ fn draw_history_stats(frame: &mut Frame, area: Rect, app: &AppState) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         format!(
-            " Chapters {} · streak {} days · active days {}",
+            " Series {} · chapters {} · streak {} days · active days {}",
+            stats.series_seconds.len(),
             app.history.len(),
             stats.reading_streak(),
             stats.active_days()
         ),
         Style::default().fg(c_overlay1()),
     )));
-    frame.render_widget(Paragraph::new(Text::from(lines)), area);
+    let max_scroll = lines.len().saturating_sub(area.height as usize);
+    app.history_stats_scroll = app.history_stats_scroll.min(max_scroll);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .scroll((app.history_stats_scroll.min(u16::MAX as usize) as u16, 0)),
+        area,
+    );
 }
 
 fn format_duration(seconds: u64) -> String {

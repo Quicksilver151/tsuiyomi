@@ -984,6 +984,11 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
         return;
     }
 
+    if app.tab == 2 {
+        handle_history_click(layout.content, app, column, row);
+        return;
+    }
+
     if app.tab == 3 {
         handle_browse_click(layout.content, app, column, row);
         return;
@@ -1026,6 +1031,65 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     }
 
     handle_chapter_click(layout.content, app, column, row);
+}
+
+fn handle_history_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
+    if app.history_section != crate::app::HistorySection::History {
+        return;
+    }
+    let inner = Rect::new(
+        area.x + 1,
+        area.y + 1,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    );
+    let body = if app.status.is_some() && inner.height > 0 {
+        Rect::new(inner.x, inner.y, inner.width, inner.height - 1)
+    } else {
+        inner
+    };
+    let list_area = Rect::new(
+        body.x,
+        body.y + 1,
+        body.width,
+        body.height.saturating_sub(1),
+    );
+    if !contains(list_area, column, row) {
+        return;
+    }
+
+    let entries = app.history_entries();
+    if entries.is_empty() {
+        return;
+    }
+    let row_height = 4u16;
+    let visible = (list_area.height / row_height).max(1) as usize;
+    if app.history_selection < app.history_scroll {
+        app.history_scroll = app.history_selection;
+    } else if app.history_selection >= app.history_scroll + visible {
+        app.history_scroll = app.history_selection + 1 - visible;
+    }
+    let mut y = list_area.y;
+    let mut previous_day: Option<String> = None;
+    for (index, (_, entry)) in entries.iter().enumerate().skip(app.history_scroll) {
+        if y + 3 > list_area.y + list_area.height {
+            break;
+        }
+        let day = tsuiyomi_core::date_key_for_unix(entry.last_read);
+        if previous_day.as_deref() != Some(day.as_str()) {
+            if y + 4 > list_area.y + list_area.height {
+                break;
+            }
+            y += 1;
+            previous_day = Some(day);
+        }
+        if row >= y && row < y + 3 {
+            app.history_selection = index;
+            app.history_list_state.select(Some(index));
+            return;
+        }
+        y += row_height;
+    }
 }
 
 fn handle_chapter_click(area: Rect, app: &mut AppState, column: u16, row: u16) {

@@ -1003,3 +1003,23 @@ Docs:
 - Time statistics are derived from live history, so deletion removes them.
 - Clear-all history clears all chapter progress after confirmation.
 - Bookmarks and downloads are not affected.
+
+
+## 19. Implementation status
+
+Implemented:
+
+- Latest-per-series vertical rows with 4×3 covers, date headers, search, and
+  multi-select.
+- Parsed chapter numbers, saved-remote star markers, and slimmer source lines.
+- Row and cover mouse hit-testing.
+- Next-chapter resume and permanent deletion with matching progress clearing.
+- History/Stats mini-tabs derived from live history.
+- Stats totals, ranges, 14-day chart, top series, streak, active days, unique-series
+  count, and arrow-key scrolling.
+
+Remaining optional items:
+
+- Idle cutoff for read-time accumulation.
+- Migration action directly from duplicate dialogs.
+- More mouse affordances such as scrolling the Stats pane with the wheel.
