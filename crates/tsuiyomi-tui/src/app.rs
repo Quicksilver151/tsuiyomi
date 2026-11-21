@@ -442,6 +442,7 @@ pub enum MoreRow {
 pub enum SettingId {
     ReadingMode,
     Zoom,
+    ReaderFit,
     PrefetchBehind,
     PrefetchAhead,
     CacheMargin,
@@ -509,9 +510,10 @@ const LIBRARY_ROWS: [MoreRow; 6] = [
     MoreRow::Setting(SettingId::DefaultCategory),
 ];
 
-const READER_ROWS: [MoreRow; 7] = [
+const READER_ROWS: [MoreRow; 8] = [
     MoreRow::Divider("Reading"),
     MoreRow::Setting(SettingId::ReadingMode),
+    MoreRow::Setting(SettingId::ReaderFit),
     MoreRow::Divider("Continuous scroll"),
     MoreRow::Setting(SettingId::Zoom),
     MoreRow::Setting(SettingId::PrefetchBehind),
@@ -10235,9 +10237,10 @@ impl AppState {
                     .unwrap_or_default();
                 self.open_text_input(TextAction::SetDownloadsPath, "Downloads folder", &current);
             }
-            SettingId::ReadingMode | SettingId::LibrarySort | SettingId::DefaultCategory => {
-                self.adjust_setting(1)
-            }
+            SettingId::ReadingMode
+            | SettingId::ReaderFit
+            | SettingId::LibrarySort
+            | SettingId::DefaultCategory => self.adjust_setting(1),
             _ => {}
         }
     }
@@ -10525,6 +10528,22 @@ impl AppState {
         };
 
         match setting {
+            SettingId::ReaderFit => {
+                let fits = [
+                    tsuiyomi_core::ReaderFit::Fit,
+                    tsuiyomi_core::ReaderFit::Crop,
+                    tsuiyomi_core::ReaderFit::Scale,
+                ];
+                let index = fits
+                    .iter()
+                    .position(|fit| *fit == self.config.reader_fit)
+                    .unwrap_or(0);
+                let next = (index as i32 + delta).rem_euclid(fits.len() as i32) as usize;
+                self.config.reader_fit = fits[next];
+                if self.reader.is_some() && self.reader_mode == ReaderMode::Page {
+                    self.load_page();
+                }
+            }
             SettingId::ReadingMode => {
                 let index = READING_MODES
                     .iter()
@@ -12786,6 +12805,22 @@ mod tests {
 
         assert_eq!(app.reader_chapter_index(), 1);
         assert_eq!(app.reader_chapter_count(), 2);
+    }
+
+    #[test]
+    fn reader_fit_setting_cycles() {
+        let mut app = AppState {
+            more_section: MoreSection::Settings,
+            settings_page: SettingsPage::Reader,
+            setting_index: 1,
+            ..AppState::default()
+        };
+        app.adjust_setting(1);
+        assert_eq!(app.config.reader_fit, tsuiyomi_core::ReaderFit::Crop);
+        app.adjust_setting(1);
+        assert_eq!(app.config.reader_fit, tsuiyomi_core::ReaderFit::Scale);
+        app.adjust_setting(1);
+        assert_eq!(app.config.reader_fit, tsuiyomi_core::ReaderFit::Fit);
     }
 
     #[test]

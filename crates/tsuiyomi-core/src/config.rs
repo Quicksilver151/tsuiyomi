@@ -28,6 +28,19 @@ pub enum LibrarySort {
     TitleDesc,
 }
 
+/// How a page image fills the reader viewport.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReaderFit {
+    /// Fit the whole image, preserving aspect ratio.
+    #[default]
+    Fit,
+    /// Fill the viewport, cropping overflow.
+    Crop,
+    /// Stretch to the viewport.
+    Scale,
+}
+
 /// Layout for remote source results.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -149,6 +162,8 @@ pub struct Config {
     pub story_notes: BTreeMap<String, String>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
+    /// Page-mode image fit.
+    pub reader_fit: ReaderFit,
     /// Pages prepared before the viewport.
     pub scroll_prefetch_behind: usize,
     /// Pages prepared after the viewport.
@@ -193,6 +208,7 @@ impl Default for Config {
             chapter_settings: BTreeMap::new(),
             story_notes: BTreeMap::new(),
             reader_zoom: 100,
+            reader_fit: ReaderFit::Fit,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,
             scroll_cache_margin: 4,

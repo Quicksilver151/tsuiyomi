@@ -196,7 +196,8 @@ Legend:
 | Images | Unicode halfblock fallback | Yes | ✅ | ✅ | |
 | Modes | Page mode | Yes | ✅ | ✅ | |
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
-| Modes | Left-to-right / right-to-left / vertical | Yes | 🟡 | 🟡 | RTL reverses page-turn keys in page mode; vertical still uses paged mode; fit modes pending. |
+| Modes | Left-to-right / right-to-left / vertical | Yes | 🟡 | 🟡 | RTL reverses page-turn keys in page mode; vertical still uses paged mode. |
+| Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`, no upscaling at 100%. |
 | Zoom | Retransmit-free Kitty placement zoom | Yes | ❌ | ❌ | Pending. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |

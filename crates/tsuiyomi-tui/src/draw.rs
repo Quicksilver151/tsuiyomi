@@ -4259,8 +4259,13 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
     match mode {
         ReaderMode::Page => {
             if let Some(protocol) = reader.protocol.as_mut() {
+                let resize = match app.config.reader_fit {
+                    tsuiyomi_core::ReaderFit::Fit => Resize::Fit(None),
+                    tsuiyomi_core::ReaderFit::Crop => Resize::Crop(None),
+                    tsuiyomi_core::ReaderFit::Scale => Resize::Scale(None),
+                };
                 frame.render_stateful_widget(
-                    StatefulImage::new().resize(Resize::Fit(None)),
+                    StatefulImage::new().resize(resize),
                     chunks[1],
                     protocol,
                 );
@@ -5028,6 +5033,15 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
         SettingId::ReadingMode => (
             "Reading mode".to_owned(),
             reading_mode_label(app.config.reading_mode).to_owned(),
+        ),
+        SettingId::ReaderFit => (
+            "Page fit".to_owned(),
+            match app.config.reader_fit {
+                tsuiyomi_core::ReaderFit::Fit => "Fit",
+                tsuiyomi_core::ReaderFit::Crop => "Fill / crop",
+                tsuiyomi_core::ReaderFit::Scale => "Stretch",
+            }
+            .to_owned(),
         ),
         SettingId::Zoom => ("Zoom".to_owned(), format!("{}%", app.zoom)),
         SettingId::PrefetchBehind => (

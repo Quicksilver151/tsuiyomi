@@ -36,7 +36,7 @@ pub use chapter_view::{
 };
 pub use comic_info::{parse_comic_info, ChapterDate, ComicInfo};
 pub use config::{
-    load_config, save_config, Config, GlobalSearchScope, LibrarySort, LocalSourceOrder,
+    load_config, save_config, Config, GlobalSearchScope, LibrarySort, LocalSourceOrder, ReaderFit,
     ReadingMode, SourceDisplayMode, Theme,
 };
 pub use downloads::{

@@ -364,8 +364,8 @@ Reading mode, zoom, and scroll cache settings can also be changed in
 **More → Settings → Reader** using the thin sliders. Right-to-left mode reverses the
 left/right page-turn keys in paged mode. Valid `reading_mode` values are `default`,
 `left_to_right`, `right_to_left`, `vertical`, `webtoon`, and `continuous_vertical`.
-Page-turn modes open single pages; `webtoon` and `continuous_vertical` open in scroll
-mode. `m` switches between page and scroll for the current session. Scroll mode fits
+Page-turn modes open single pages and use the **Page fit** setting (Fit, Fill/crop, or
+Stretch); `webtoon` and `continuous_vertical` open in scroll mode. `m` switches between page and scroll for the current session. Scroll mode fits
 pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom from 50%
 to 300%. Zooming rebuilds the scroll layout but keeps the top of the viewport on the same
 point in the page, including inside very long webtoon strips. Only pages near the viewport
