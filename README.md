@@ -162,7 +162,8 @@ Controls:
 - `↑↓` moves through lists; `←→` moves by tile in grids.
 - `Enter` opens the selected source, series detail, chapter, or extension action.
 - Remote sources open with popular results. `s` searches, `l` loads latest updates when
-  the source supports them, and `n` appends the next results page. `z` opens the source's
+  the source supports them, and `n` appends the next results page. Moving onto the last
+  visible result also fetches the next page automatically. `z` opens the source's
   filters when it exposes them: checkbox, tri-state, text, select, sort, and grouped
   filters, with Reset and Apply rows. `v` cycles comfortable grid, compact grid, and
   list layouts. Saved results carry a ✓ marker; `h` hides them from the result list.
@@ -195,8 +196,8 @@ in-progress, and read state, chapter dates, scanlators, bookmarks, and download 
 chapter filters, sorting, and display mode persist per series. `x`/Delete removes
 selected downloads after confirmation, `c` edits categories for saved source manga,
 `M` opens Migrate with the manga selected, `N` edits notes, `C` copies the URL, `o`
-opens the local folder or an absolute source URL, and `w`/`W` show the cover or set a
-custom local cover. Remote chapters can be downloaded with `D`; they are read from disk
+opens the local folder or an absolute source URL, `t` searches a tag, and `w`/`W` show
+the cover or set a custom local cover. Remote chapters can be downloaded with `D`; they are read from disk
 afterwards, even when the source is offline.
 
 There is no filesystem import browser. To add local manga, place the folder or archive
@@ -217,9 +218,9 @@ bookmarks and downloads are untouched.
 
 `[` and `]` switch between History and Stats inside the panel. Stats shows total, today,
 7-day, and 30-day reading time, a 14-day bar chart, top series, reading streak, unique
-series count, and trend counts. Arrow keys scroll Stats. Reading time is accumulated while
-the reader is open and aggregated from live history, so removing a history row also
-removes its time from Stats.
+series count, and trend counts. Arrow keys or the wheel scroll Stats. Reading time is
+accumulated while the reader is open, ignores gaps longer than two minutes, and is
+aggregated from live history, so removing a history row also removes its time from Stats.
 
 History is stored as an unbounded append-only
 `$XDG_DATA_HOME/tsuiyomi/history.jsonl`; the old `history.json` is imported on first

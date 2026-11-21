@@ -57,6 +57,9 @@ const SCROLL_PREFETCH_SCALE: usize = 2;
 static COVER_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 /// Retry a failed cover fetch after this long instead of giving up for the session.
 const COVER_RETRY: Duration = Duration::from_secs(10);
+/// Reading time stops accumulating after this long without input, so leaving the
+/// reader open while idle does not inflate stats.
+const READING_IDLE_CUTOFF: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LibraryView {
@@ -800,6 +803,12 @@ pub struct SaveCategories {
     pub chosen: HashSet<String>,
 }
 
+#[derive(Debug, Default)]
+pub struct TagPicker {
+    pub tags: Vec<String>,
+    pub selected: usize,
+}
+
 pub struct HistoryDeleteDialog {
     pub keys: Vec<String>,
     pub series_keys: Vec<String>,
@@ -807,7 +816,8 @@ pub struct HistoryDeleteDialog {
 }
 
 pub struct ReadingSession {
-    started: Instant,
+    last_activity: Instant,
+    accumulated_secs: u64,
     chapter_key: String,
 }
 
@@ -994,6 +1004,7 @@ pub struct AppState {
     pub download_delete_confirm: bool,
     pub category_picker: Option<CategoryPicker>,
     pub save_categories: Option<SaveCategories>,
+    pub tag_picker: Option<TagPicker>,
     pub cover_overlay: bool,
     pub status: Option<String>,
 }
@@ -1103,6 +1114,7 @@ impl AppState {
             download_delete_confirm: false,
             category_picker: None,
             save_categories: None,
+            tag_picker: None,
             cover_overlay: false,
             status,
         }
@@ -1229,6 +1241,18 @@ impl AppState {
             };
             self.browse_selection = (self.browse_selection + step).min(count - 1);
             self.select_browse_entry(self.browse_selection);
+            self.maybe_load_next_remote_page();
+        }
+    }
+
+    /// Fetch the next result page when the cursor reaches the last visible result.
+    fn maybe_load_next_remote_page(&mut self) {
+        if self.browse_view != BrowseView::RemoteResults || !self.remote.has_next_page {
+            return;
+        }
+        let count = self.visible_remote_count();
+        if count > 0 && self.browse_selection + 1 >= count {
+            self.load_next_remote_page();
         }
     }
 
@@ -1251,6 +1275,7 @@ impl AppState {
             if count > 0 {
                 self.browse_selection = (self.browse_selection + 1).min(count - 1);
                 self.select_browse_entry(self.browse_selection);
+                self.maybe_load_next_remote_page();
             }
         }
     }
@@ -5393,6 +5418,7 @@ impl AppState {
         if index < self.browse_item_count() {
             self.browse_selection = index;
             self.select_browse_entry(index);
+            self.maybe_load_next_remote_page();
         }
     }
 
@@ -7401,6 +7427,89 @@ impl AppState {
         self.status = Some("Saved story notes".to_owned());
     }
 
+    pub fn open_tag_picker(&mut self) {
+        let tags = if self.tab == 0 && self.view == LibraryView::Chapters {
+            self.selected_series()
+                .map(|series| series.tags.clone())
+                .unwrap_or_default()
+        } else if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            self.selected_browse_local_series()
+                .map(|series| series.tags.clone())
+                .unwrap_or_default()
+        } else {
+            self.remote_story_manga()
+                .map(|manga| manga.genre.clone())
+                .unwrap_or_default()
+        };
+        if tags.is_empty() {
+            self.status = Some("This story has no tags.".to_owned());
+            return;
+        }
+        self.tag_picker = Some(TagPicker { tags, selected: 0 });
+    }
+
+    pub fn tag_picker_previous(&mut self) {
+        if let Some(picker) = self.tag_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn tag_picker_next(&mut self) {
+        if let Some(picker) = self.tag_picker.as_mut() {
+            if !picker.tags.is_empty() {
+                picker.selected = (picker.selected + 1).min(picker.tags.len() - 1);
+            }
+        }
+    }
+
+    pub fn cancel_tag_picker(&mut self) {
+        self.tag_picker = None;
+    }
+
+    pub fn confirm_tag_picker(&mut self) {
+        let Some(picker) = self.tag_picker.take() else {
+            return;
+        };
+        let Some(tag) = picker.tags.get(picker.selected).cloned() else {
+            return;
+        };
+        if let Some(manga) = self.remote_story_manga().cloned() {
+            let Some(source) = self
+                .remote
+                .sources
+                .iter()
+                .find(|source| source.id == manga.source_id)
+                .cloned()
+            else {
+                self.status = Some("Source is not loaded; open it from Browse first.".to_owned());
+                return;
+            };
+            self.record_source_opened_source(&source);
+            self.tab = 3;
+            self.remote.source = Some(source);
+            self.remote.query = tag;
+            self.remote.listing = RemoteListing::Search;
+            self.remote.page = 1;
+            self.remote.filters.clear();
+            self.remote.default_filters.clear();
+            self.remote.filters_loaded = false;
+            self.load_remote_filters();
+            self.load_remote_results(RemoteListing::Search);
+            self.browse_view = BrowseView::RemoteResults;
+            self.browse_selection = 0;
+            self.browse_grid_offset = 0;
+            self.select_browse_entry(0);
+            return;
+        }
+        self.tab = 3;
+        self.browse_local_query = tag.clone();
+        self.browse_view = BrowseView::Local;
+        self.browse_selection = 0;
+        self.browse_grid_offset = 0;
+        self.select_browse_entry(0);
+        self.status = Some(format!("Filtering local series by {tag}"));
+    }
+
     pub fn open_category_picker(&mut self) {
         let Some(manga) = self.remote_story_manga().cloned() else {
             self.status = Some("Local categories are managed by categories.json.".to_owned());
@@ -7490,16 +7599,32 @@ impl AppState {
             self.status = Some("Save this manga to the library before migrating.".to_owned());
             return;
         };
+        self.begin_migration(favorite);
+    }
+
+    fn begin_migration(&mut self, favorite: RemoteFavorite) {
         self.tab = 3;
         self.browse_tab = BrowseTab::Migrate;
         self.browse_view = BrowseView::Migrate;
         self.migrate.screen = MigrateScreen::Favorites;
-        self.migrate.source_id = Some(manga.source_id.clone());
+        self.migrate.source_id = Some(favorite.source_id.clone());
         self.migrate.favorites = vec![favorite];
         self.migrate.list_state = ListState::default();
         self.browse_selection = 0;
         self.select_browse_entry(0);
         self.status = Some("Press M to match this manga against enabled sources.".to_owned());
+    }
+
+    /// Open Migrate for the duplicate selected in the duplicate dialog.
+    pub fn duplicate_migrate(&mut self) {
+        let Some(dialog) = self.duplicate_dialog.take() else {
+            return;
+        };
+        let Some(favorite) = dialog.duplicates.get(dialog.selected).cloned() else {
+            return;
+        };
+        self.begin_migration(favorite);
+        self.status = Some("Press M to migrate the existing entry to another source.".to_owned());
     }
 
     pub fn open_chapter_settings(&mut self) {
@@ -9039,9 +9164,28 @@ impl AppState {
 
     /// Write pending progress immediately. Safe to call when nothing is dirty.
     pub fn reading_session_due(&self) -> bool {
-        self.reading_session
-            .as_ref()
-            .is_some_and(|session| session.started.elapsed().as_secs() >= 60)
+        self.reading_session.as_ref().is_some_and(|session| {
+            let active = session
+                .last_activity
+                .elapsed()
+                .min(READING_IDLE_CUTOFF)
+                .as_secs();
+            session.accumulated_secs.saturating_add(active) >= 60
+        })
+    }
+
+    /// Record an input event while the reader is open. Gaps longer than the idle
+    /// cutoff are discarded rather than counted as reading time.
+    pub fn note_reading_activity(&mut self) {
+        let Some(session) = self.reading_session.as_mut() else {
+            return;
+        };
+        let now = Instant::now();
+        let delta = now.saturating_duration_since(session.last_activity);
+        if delta <= READING_IDLE_CUTOFF {
+            session.accumulated_secs = session.accumulated_secs.saturating_add(delta.as_secs());
+        }
+        session.last_activity = now;
     }
 
     /// Start timing a chapter, flushing any previous session first.
@@ -9065,17 +9209,19 @@ impl AppState {
         }
 
         self.reading_session = Some(ReadingSession {
-            started: Instant::now(),
+            last_activity: Instant::now(),
+            accumulated_secs: 0,
             chapter_key,
         });
     }
 
     pub fn flush_reading_session(&mut self) {
+        self.note_reading_activity();
         let Some(session) = self.reading_session.as_mut() else {
             return;
         };
-        let seconds = session.started.elapsed().as_secs();
-        session.started = Instant::now();
+        let seconds = session.accumulated_secs;
+        session.accumulated_secs = 0;
         if seconds == 0 {
             return;
         }
@@ -13167,6 +13313,85 @@ mod tests {
                 .map(|reader| reader.chapter_title.as_str()),
             Some("Chapter 2")
         );
+    }
+
+    #[test]
+    fn reading_time_discards_idle_gaps() {
+        let mut app = AppState {
+            reading_session: Some(ReadingSession {
+                last_activity: Instant::now()
+                    .checked_sub(Duration::from_secs(300))
+                    .unwrap_or_else(Instant::now),
+                accumulated_secs: 7,
+                chapter_key: "chapter".to_owned(),
+            }),
+            ..AppState::default()
+        };
+        app.note_reading_activity();
+        assert_eq!(
+            app.reading_session
+                .as_ref()
+                .map(|session| session.accumulated_secs),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn story_tag_picker_filters_the_local_source() {
+        let mut app = AppState::new(library(), None);
+        app.library.series[1].tags = vec!["Action".to_owned(), "Dark Fantasy".to_owned()];
+        app.select_index(1);
+        app.open();
+
+        app.open_tag_picker();
+        assert_eq!(
+            app.tag_picker.as_ref().map(|picker| picker.tags.len()),
+            Some(2)
+        );
+        app.tag_picker_next();
+        app.confirm_tag_picker();
+
+        assert_eq!(app.tab, 3);
+        assert_eq!(app.browse_view, BrowseView::Local);
+        assert_eq!(app.browse_local_query, "Dark Fantasy");
+    }
+
+    #[test]
+    fn duplicate_dialog_can_start_migration() {
+        let mut app = remote_app();
+        let favorite = RemoteFavorite {
+            source_id: "2".to_owned(),
+            url: "/manga/solo".to_owned(),
+            title: "Solo Leveling".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+            categories: vec!["Reading".to_owned()],
+        };
+        app.duplicate_dialog = Some(DuplicateDialog {
+            manga: RemoteManga {
+                source_id: "1".to_owned(),
+                url: "/manga/other".to_owned(),
+                title: "Solo Leveling".to_owned(),
+                author: None,
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "unknown".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            },
+            duplicates: vec![favorite.clone()],
+            selected: 0,
+        });
+
+        app.duplicate_migrate();
+
+        assert_eq!(app.tab, 3);
+        assert_eq!(app.browse_view, BrowseView::Migrate);
+        assert_eq!(app.migrate.source_id.as_deref(), Some("2"));
+        assert_eq!(app.migrate.favorites.len(), 1);
+        assert_eq!(app.migrate.favorites[0].url, favorite.url);
     }
 
     #[test]

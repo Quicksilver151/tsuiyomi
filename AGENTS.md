@@ -294,7 +294,9 @@ Rules:
   time was recorded; clicking a row or cover selects it. History and Stats are mini-tabs
   inside the panel (`[`/`]`); Stats scrolls with the arrow keys, includes unique-series
   counts, and is derived from live history and per-chapter daily buckets, so deleting
-  history removes its time from totals, charts, and top series. `record_progress` flushes history with progress; global and
+  history removes its time from totals, charts, and top series. Reading-time gaps longer
+  than two minutes are discarded. The duplicate-save dialog can open Migrate for the
+  existing entry with `M`. `record_progress` flushes history with progress; global and
   per-extension Incognito suppress history and time.
 - No title filter or backup support yet.
 - Config persists `library_path`, `reading_mode`, `reader_zoom`,

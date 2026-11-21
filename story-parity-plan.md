@@ -402,7 +402,7 @@ Implemented:
 - Story notes persisted in config.
 - Story-level migration entry.
 - URL copy through OSC 52, local folder or absolute source URL opening, cover
-  overlay, and custom local covers.
+  overlay, custom local covers, and tag search.
 
 Remaining or intentionally deferred:
 
@@ -412,5 +412,5 @@ Remaining or intentionally deferred:
 - Cover editing for remote favorites and cover share/delete.
 - Downloading newly discovered chapters automatically on refresh.
 - Aborting an in-flight download (the core download loop has no cancellation hook).
-- Tag search/copy actions.
+- Tag copy actions (search is implemented).
 - Per-series tracking/update fields the host does not expose.

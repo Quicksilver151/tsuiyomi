@@ -94,6 +94,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_download_delete_confirm(frame, app);
     draw_category_picker(frame, app);
     draw_save_categories(frame, app);
+    draw_tag_picker(frame, app);
 }
 
 fn draw_cover_overlay(frame: &mut Frame, app: &mut AppState) {
@@ -206,6 +207,67 @@ fn draw_download_delete_confirm(frame: &mut Frame, app: &AppState) {
         ])),
         inner,
     );
+}
+
+fn draw_tag_picker(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.tag_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let height = (picker.tags.len() as u16 + 2).min(area.height).max(4);
+    let width = 56.min(area.width).max(20);
+    if width < 16 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Tags ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Enter search · Esc cancel ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = picker
+        .tags
+        .iter()
+        .enumerate()
+        .map(|(index, tag)| {
+            let selected = index == picker.selected;
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    tag.clone(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(
+        picker.selected.min(picker.tags.len().saturating_sub(1)),
+    ));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
 fn draw_save_categories(frame: &mut Frame, app: &AppState) {
@@ -710,7 +772,7 @@ fn draw_duplicate_dialog(frame: &mut Frame, app: &AppState) {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "↑↓ select · a add anyway · Enter open · Esc cancel",
+        "↑↓ select · a add anyway · Enter open · M migrate · Esc cancel",
         Style::default().fg(c_overlay0()),
     )));
     frame.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -1153,6 +1215,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("N", "notes"),
                 ("C/o", "copy/open"),
                 ("w/W", "cover"),
+                ("t", "tags"),
                 ("r", "refresh"),
                 ("Esc", "back"),
             ],

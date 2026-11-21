@@ -1182,6 +1182,6 @@ Latest pass:
 - Store rows copy (`C`) and open (`o`) their index URL and refresh with `r`.
 - Saving a new remote manga opens a category chooser instead of silently using Default.
 
-Still open: debounced extension search over source URLs/ids, source-result pagination
-that loads automatically at the last row, a full background Browse worker, and category
-migration from duplicate dialogs.
+Still open: debounced extension search over source URLs/ids, a full background Browse
+worker, and category migration from duplicate dialogs. Result pagination now loads
+automatically at the last row.

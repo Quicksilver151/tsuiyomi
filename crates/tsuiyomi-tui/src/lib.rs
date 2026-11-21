@@ -180,11 +180,25 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         let Some(action) = action else {
             continue;
         };
+        app.note_reading_activity();
 
         if app.quit_confirm {
             match action {
                 Action::Quit | Action::Open | Action::Confirm => return Ok(()),
                 Action::Back | Action::NextChapter => app.quit_confirm = false,
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.tag_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.tag_picker_previous(),
+                Action::Next => app.tag_picker_next(),
+                Action::Open | Action::Confirm | Action::Select => app.confirm_tag_picker(),
+                Action::Back => app.cancel_tag_picker(),
                 _ => {}
             }
             needs_draw = true;
@@ -286,6 +300,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::Next => app.duplicate_next(),
                 Action::Open | Action::Confirm => app.duplicate_open(),
                 Action::AddStore => app.duplicate_add_anyway(),
+                Action::Migrate => app.duplicate_migrate(),
                 Action::Back => app.duplicate_cancel(),
                 _ => {}
             }
@@ -766,7 +781,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Stores => {
-                if app.tab == 3 {
+                if app.story_screen_active() {
+                    app.open_tag_picker();
+                } else if app.tab == 3 {
                     if app.browse_view == BrowseView::Stores {
                         app.open_extensions();
                     } else {

@@ -1020,6 +1020,4 @@ Implemented:
 
 Remaining optional items:
 
-- Idle cutoff for read-time accumulation.
-- Migration action directly from duplicate dialogs.
-- More mouse affordances such as scrolling the Stats pane with the wheel.
+- More mouse affordances beyond row/cover selection and wheel scrolling.
