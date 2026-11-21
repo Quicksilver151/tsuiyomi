@@ -18,6 +18,7 @@ mod migration_worker;
 mod palette;
 mod prefs_worker;
 mod result_worker;
+mod scan_worker;
 mod scroll_worker;
 mod search_worker;
 mod source_worker;
@@ -89,6 +90,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_prefs_worker(crate::prefs_worker::PrefsWorker::spawn());
     app.set_extensions_worker(crate::extensions_worker::ExtensionsWorker::spawn());
     app.set_migration_worker(crate::migration_worker::MigrationWorker::spawn());
+    app.set_scan_worker(crate::scan_worker::ScanWorker::spawn());
     app.set_global_search_worker(GlobalSearchWorker::spawn());
     app.set_cover_worker(CoverWorker::spawn());
     app.maybe_recover_covers();
@@ -176,6 +178,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_migration_worker() {
+            needs_draw = true;
+        }
+        if app.poll_scan_worker() {
             needs_draw = true;
         }
         if app.poll_story_refresh() {
@@ -680,7 +685,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 } else if app.tab == 0 && app.view == LibraryView::RemoteDetails {
                     app.reload_library_remote_chapters();
                 } else {
-                    app.refresh();
+                    app.refresh_async();
                 }
             }
             Action::Search => {

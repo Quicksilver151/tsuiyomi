@@ -64,7 +64,7 @@ Legend:
 | Covers | Persistent cover cache | Yes | ✅ | ✅ | LRU, 512 px, atomic writes, Kitty reset. |
 | Covers | Automatic cover recovery | Yes | ✅ | ✅ | Missing saved covers trigger host refill. |
 | Selection | Multi-select and batch delete | Yes | ✅ | ✅ | Stable keys and command-bar count. |
-| Scan | Background scan | Yes | ❌ | ❌ | Scanning is synchronous. |
+| Scan | Background scan | Yes | 🟡 | 🟡 | Refresh/rescan runs on a worker; the initial startup scan still runs before the UI. |
 | Scan | Import browser / file picker | Yes | ❌ | ❌ | Drop folders into `local/` and rescan. |
 
 ## 3. Browse, sources, and global search

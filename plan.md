@@ -201,7 +201,9 @@ Chapter/story parity plan: `story-parity-plan.md`.
 
 ## Phase 5 — Later
 
-- [ ] Background networking; the UI currently blocks on host calls.
+- [x] Background networking for Browse result/source/story/filter/preference/extension
+      loads, migration matching, and library rescans. Mutations and migration apply still
+      block.
 - [x] Pagination controls in the results grid.
 - [ ] Read-state mirroring back to the host.
 - [x] Optional FlareSolverr configuration in Settings.

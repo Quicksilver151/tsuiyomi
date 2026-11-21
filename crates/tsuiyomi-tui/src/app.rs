@@ -46,6 +46,7 @@ use crate::{
     palette,
     prefs_worker::{PrefsRequest, PrefsWorker},
     result_worker::{ResultListing, ResultRequest, ResultWorker},
+    scan_worker::{ScanRequest, ScanWorker},
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
     search_worker::{GlobalSearchEvent, GlobalSearchWorker},
     source_worker::{SourceRequest, SourceWorker},
@@ -824,6 +825,14 @@ pub struct HistoryDeleteDialog {
     pub all_series: bool,
 }
 
+#[derive(Clone)]
+pub struct ScanContext {
+    previous_series: Option<PathBuf>,
+    previous_view: LibraryView,
+    previous_chapter: usize,
+    previous_category: String,
+}
+
 pub struct ReadingSession {
     last_activity: Instant,
     accumulated_secs: u64,
@@ -951,6 +960,9 @@ pub struct AppState {
     extensions_generation: u64,
     pub(crate) migration_worker: Option<MigrationWorker>,
     migration_generation: u64,
+    pub(crate) scan_worker: Option<ScanWorker>,
+    scan_generation: u64,
+    scan_context: Option<ScanContext>,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1090,6 +1102,9 @@ impl AppState {
             extensions_generation: 0,
             migration_worker: None,
             migration_generation: 0,
+            scan_worker: None,
+            scan_generation: 0,
+            scan_context: None,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -1472,7 +1487,7 @@ impl AppState {
             BrowseView::SourceFilters => self.load_remote_sources_async(),
             BrowseView::SourcePrefs => self.reload_source_prefs(),
             BrowseView::Filters => self.load_remote_filters(),
-            BrowseView::Local => self.refresh(),
+            BrowseView::Local => self.refresh_async(),
             BrowseView::RemoteResults => {
                 self.load_remote_results(self.remote.listing);
             }
@@ -1483,7 +1498,7 @@ impl AppState {
             }
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions_async(),
             BrowseView::ExtensionDetails => self.load_extensions_async(),
-            BrowseView::Chapters => self.refresh(),
+            BrowseView::Chapters => self.refresh_async(),
             BrowseView::Migrate => self.migrate_refresh(),
             BrowseView::GlobalResults => self.retry_global_search(),
         }
@@ -6241,6 +6256,10 @@ impl AppState {
         self.migration_worker = Some(worker);
     }
 
+    pub(crate) fn set_scan_worker(&mut self, worker: ScanWorker) {
+        self.scan_worker = Some(worker);
+    }
+
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
         self.story_worker = Some(worker);
     }
@@ -10155,7 +10174,7 @@ impl AppState {
                 self.config.show_nsfw_extensions = !self.config.show_nsfw_extensions;
                 self.persist_settings();
             }
-            SettingId::RescanLibrary => self.refresh(),
+            SettingId::RescanLibrary => self.refresh_async(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
                 self.open_text_input(TextAction::SetHostUrl, "Extension host URL", &current);
@@ -11945,78 +11964,125 @@ impl AppState {
             self.status = Some("No library configured. Set TSUIYOMI_LIBRARY.".to_owned());
             return;
         }
-
-        let previous_series = self.selected_series().map(|series| series.path.clone());
-        let previous_view = self.view;
-        let previous_chapter = self.chapter_index;
-        let previous_category = self.category_name_or_default();
-
+        let context = ScanContext {
+            previous_series: self.selected_series().map(|series| series.path.clone()),
+            previous_view: self.view,
+            previous_chapter: self.chapter_index,
+            previous_category: self.category_name_or_default(),
+        };
         match scan_library(&self.library.root) {
-            Ok(library) => {
-                self.library = library;
-                self.tile_covers.clear();
-                self.apply_hidden_series();
-
-                self.category_index = self
-                    .library
-                    .categories
-                    .iter()
-                    .position(|name| name == &previous_category)
-                    .or_else(|| {
-                        self.config.default_category.as_deref().and_then(|name| {
-                            self.library.categories.iter().position(|item| item == name)
-                        })
-                    })
-                    .unwrap_or(0);
-
-                let restored = previous_series.and_then(|path| {
-                    self.visible_indices()
-                        .into_iter()
-                        .position(|index| self.library.series[index].path == path)
-                });
-                if let Some(position) = restored {
-                    self.selected = position;
-                    self.view = previous_view;
-                    self.chapter_index =
-                        previous_chapter.min(self.chapter_count().saturating_sub(1));
-                    if self.view == LibraryView::Chapters {
-                        let count = self.chapter_count();
-                        self.chapter_list_state
-                            .select((count > 0).then_some(self.chapter_index));
-                    }
-                } else {
-                    self.view = LibraryView::Series;
-                    self.selected = 0;
-                    self.chapter_index = 0;
-                    self.chapter_list_state.select(None);
-                }
-
-                // Drop Browse selections whose series disappeared during the scan.
-                let browse_series_exists = self.browse_local_series.as_deref().is_none_or(|path| {
-                    self.library.series.iter().any(|series| series.path == path)
-                });
-                if !browse_series_exists {
-                    self.browse_local_series = None;
-                    if self.browse_view == BrowseView::Chapters {
-                        self.browse_view = BrowseView::Local;
-                    }
-                }
-                self.merge_remote_library();
-                self.clamp_selection();
-                self.clamp_browse_selection();
-                self.status = if self.library.errors.is_empty() {
-                    None
-                } else {
-                    Some(format!(
-                        "{} series could not be read",
-                        self.library.errors.len()
-                    ))
-                };
-                if self.tab == 0 && self.view == LibraryView::Series {
-                    self.maybe_recover_covers();
-                }
-            }
+            Ok(library) => self.apply_scanned_library(library, &context),
             Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
+    /// Rescan in the background when a worker is available.
+    pub fn refresh_async(&mut self) {
+        if self.library.root.as_os_str().is_empty() {
+            self.status = Some("No library configured. Set TSUIYOMI_LIBRARY.".to_owned());
+            return;
+        }
+        let context = ScanContext {
+            previous_series: self.selected_series().map(|series| series.path.clone()),
+            previous_view: self.view,
+            previous_chapter: self.chapter_index,
+            previous_category: self.category_name_or_default(),
+        };
+        if let Some(worker) = self.scan_worker.as_ref() {
+            self.scan_generation = self.scan_generation.wrapping_add(1);
+            self.scan_context = Some(context);
+            self.status = Some("Scanning the library…".to_owned());
+            worker.request(ScanRequest {
+                generation: self.scan_generation,
+                root: self.library.root.clone(),
+            });
+            return;
+        }
+        self.refresh();
+    }
+
+    /// Apply a completed background scan. Returns whether the UI changed.
+    pub fn poll_scan_worker(&mut self) -> bool {
+        let Some(event) = self.scan_worker.as_ref().and_then(ScanWorker::try_result) else {
+            return false;
+        };
+        if event.generation != self.scan_generation {
+            return false;
+        }
+        let Some(context) = self.scan_context.take() else {
+            return false;
+        };
+        match event.result {
+            Ok(library) => self.apply_scanned_library(library, &context),
+            Err(error) => self.status = Some(error),
+        }
+        true
+    }
+
+    fn apply_scanned_library(&mut self, library: Library, context: &ScanContext) {
+        self.library = library;
+        self.tile_covers.clear();
+        self.apply_hidden_series();
+
+        self.category_index =
+            self.library
+                .categories
+                .iter()
+                .position(|name| name == &context.previous_category)
+                .or_else(|| {
+                    self.config.default_category.as_deref().and_then(|name| {
+                        self.library.categories.iter().position(|item| item == name)
+                    })
+                })
+                .unwrap_or(0);
+
+        let restored = context.previous_series.as_ref().and_then(|path| {
+            self.visible_indices()
+                .into_iter()
+                .position(|index| self.library.series[index].path == *path)
+        });
+        if let Some(position) = restored {
+            self.selected = position;
+            self.view = context.previous_view;
+            self.chapter_index = context
+                .previous_chapter
+                .min(self.chapter_count().saturating_sub(1));
+            if self.view == LibraryView::Chapters {
+                let count = self.chapter_count();
+                self.chapter_list_state
+                    .select((count > 0).then_some(self.chapter_index));
+            }
+        } else {
+            self.view = LibraryView::Series;
+            self.selected = 0;
+            self.chapter_index = 0;
+            self.chapter_list_state.select(None);
+        }
+
+        // Drop Browse selections whose series disappeared during the scan.
+        let browse_series_exists = self
+            .browse_local_series
+            .as_deref()
+            .is_none_or(|path| self.library.series.iter().any(|series| series.path == path));
+        if !browse_series_exists {
+            self.browse_local_series = None;
+            if self.browse_view == BrowseView::Chapters {
+                self.browse_view = BrowseView::Local;
+            }
+        }
+        self.merge_remote_library();
+        self.clamp_selection();
+        self.clamp_browse_selection();
+        self.status = if self.library.errors.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "{} series could not be read",
+                self.library.errors.len()
+            ))
+        };
+        if self.tab == 0 && self.view == LibraryView::Series {
+            self.maybe_recover_covers();
         }
     }
 
@@ -12667,6 +12733,23 @@ mod tests {
 
         assert_eq!(app.reader_chapter_index(), 1);
         assert_eq!(app.reader_chapter_count(), 2);
+    }
+
+    #[test]
+    fn applying_a_scan_preserves_the_selected_series() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        let context = ScanContext {
+            previous_series: Some("Berserk".into()),
+            previous_view: LibraryView::Series,
+            previous_chapter: 0,
+            previous_category: "Default".to_owned(),
+        };
+        app.apply_scanned_library(library(), &context);
+        assert_eq!(
+            app.selected_series().map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
     }
 
     #[test]

@@ -176,7 +176,8 @@ Rules:
   512 px on the longest edge). Cover generation is best-effort and must not fail a scan.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
   database). Unlisted series fall into `Default`. Replace this with the DB layer later.
-- Scanning is synchronous on refresh; move it to a background task.
+- Refresh/rescan runs on a background scan worker; the initial startup scan still runs
+  before the TUI. Browse mutations and migration apply remain synchronous.
 - Browse follows Mihon's source model. Sources include the built-in Local source and all
   sources exposed by the extension host (a bundled miwayomi JVM). Remote results, manga
   details, chapters, and the reader stay under the Browse tab; Browse never switches to
@@ -265,7 +266,9 @@ Rules:
   bundled host on `host_worker` instead of blocking the UI: the Sources screen renders
   immediately with a status row and fills in when the host answers. A start epoch drops
   results from a host that was stopped meanwhile. Remote progress uses synthetic
-  `remote://source/manga/chapter` keys. Remote network calls are currently synchronous.
+  `remote://source/manga/chapter` keys. Browse reads, extension lists, migration
+  matching, and library rescans use background workers; mutations and migration apply
+  remain synchronous.
   WebView-dependent sources are unsupported. Library itself also uses a tile grid, not a
   list. Category keys only affect Library's series grid. There is no filesystem import
   browser; users place folders in local/ and rescan. Browse's Local source lists only
