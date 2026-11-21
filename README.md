@@ -49,7 +49,7 @@ just test
 Machine-local paths and log settings live in `.env.local`, which is gitignored. The
 devshell sources it automatically.
 
-Documentation index: [`docs/`](docs/README.md). Current Mihon parity by area:
+Documentation index: [`docs/index.md`](docs/index.md). Current Mihon parity by area:
 [`docs/parity.md`](docs/parity.md).
 
 ## Library layout
