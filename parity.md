@@ -129,7 +129,7 @@ Legend:
 | Details | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Warnings | NSFW/content warning indicator | Yes | ✅ | ✅ | `18+` in rows and details. |
 | Warnings | Hide NSFW extensions | Yes | ✅ | ✅ | Settings → Browse. |
-| Warnings | Private/shared/obsolete indicators | Yes | ❌ | ❌ | Host metadata exists partly; UI does not surface it. |
+| Warnings | Private/shared/obsolete indicators | Yes | 🟡 | 🟡 | Private (installed outside a repo) and obsolete flags shown; shared/signature states remain. |
 | Languages | Enabled-language filtering | Yes | ✅ | ✅ | Installed entries remain manageable. |
 | Search | Comma-separated extension terms | Yes | ✅ | ✅ | Matches names, packages, languages, source names. |
 | WebView | WebView-dependent sources | Yes | ❌ | ❌ | Unsupported by design. |

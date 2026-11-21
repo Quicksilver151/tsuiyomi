@@ -3318,11 +3318,21 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
         field(
             "Store",
             if extension.repo_url.is_empty() {
-                "installed only"
+                if extension.obsolete {
+                    "installed only · obsolete"
+                } else {
+                    "installed only · private"
+                }
+            } else if extension.obsolete {
+                "repository · obsolete"
             } else {
                 &extension.repo_url
             },
-            c_overlay1(),
+            if extension.obsolete {
+                c_peach()
+            } else {
+                c_overlay1()
+            },
         ),
         field(
             "Warning",
@@ -3838,7 +3848,8 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
             ExtensionRow::Extension(index) => {
                 let extension = &app.remote.extensions[*index];
                 let job = app.remote.extension_jobs.get(&extension.pkg);
-                let status = if let Some(job) = job {
+                let private = extension.installed && extension.repo_url.is_empty();
+                let mut status = if let Some(job) = job {
                     job.label()
                 } else if extension.update_available() {
                     "update".to_owned()
@@ -3847,6 +3858,11 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 } else {
                     "available".to_owned()
                 };
+                if extension.obsolete {
+                    status.push_str(" · obsolete");
+                } else if private {
+                    status.push_str(" · private");
+                }
                 let status_style = if job.is_some_and(|job| job.state == "error") {
                     Style::default().fg(c_peach())
                 } else if job.is_some() {
@@ -5741,6 +5757,7 @@ mod tests {
                 sources: Vec::new(),
                 repo_url: "https://example.org/index.min.json".to_owned(),
                 available_version: None,
+                obsolete: false,
             },
             sources: vec![RemoteSource {
                 id: "1".to_owned(),
@@ -6039,6 +6056,7 @@ mod tests {
             sources: Vec::new(),
             repo_url: "https://example.org/index.min.json".to_owned(),
             available_version: Some("1.6.0".to_owned()),
+            obsolete: false,
         }];
         let text = render(&mut app, 80, 30);
         assert!(text.contains("update"));

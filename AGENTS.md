@@ -193,7 +193,7 @@ Rules:
   update count in the tab title, groups updates/installed/available by language, and offers
   `U` update-all. Installs and updates use host jobs with downloading/installing
   progress, cancellation (`c`), and retry; rows show job state, versions, languages,
-  source counts, and content warnings. A failed file appears under Not loaded with its
+  source counts, content warnings, and private/obsolete states. A failed file appears under Not loaded with its
   reason and can be inspected or deleted. Extension language filtering follows
   `enabled_languages`, and `show_nsfw_extensions` hides NSFW entries. Extension search
   accepts comma-separated terms matched against names, packages, languages, source

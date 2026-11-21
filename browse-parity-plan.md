@@ -891,7 +891,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Trust extension where supported.
 - [x] Installed section.
 - [x] Available section grouped by language.
-- [ ] Obsolete/private indicators.
+- [x] Obsolete/private indicators.
 - [x] Content-warning indicators.
 - [x] Search by name/source/URL/id (installed source ids/base URLs; repo-only rows expose names/languages).
 - [x] Comma-separated search terms.

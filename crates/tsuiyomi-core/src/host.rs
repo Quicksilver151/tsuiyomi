@@ -113,6 +113,7 @@ pub struct ExtensionInfo {
     /// Version published by the repository. `version` stays the installed version for
     /// installed rows so updates can be detected without re-reading the host.
     pub available_version: Option<String>,
+    pub obsolete: bool,
 }
 
 impl ExtensionInfo {
@@ -1124,6 +1125,7 @@ impl ExtensionRow {
             sources,
             repo_url: repo_url.to_owned(),
             available_version: (!repo_url.is_empty()).then_some(self.version),
+            obsolete: false,
         }
     }
 }

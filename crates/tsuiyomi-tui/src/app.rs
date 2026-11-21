@@ -14093,6 +14093,7 @@ mod tests {
             }],
             repo_url: "https://example.org/index.min.json".to_owned(),
             available_version: Some("1.1".to_owned()),
+            obsolete: false,
         }];
 
         app.install_selected_extension();
@@ -14839,6 +14840,7 @@ mod tests {
                 sources: Vec::new(),
                 repo_url: "repo".to_owned(),
                 available_version: available.map(str::to_owned),
+                obsolete: false,
             };
         app.remote.extensions = vec![
             extension("Zeta", "pkg.zeta", false, Some("1.0")),
@@ -14885,6 +14887,7 @@ mod tests {
             }],
             repo_url: "https://repo/index.min.json".to_owned(),
             available_version: Some("1.0".to_owned()),
+            obsolete: false,
         }];
         app.remote.not_loaded = vec![NotLoadedExtension {
             pkg: "en.bad".to_owned(),
@@ -14964,6 +14967,7 @@ mod tests {
             sources: Vec::new(),
             repo_url: "repo".to_owned(),
             available_version: None,
+            obsolete: false,
         };
         let sources = app.remote.sources[..2].to_vec();
         app.extension_details = Some(ExtensionDetailsState {
@@ -15012,6 +15016,7 @@ mod tests {
             }],
             repo_url: "https://repo/index.min.json".to_owned(),
             available_version: Some("1.0".to_owned()),
+            obsolete: false,
         };
         app.remote.extensions = vec![
             extension("English", "en", false),
@@ -15051,6 +15056,7 @@ mod tests {
             }],
             repo_url: "https://repo/index.min.json".to_owned(),
             available_version: Some("1.0".to_owned()),
+            obsolete: false,
         };
         app.remote.extensions = vec![extension("Alpha Beta"), extension("Alpha Gamma")];
 
@@ -15087,6 +15093,7 @@ mod tests {
             }],
             repo_url: "https://repo/index.min.json".to_owned(),
             available_version: Some("1.0".to_owned()),
+            obsolete: false,
         };
         extension.sources[0].id = "1".to_owned();
         app.remote.extensions = vec![extension.clone()];
@@ -15251,6 +15258,7 @@ mod tests {
             sources: Vec::new(),
             repo_url: "https://example.org/index.min.json".to_owned(),
             available_version: Some("1.2".to_owned()),
+            obsolete: false,
         }];
         assert_eq!(app.extension_update_count(), 0);
 
@@ -15307,6 +15315,7 @@ mod tests {
                 ],
                 repo_url: "repo".to_owned(),
                 available_version: None,
+                obsolete: false,
             },
             ExtensionInfo {
                 name: "Comick".to_owned(),
@@ -15320,6 +15329,7 @@ mod tests {
                 sources: Vec::new(),
                 repo_url: "repo".to_owned(),
                 available_version: None,
+                obsolete: false,
             },
         ];
         app.browse_view = BrowseView::Extensions;

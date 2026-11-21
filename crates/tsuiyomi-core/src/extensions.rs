@@ -23,6 +23,7 @@ pub fn merge_extensions(
             if !entry.version.is_empty() {
                 known.available_version = Some(entry.version);
             }
+            known.obsolete |= entry.obsolete;
             known.repo_url = entry.repo_url;
             known.apk = entry.apk;
             known.source_count = known.source_count.max(entry.source_count);
@@ -71,6 +72,7 @@ mod tests {
             }],
             repo_url: String::new(),
             available_version: None,
+            obsolete: false,
         }
     }
 
@@ -86,6 +88,17 @@ mod tests {
         assert_eq!(merged[0].version, "1.0");
         assert_eq!(merged[0].available_version.as_deref(), Some("1.2"));
         assert!(merged[0].update_available());
+    }
+
+    #[test]
+    fn obsolete_repository_entries_are_recorded() {
+        let installed = vec![extension("pkg.a", "1.0", true)];
+        let mut available = extension("pkg.a", "1.2", false);
+        available.obsolete = true;
+
+        let merged = merge_extensions(installed, [available]);
+
+        assert!(merged[0].obsolete);
     }
 
     #[test]
