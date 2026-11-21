@@ -5,8 +5,7 @@ laid out in [Mihon](https://mihon.app/)'s Local source format. The same files wo
 both apps.
 
 > **Status:** MVP for local Mihon libraries plus extension-backed remote sources —
-> scanning, browsing, metadata, covers, reading, progress, and settings.
-> Updates and backups are not implemented yet.
+> scanning, browsing, metadata, covers, reading, progress, updates, backups, and settings.
 
 ## Goals
 
@@ -126,6 +125,15 @@ hides it from future scans.
 Chapter rows start with fixed bookmark and download columns (`★`/`☆`, `⬇`/`↓`); local
 chapters use `·` in the download column. Tile width is adjustable in
 **More → Settings → Appearance** (`thumbnail_width`, 8–28 columns).
+
+## Updates
+
+The Updates tab lists chapters that appeared since the previous library scan. The first
+scan only records a baseline, so installing tsuiyomi does not mark the whole library as
+new. `↑↓` selects an update, `Enter` reads it, `x`/`Delete` dismisses one entry, and `X`
+clears the list. Entries are kept for 30 days and disappear if their chapter is deleted;
+`r` rescans to look for more. The list covers local library scans; saved source manga are
+refreshed from the host when opened rather than by a background update job.
 
 ## Browse
 

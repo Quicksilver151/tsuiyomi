@@ -37,7 +37,7 @@ use crossterm::{
 };
 use ratatui::{layout::Rect, DefaultTerminal};
 use ratatui_image::picker::{cap_parser::QueryStdioOptions, Picker};
-use tsuiyomi_core::{BookmarkStore, HistoryStore, ProgressStore};
+use tsuiyomi_core::{BookmarkStore, HistoryStore, ProgressStore, UpdateStore};
 
 use crate::{
     app::{
@@ -78,6 +78,8 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_progress(ProgressStore::load_default());
     app.set_bookmarks(BookmarkStore::load_default());
     app.set_history(HistoryStore::load_default());
+    app.set_updates(UpdateStore::load_default());
+    app.observe_updates();
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());
@@ -587,6 +589,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     } else {
                         app.browse_previous();
                     }
+                } else if app.tab == 1 {
+                    app.updates_previous();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
@@ -608,6 +612,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     } else {
                         app.browse_next();
                     }
+                } else if app.tab == 1 {
+                    app.updates_next();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
@@ -690,6 +696,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::ScrollUp => {
                 if app.tab == 3 {
                     app.browse_previous();
+                } else if app.tab == 1 {
+                    app.updates_previous();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.previous_more_section();
@@ -707,6 +715,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::ScrollDown => {
                 if app.tab == 3 {
                     app.browse_next();
+                } else if app.tab == 1 {
+                    app.updates_next();
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Sections {
                         app.next_more_section();
@@ -1020,7 +1030,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::ClearHistory => {
-                if app.tab == 2 {
+                if app.tab == 1 {
+                    app.clear_updates();
+                } else if app.tab == 2 {
                     app.open_history_clear_confirm();
                 }
             }
@@ -1032,6 +1044,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::UninstallExtension => {
                 if app.story_screen_active() {
                     app.open_download_delete_confirm();
+                } else if app.tab == 1 {
+                    app.dismiss_update();
                 } else if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.uninstall_selected_extension();
                 } else if app.tab == 0 && app.view == LibraryView::Series {
@@ -1059,6 +1073,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     }
                 } else if app.tab == 0 {
                     app.open();
+                } else if app.tab == 1 {
+                    app.open_update_entry();
                 } else if app.tab == 2 {
                     app.open_history_entry();
                 }
@@ -1072,7 +1088,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.leave_more();
                 } else if app.tab == 0 {
                     app.back();
-                } else if app.tab == 2 {
+                } else if app.tab == 1 || app.tab == 2 {
                     app.select_tab(0);
                 }
             }

@@ -32,7 +32,7 @@ use tsuiyomi_core::{
     PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
     RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, Series,
     SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
-    SourcePreferences, Theme, TriState,
+    SourcePreferences, Theme, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -112,6 +112,7 @@ pub enum ReaderOrigin {
     Remote,
     LibraryRemote,
     History,
+    Updates,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1001,6 +1002,8 @@ pub struct AppState {
     pub history_list_state: ListState,
     pub history_delete: Option<HistoryDeleteDialog>,
     pub history_clear_confirm: bool,
+    pub updates: UpdateStore,
+    pub updates_selection: usize,
     pub migrate: MigrateState,
     pub chapter_settings_modal: Option<ChapterSettingsModal>,
     history_dirty: bool,
@@ -1157,6 +1160,8 @@ impl AppState {
             history_list_state: ListState::default(),
             history_delete: None,
             history_clear_confirm: false,
+            updates: UpdateStore::default(),
+            updates_selection: 0,
             migrate: MigrateState::default(),
             chapter_settings_modal: None,
             history_dirty: false,
@@ -5381,7 +5386,7 @@ impl AppState {
             ReaderOrigin::BrowseLocal => self.browse_local_chapter,
             ReaderOrigin::Library => self.chapter_index,
             ReaderOrigin::LibraryRemote => self.library_remote.chapter_index,
-            ReaderOrigin::History => 0,
+            ReaderOrigin::History | ReaderOrigin::Updates => 0,
         }
     }
 
@@ -5391,7 +5396,7 @@ impl AppState {
             ReaderOrigin::BrowseLocal => self.browse_local_chapter_count(),
             ReaderOrigin::Library => self.chapter_count(),
             ReaderOrigin::LibraryRemote => self.library_remote_chapter_count(),
-            ReaderOrigin::History => 1,
+            ReaderOrigin::History | ReaderOrigin::Updates => 1,
         }
     }
 
@@ -7974,7 +7979,10 @@ impl AppState {
                     self.library_remote.chapters.clone(),
                     self.library_remote.chapter_index,
                 )),
-                ReaderOrigin::Library | ReaderOrigin::BrowseLocal | ReaderOrigin::History => None,
+                ReaderOrigin::Library
+                | ReaderOrigin::BrowseLocal
+                | ReaderOrigin::History
+                | ReaderOrigin::Updates => None,
             };
         }
         if self.tab == 3 && self.browse_view == BrowseView::RemoteDetails {
@@ -8199,6 +8207,20 @@ impl AppState {
     pub fn set_history(&mut self, history: HistoryStore) {
         self.history = history;
         self.reading_stats = self.history.reading_stats();
+    }
+
+    pub fn set_updates(&mut self, updates: UpdateStore) {
+        self.updates = updates;
+    }
+
+    /// Compare the current library against the last snapshot and persist new chapters.
+    pub fn observe_updates(&mut self) {
+        if let Err(error) = self.updates.observe_now(&self.library) {
+            self.status = Some(format!("Could not save updates: {error}"));
+        }
+        self.updates_selection = self
+            .updates_selection
+            .min(self.updates.entries().len().saturating_sub(1));
     }
 
     /// Whether the current screen has a chapter that can be bookmarked.
@@ -9784,6 +9806,12 @@ impl AppState {
                     .min(self.history_count().saturating_sub(1));
                 self.history_list_state.select(Some(self.history_selection));
             }
+            ReaderOrigin::Updates => {
+                self.tab = 1;
+                self.updates_selection = self
+                    .updates_selection
+                    .min(self.updates.entries().len().saturating_sub(1));
+            }
         }
         self.reader_origin = ReaderOrigin::Library;
     }
@@ -10504,6 +10532,111 @@ impl AppState {
             .map(|selection| &selection.keys)
     }
 
+    /// Update rows whose series and chapter still exist in the library.
+    pub fn update_rows(&self) -> Vec<&UpdateEntry> {
+        self.updates
+            .entries()
+            .iter()
+            .filter(|entry| {
+                self.library.series.iter().any(|series| {
+                    series.path.to_string_lossy() == entry.series_key
+                        && series
+                            .chapters
+                            .iter()
+                            .any(|chapter| chapter.path.to_string_lossy() == entry.chapter_key)
+                })
+            })
+            .collect()
+    }
+
+    pub fn updates_count(&self) -> usize {
+        self.update_rows().len()
+    }
+
+    pub fn updates_previous(&mut self) {
+        self.updates_selection = self.updates_selection.saturating_sub(1);
+    }
+
+    pub fn updates_next(&mut self) {
+        let last = self.updates_count().saturating_sub(1);
+        self.updates_selection = (self.updates_selection + 1).min(last);
+    }
+
+    pub fn open_update_entry(&mut self) {
+        let Some(entry) = self
+            .update_rows()
+            .get(self.updates_selection)
+            .map(|entry| (*entry).clone())
+        else {
+            return;
+        };
+        let Some(series) = self
+            .library
+            .series
+            .iter()
+            .find(|series| series.path.to_string_lossy() == entry.series_key)
+        else {
+            self.status = Some("That series is no longer in the library.".to_owned());
+            return;
+        };
+        let Some(chapter) = series
+            .chapters
+            .iter()
+            .find(|chapter| chapter.path.to_string_lossy() == entry.chapter_key)
+        else {
+            self.status = Some("That chapter is no longer in the library.".to_owned());
+            return;
+        };
+        let pages = match chapter_pages(chapter) {
+            Ok(pages) => pages,
+            Err(error) => {
+                self.status = Some(error.to_string());
+                return;
+            }
+        };
+        let start_page = self
+            .progress
+            .entry(&chapter.path)
+            .map(|progress| progress.page)
+            .unwrap_or(0);
+        self.start_local_reader(
+            series.title.clone(),
+            chapter.title.clone(),
+            chapter.path.clone(),
+            pages,
+            start_page,
+            ReaderOrigin::Updates,
+        );
+    }
+
+    pub fn dismiss_update(&mut self) {
+        let Some(entry) = self
+            .update_rows()
+            .get(self.updates_selection)
+            .map(|entry| (*entry).clone())
+        else {
+            return;
+        };
+        if !self.updates.dismiss(&entry.series_key, &entry.chapter_key) {
+            return;
+        }
+        let _ = self.updates.save();
+        self.updates_selection = self
+            .updates_selection
+            .min(self.updates_count().saturating_sub(1));
+        self.status = Some(format!("Dismissed {}", entry.chapter_title));
+    }
+
+    pub fn clear_updates(&mut self) {
+        if self.updates.entries().is_empty() {
+            return;
+        }
+        self.updates.clear();
+        let _ = self.updates.save();
+        self.updates_selection = 0;
+        self.status = Some("Cleared all updates".to_owned());
+    }
+
     pub fn history_entries(&self) -> Vec<(String, HistoryEntry)> {
         let entries = if self.history_query.trim().is_empty() {
             self.history.latest_per_series()
@@ -10868,12 +11001,13 @@ impl AppState {
                     .map(|entry| entry.page)
                     .unwrap_or(0)
             };
-            self.start_history_reader(
+            self.start_local_reader(
                 series.title.clone(),
                 chapter.title.clone(),
                 chapter.path.clone(),
                 pages,
                 start_page,
+                ReaderOrigin::History,
             );
             return;
         }
@@ -10933,12 +11067,13 @@ impl AppState {
                 .map(|entry| entry.page)
                 .unwrap_or(0)
         };
-        self.start_history_reader(
+        self.start_local_reader(
             entry.series_title.clone(),
             chapter.name.clone(),
             key_for(&chapter),
             pages,
             start_page,
+            ReaderOrigin::History,
         );
         let _ = key;
     }
@@ -10949,13 +11084,14 @@ impl AppState {
             .is_some_and(|entry| entry.pages > 0 && entry.page + 1 >= entry.pages)
     }
 
-    fn start_history_reader(
+    fn start_local_reader(
         &mut self,
         series_title: String,
         chapter_title: String,
         chapter_path: PathBuf,
         pages: Vec<Page>,
         start_page: usize,
+        origin: ReaderOrigin,
     ) {
         if pages.is_empty() {
             self.status = Some("Chapter has no pages.".to_owned());
@@ -10974,8 +11110,12 @@ impl AppState {
             pending_scroll: None,
             error: None,
         });
-        self.reader_origin = ReaderOrigin::History;
-        self.tab = 2;
+        self.reader_origin = origin;
+        self.tab = match origin {
+            ReaderOrigin::History => 2,
+            ReaderOrigin::Updates => 1,
+            _ => self.tab,
+        };
         self.status = None;
         self.record_progress(
             &chapter_path,
@@ -11033,7 +11173,7 @@ impl AppState {
         let key = chapter.to_string_lossy().into_owned();
 
         let entry = match self.reader_origin {
-            ReaderOrigin::Library | ReaderOrigin::BrowseLocal => {
+            ReaderOrigin::Library | ReaderOrigin::BrowseLocal | ReaderOrigin::Updates => {
                 let chapter_path = chapter.to_path_buf();
                 let series = self.library.series.iter().find(|series| {
                     series
@@ -12424,7 +12564,12 @@ impl AppState {
 
     /// Move through the filtered chapter list in reader order (newest first).
     fn step_reader_chapter(&mut self, delta: isize) {
-        if self.reader.is_none() || self.reader_origin == ReaderOrigin::History {
+        if self.reader.is_none()
+            || matches!(
+                self.reader_origin,
+                ReaderOrigin::History | ReaderOrigin::Updates
+            )
+        {
             return;
         }
         let origin = self.reader_origin;
@@ -12434,7 +12579,7 @@ impl AppState {
             ReaderOrigin::LibraryRemote => self.library_remote.chapter_index,
             ReaderOrigin::BrowseLocal => self.browse_local_chapter,
             ReaderOrigin::Library => self.chapter_index,
-            ReaderOrigin::History => return,
+            ReaderOrigin::History | ReaderOrigin::Updates => return,
         };
         let Some(position) = indices.iter().position(|index| *index == current) else {
             return;
@@ -12462,7 +12607,7 @@ impl AppState {
                 self.chapter_index = target;
                 self.open_chapter();
             }
-            ReaderOrigin::History => {}
+            ReaderOrigin::History | ReaderOrigin::Updates => {}
         }
     }
 
@@ -13629,6 +13774,7 @@ impl AppState {
     }
 
     fn apply_scanned_library(&mut self, library: Library, context: &ScanContext) {
+        let _ = self.updates.observe_now(&library);
         self.library = library;
         self.tile_covers.clear();
         self.apply_hidden_series();
@@ -14522,6 +14668,43 @@ mod tests {
         let mut app = AppState::new(library(), None);
         app.config.downloads_path = Some(root.to_path_buf());
         app
+    }
+
+    #[test]
+    fn updates_track_new_chapters_and_dismiss() {
+        let mut app = AppState::new(library(), None);
+        app.updates
+            .observe(&app.library, 100)
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        app.library.series[0].chapters.push(chapter("Chapter 3"));
+        app.observe_updates();
+
+        assert_eq!(app.updates_count(), 1);
+        assert_eq!(app.updates_selection, 0);
+        assert_eq!(app.update_rows()[0].chapter_title, "Chapter 3");
+
+        app.dismiss_update();
+        assert_eq!(app.updates_count(), 0);
+        assert_eq!(app.updates_selection, 0);
+    }
+
+    #[test]
+    fn updates_clear_without_reseeding() {
+        let mut app = AppState::new(library(), None);
+        app.updates
+            .observe(&app.library, 100)
+            .unwrap_or_else(|error| panic!("{error}"));
+        app.library.series[0].chapters.push(chapter("Chapter 3"));
+        app.observe_updates();
+        assert_eq!(app.updates_count(), 1);
+
+        app.clear_updates();
+        assert_eq!(app.updates_count(), 0);
+
+        // Clearing the feed must not make every existing chapter new again.
+        app.observe_updates();
+        assert_eq!(app.updates_count(), 0);
     }
 
     #[test]

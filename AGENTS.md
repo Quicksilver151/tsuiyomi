@@ -21,8 +21,10 @@ aggregate tables and percentages.
 
 Local-library and extension-host MVP: scanning, browsing, metadata, covers, reading,
 progress, settings, remote sources, extension management, and reading history work.
-Updates and backups are not implemented. The API and config format are still unstable, and large refactors are
-welcome when they move the project toward the architecture below.
+Updates track new local chapters between scans, and Mihon backups import/export. Exported
+backups still need verification against a real Mihon restore. The API and config format
+are still unstable, and large refactors are welcome when they move the project toward the
+architecture below.
 
 ## Environment
 
@@ -301,6 +303,12 @@ Rules:
   the host is already running, the first open in a session refreshes the story in the
   background through `story_worker`; `r` reloads synchronously. Chapter download markers
   are cached per story instead of statting every row each frame.
+- New local chapters are detected by comparing each scan with the snapshot in
+  `$XDG_DATA_HOME/tsuiyomi/updates.json` (`updates.rs`). The first scan only seeds the
+  snapshot. The Updates tab lists one entry per new chapter, newest first, for 30 days;
+  `x`/Delete dismisses one, `X` clears the list, `Enter` reads it, and `r` rescans.
+  Entries vanish when their chapter leaves the library. Saved source manga are not
+  refreshed by a background update job.
 - Reading history lives in an unbounded append-only
   `$XDG_DATA_HOME/tsuiyomi/history.jsonl` (`history.rs`), one record per chapter and
   compacted with tombstones. The UI shows the latest chapter per series, grouped by

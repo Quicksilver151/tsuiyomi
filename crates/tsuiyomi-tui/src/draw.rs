@@ -21,7 +21,7 @@ use tsuiyomi_core::{
     date_key_for_unix, downloads_dir, parse_chapter_number, read_state, remote_cover_path,
     today_key, BookmarkStore, Chapter, ChapterDisplay, ChapterSettings, HistoryEntry, LibrarySort,
     ProgressStore, ReadState, ReadingMode, RemoteChapter, RemoteManga, RemoteSource, Series,
-    SourceDisplayMode, SourceFilter, SourcePreferenceKind, Theme,
+    SourceDisplayMode, SourceFilter, SourcePreferenceKind, Theme, UpdateEntry,
 };
 
 use crate::{
@@ -60,17 +60,12 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     } else {
         match app.tab {
             0 => draw_library(frame, layout.content, app),
-            1 => placeholder(
-                frame,
-                layout.content,
-                "Updates",
-                "Update tracking is not implemented yet.",
-            ),
+            1 => draw_updates(frame, layout.content, app),
             2 => draw_history(frame, layout.content, app),
             3 => draw_browse(frame, layout.content, app),
             _ => draw_more(frame, layout.content, app),
         }
-        draw_tabs(frame, layout.tabs, app.tab);
+        draw_tabs(frame, layout.tabs, app.tab, app.updates_count());
     }
 
     if let Some(commands) = layout.commands {
@@ -1215,7 +1210,7 @@ fn render_reader_button(
     frame.render_widget(Paragraph::new(line).alignment(alignment), area);
 }
 
-fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
+fn draw_tabs(frame: &mut Frame, area: Rect, active: usize, updates: usize) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(c_surface1()))
@@ -1230,8 +1225,12 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
             spans.push(Span::styled("│", Style::default().fg(c_surface1())));
         }
 
-        let label = TAB_NAMES[tab.index];
-        let text = center_label(label, tab.area.width);
+        let label = if tab.index == 1 && updates > 0 {
+            format!("Updates ({updates})")
+        } else {
+            TAB_NAMES[tab.index].to_owned()
+        };
+        let text = center_label(&label, tab.area.width);
         let style = if tab.index == active {
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
         } else {
@@ -1527,6 +1526,17 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("Esc", "back"),
             ]
         }
+    } else if app.tab == 1 {
+        vec![
+            ("q", "quit"),
+            ("↑↓", "update"),
+            ("↵", "read"),
+            ("x/Del", "dismiss"),
+            ("X", "clear"),
+            ("r", "rescan"),
+            ("[ ]", "tabs"),
+            ("Esc", "library"),
+        ]
     } else if app.tab == 2 {
         if app.history_search {
             vec![
@@ -2140,6 +2150,155 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     ));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_updates(frame: &mut Frame, area: Rect, app: &mut AppState) {
+    let rows: Vec<UpdateEntry> = app.update_rows().into_iter().cloned().collect();
+    let title = if rows.is_empty() {
+        " Updates ".to_owned()
+    } else {
+        format!(" Updates · {} ", rows.len())
+    };
+    let block = panel(
+        Line::from(Span::styled(
+            title,
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+        )),
+        c_surface1(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(&block, area);
+
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Text::from(vec![
+                Line::from(Span::styled(
+                    "No new chapters yet.",
+                    Style::default().fg(c_subtext1()),
+                )),
+                Line::from(Span::styled(
+                    "New local chapters appear here after a rescan.",
+                    Style::default().fg(c_overlay0()),
+                )),
+            ]))
+            .alignment(Alignment::Center),
+            Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 2),
+        );
+        app.updates_selection = 0;
+        return;
+    }
+
+    app.updates_selection = app.updates_selection.min(rows.len() - 1);
+    let row_height = 3u16;
+    let visible = (inner.height / row_height).max(1) as usize;
+    let mut scroll = 0usize;
+    if app.updates_selection >= visible {
+        scroll = app.updates_selection + 1 - visible;
+    }
+
+    let mut y = inner.y;
+    let mut previous_day: Option<String> = None;
+    for (index, entry) in rows.iter().enumerate().skip(scroll) {
+        if y + 3 > inner.y + inner.height {
+            break;
+        }
+        let day = date_key_for_unix(entry.found_at);
+        if previous_day.as_deref() != Some(day.as_str()) {
+            if y + 4 > inner.y + inner.height {
+                break;
+            }
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    format!(" {}", history_date_label(entry.found_at)),
+                    Style::default()
+                        .fg(c_overlay0())
+                        .add_modifier(Modifier::BOLD),
+                ))),
+                Rect::new(inner.x, y, inner.width, 1),
+            );
+            y += 1;
+            previous_day = Some(day);
+        }
+
+        let row = Rect::new(inner.x, y, inner.width, row_height);
+        let selected = index == app.updates_selection;
+        if selected {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(c_surface0())),
+                row,
+            );
+        }
+
+        let cover_width = if row.width >= 40 { 4 } else { 0 };
+        if cover_width > 0 {
+            let cover_area = Rect::new(row.x, row.y, cover_width, 3);
+            let cover = app
+                .library
+                .series
+                .iter()
+                .position(|series| series.path.to_string_lossy() == entry.series_key)
+                .and_then(|index| app.ensure_local_series_cover(index));
+            let cover = cover.and_then(|path| {
+                app.ensure_tile_cover(&path);
+                app.tile_covers.contains_key(&path).then_some(path)
+            });
+            if let Some(path) = cover {
+                if let Some(protocol) = app.tile_covers.get_mut(&path) {
+                    render_centered_image(frame, cover_area, protocol);
+                }
+            } else {
+                let initial = entry
+                    .series_title
+                    .chars()
+                    .next()
+                    .map(|character| character.to_uppercase().collect::<String>())
+                    .unwrap_or_default();
+                frame.render_widget(
+                    Paragraph::new(initial)
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)),
+                    Rect::new(cover_area.x, cover_area.y + 1, cover_area.width, 1),
+                );
+            }
+        }
+
+        let text_x = row.x + cover_width + if cover_width > 0 { 1 } else { 0 };
+        let text_width = row.width.saturating_sub(text_x - row.x);
+        let title_style = if selected {
+            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_text()).add_modifier(Modifier::BOLD)
+        };
+        let number = entry
+            .chapter_number
+            .filter(|number| *number >= 0.0)
+            .or_else(|| parse_chapter_number(&entry.chapter_title));
+        let detail = if let Some(number) = number {
+            format!(
+                "Ch. {} · {}",
+                chapter_number(Some(number)),
+                entry.chapter_title
+            )
+        } else {
+            entry.chapter_title.clone()
+        };
+        let lines = vec![
+            Line::from(Span::styled(
+                truncate_text(&entry.series_title, text_width.saturating_sub(2)),
+                title_style,
+            )),
+            Line::from(Span::styled(detail, Style::default().fg(c_subtext1()))),
+            Line::from(Span::styled(
+                format!("Local · {}", history_time(entry.found_at)),
+                Style::default().fg(c_overlay0()),
+            )),
+        ];
+        frame.render_widget(
+            Paragraph::new(Text::from(lines)),
+            Rect::new(text_x, row.y, text_width, 3),
+        );
+        y += row_height;
+    }
 }
 
 fn draw_history(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -5711,24 +5870,6 @@ fn draw_more_help(frame: &mut Frame, area: Rect, app: &AppState) {
     frame.render_widget(paragraph, area);
 }
 
-fn placeholder(frame: &mut Frame, area: Rect, title: &'static str, message: &'static str) {
-    let block = panel(
-        Line::from(Span::styled(
-            format!(" {title} "),
-            Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
-        )),
-        c_accent(),
-    );
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    frame.render_widget(
-        Paragraph::new(message)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(c_overlay1())),
-        inner,
-    );
-}
-
 fn center_label(label: &str, width: u16) -> String {
     let width = width as usize;
     let length = label.chars().count();
@@ -6589,6 +6730,32 @@ mod tests {
         assert!(!text.contains("Tsuiyomi"));
         assert!(!text.contains("commands"));
         assert!(text.contains("Library"));
+    }
+
+    #[test]
+    fn updates_tab_lists_new_chapters() {
+        let mut app = test_app();
+        app.updates
+            .observe(&app.library, 100)
+            .unwrap_or_else(|error| panic!("{error}"));
+        app.library.series[0].chapters.push(Chapter {
+            path: PathBuf::from("/tmp/library/Test Series/Chapter 2"),
+            title: "Chapter 2".to_owned(),
+            number: Some(2.0),
+            kind: ChapterKind::Directory,
+            scanlator: None,
+            date: None,
+        });
+        app.updates
+            .observe(&app.library, 200)
+            .unwrap_or_else(|error| panic!("{error}"));
+        app.tab = 1;
+
+        let text = render(&mut app, 80, 24);
+        assert!(text.contains("Test Series"));
+        assert!(text.contains("Chapter 2"));
+        assert!(text.contains("Updates (1)"));
+        assert!(!text.contains("No new chapters yet"));
     }
 
     #[test]

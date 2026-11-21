@@ -27,6 +27,7 @@ pub mod reading_stats;
 pub mod runtime;
 pub mod source_prefs;
 pub mod story_cache;
+pub mod updates;
 
 pub use backup::{
     encode_mihon_backup, parse_mihon_backup, write_mihon_backup, BackupCategory, BackupChapter,
@@ -74,3 +75,4 @@ pub use source_prefs::{
     SourcePreferences,
 };
 pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};
+pub use updates::{UpdateEntry, UpdateStore};

@@ -10,7 +10,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 18 | 4 | 0 | 0 | 90.9% |
-| [Library](#library) | 12 | 2 | 2 | 0 | 81.2% |
+| [Library](#library) | 13 | 2 | 1 | 0 | 87.5% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 40 | 2 | 5 | 0 | 87.2% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 17 | 2 | 1 | 0 | 90.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **185** | **17** | **14** | **2** | **89.6%** |
+| **All categories** | **186** | **17** | **13** | **2** | **90.0%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -68,7 +68,7 @@ table below.
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
 | Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, and unread count; last-read and date-added pending. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
-| Updates | Updates tab | Yes | ❌ | ❌ | Tab is a placeholder. |
+| Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan, kept 30 days; Enter reads, `x` dismisses, `X` clears. Saved-source background refresh is not included. |
 | Removal | Remove local series, keep files | Yes | ✅ | ✅ | Path stored in `hidden_series`. |
 | Removal | Remove saved source manga + downloads | Yes | ✅ | ✅ | Delete dialog with optional downloads. |
 | Covers | Persistent cover cache | Yes | ✅ | ✅ | LRU, 512 px, atomic writes, Kitty reset. |
