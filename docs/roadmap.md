@@ -10,7 +10,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 18 | 4 | 0 | 0 | 90.9% |
-| [Library](#library) | 13 | 2 | 1 | 0 | 87.5% |
+| [Library](#library) | 14 | 1 | 1 | 0 | 90.6% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 40 | 2 | 5 | 0 | 87.2% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 17 | 2 | 1 | 0 | 90.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **186** | **17** | **13** | **2** | **90.0%** |
+| **All categories** | **187** | **16** | **13** | **2** | **90.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -74,7 +74,7 @@ table below.
 | Covers | Persistent cover cache | Yes | ✅ | ✅ | LRU, 512 px, atomic writes, Kitty reset. |
 | Covers | Automatic cover recovery | Yes | ✅ | ✅ | Missing saved covers trigger host refill. |
 | Selection | Multi-select and batch delete | Yes | ✅ | ✅ | Stable keys and command-bar count. |
-| Scan | Background scan | Yes | 🟡 | 🟡 | Refresh/rescan runs on a worker; the initial startup scan still runs before the UI. |
+| Scan | Background scan | Yes | ✅ | ✅ | Refresh, rescan, and the initial scan run on a worker after the UI opens. |
 | Scan | Import browser / file picker | Yes | ❌ | ❌ | Drop folders into `local/` and rescan. |
 
 ### Browse, sources, and global search

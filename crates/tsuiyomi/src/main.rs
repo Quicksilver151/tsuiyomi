@@ -1,8 +1,6 @@
 use std::error::Error;
 
-use tsuiyomi_core::{
-    ensure_runtime, host_data_dir, load_config, scan_library, HostClient, HostProcess, Library,
-};
+use tsuiyomi_core::{ensure_runtime, host_data_dir, load_config, HostClient, HostProcess, Library};
 use tsuiyomi_tui::AppState;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -14,19 +12,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let library_path = config.library_path.clone();
 
     let (library, status) = match library_path {
-        Some(path) => {
-            let placeholder = Library {
-                root: path.clone(),
+        Some(path) => (
+            Library {
+                root: path,
                 ..Library::default()
-            };
-            match scan_library(&path) {
-                Ok(scanned) => {
-                    let status = scan_status(&scanned);
-                    (scanned, status)
-                }
-                Err(error) => (placeholder, Some(error.to_string())),
-            }
-        }
+            },
+            Some("Scanning the library…".to_owned()),
+        ),
         None => (
             Library::default(),
             Some("Set TSUIYOMI_LIBRARY to a Mihon local/ folder.".to_owned()),
@@ -66,16 +58,4 @@ fn host_selftest() -> Result<(), Box<dyn Error>> {
         println!("  {}", source.display_name());
     }
     Ok(())
-}
-
-fn scan_status(library: &Library) -> Option<String> {
-    if library.errors.is_empty() {
-        None
-    } else {
-        Some(format!(
-            "{} series, {} could not be read",
-            library.series.len(),
-            library.errors.len()
-        ))
-    }
 }

@@ -79,7 +79,9 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_bookmarks(BookmarkStore::load_default());
     app.set_history(HistoryStore::load_default());
     app.set_updates(UpdateStore::load_default());
-    app.observe_updates();
+    if !app.library.series.is_empty() {
+        app.observe_updates();
+    }
     app.set_scroll_worker(ScrollWorker::spawn());
     app.set_size_worker(crate::scroll_worker::SizeWorker::spawn());
     app.set_download_worker(DownloadWorker::spawn());
@@ -95,6 +97,9 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_scan_worker(crate::scan_worker::ScanWorker::spawn());
     app.set_global_search_worker(GlobalSearchWorker::spawn());
     app.set_cover_worker(CoverWorker::spawn());
+    if app.library.series.is_empty() {
+        app.refresh_async();
+    }
     app.maybe_recover_covers();
 
     // ratatui installs a panic hook that restores the terminal. Wrap it so a panic also
