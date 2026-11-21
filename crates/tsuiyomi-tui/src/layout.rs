@@ -13,7 +13,7 @@ pub struct AppLayout {
     pub commands: Option<Rect>,
 }
 
-pub fn app_layout(area: Rect, fullscreen: bool) -> AppLayout {
+pub fn app_layout_with_commands(area: Rect, fullscreen: bool, commands_height: u16) -> AppLayout {
     if fullscreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -33,7 +33,7 @@ pub fn app_layout(area: Rect, fullscreen: bool) -> AppLayout {
             Constraint::Length(3),
             Constraint::Min(0),
             Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(commands_height.max(3)),
         ])
         .split(area);
 

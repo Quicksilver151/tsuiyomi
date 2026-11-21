@@ -32,10 +32,10 @@ use crate::{
         MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
-        app_layout, grid_columns, grid_margin, grid_row_offset, grid_tile_rect, grid_tile_width,
-        grid_visible_rows, library_grid_area, library_layout, more_layout, reader_bar_layout,
-        setting_columns, settings_rows, tab_layouts, tile_cover_height, TAB_NAMES, TILE_GAP,
-        TILE_TEXT_HEIGHT,
+        app_layout_with_commands, grid_columns, grid_margin, grid_row_offset, grid_tile_rect,
+        grid_tile_width, grid_visible_rows, library_grid_area, library_layout, more_layout,
+        reader_bar_layout, setting_columns, settings_rows, tab_layouts, tile_cover_height,
+        TAB_NAMES, TILE_GAP, TILE_TEXT_HEIGHT,
     },
     palette::{
         accent_choices, c_accent, c_base, c_blue, c_green, c_mauve, c_overlay0, c_overlay1,
@@ -48,7 +48,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(c_base())), area);
 
-    let layout = app_layout(area, app.fullscreen);
+    let layout = app_layout_with_commands(area, app.fullscreen, commands_height(app, area));
 
     if let Some(header) = layout.header {
         draw_header(frame, header);
@@ -1078,17 +1078,7 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: usize) {
     }
 }
 
-fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
-    let block = panel(
-        Line::from(Span::styled(
-            " commands ",
-            Style::default().fg(c_overlay1()),
-        )),
-        c_surface1(),
-    );
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
     let mut items: Vec<(&str, &str)> = if app.reader.is_some() {
         if app.reader_mode == ReaderMode::Scroll {
             vec![
@@ -1429,18 +1419,82 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
         let at = items.len().saturating_sub(1);
         items.insert(at, ("Space", "select"));
     }
+    items
+}
 
-    let mut spans = Vec::new();
-    if let Some(selection) = &app.multi_select {
+fn command_item_width(key: &str, label: &str) -> usize {
+    key.chars().count()
+        + if label.is_empty() {
+            0
+        } else {
+            1 + label.chars().count()
+        }
+}
+
+fn command_prefix(app: &AppState) -> String {
+    app.multi_select
+        .as_ref()
+        .map(|selection| format!("{} selected", selection.keys.len()))
+        .unwrap_or_default()
+}
+
+fn command_line_count(app: &AppState, items: &[(&'static str, &'static str)], width: u16) -> usize {
+    let width = usize::from(width);
+    if width == 0 {
+        return 1;
+    }
+    let mut lines = 1usize;
+    let mut used = command_prefix(app).chars().count();
+    for (key, label) in items {
+        let item = command_item_width(key, label);
+        let extra = if used == 0 { item } else { 3 + item };
+        if used > 0 && used + extra > width {
+            lines += 1;
+            used = item;
+        } else {
+            used += extra;
+        }
+    }
+    lines
+}
+
+/// Height of the commands box for the current screen and terminal width.
+pub(crate) fn commands_height(app: &AppState, area: Rect) -> u16 {
+    if app.fullscreen {
+        return 3;
+    }
+    let items = command_items(app);
+    let lines = command_line_count(app, &items, area.width.saturating_sub(2));
+    let maximum = area.height.saturating_sub(6).max(3);
+    (lines as u16 + 2).clamp(3, maximum)
+}
+
+fn command_lines(
+    app: &AppState,
+    items: &[(&'static str, &'static str)],
+    width: u16,
+) -> Vec<Line<'static>> {
+    let width = usize::from(width);
+    let prefix = command_prefix(app);
+    let mut lines = Vec::new();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+    if !prefix.is_empty() {
+        used = prefix.chars().count();
         spans.push(Span::styled(
-            format!("{} selected", selection.keys.len()),
+            prefix.clone(),
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled(" · ", Style::default().fg(c_overlay0())));
     }
-    for (position, (key, label)) in items.iter().enumerate() {
-        if position > 0 {
+    for (key, label) in items {
+        let item = command_item_width(key, label);
+        if used > 0 && used + 3 + item > width {
+            lines.push(Line::from(std::mem::take(&mut spans)));
+            used = 0;
+        }
+        if used > 0 {
             spans.push(Span::styled(" · ", Style::default().fg(c_overlay0())));
+            used += 3;
         }
         spans.push(Span::styled(
             *key,
@@ -1452,9 +1506,29 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 Style::default().fg(c_overlay0()),
             ));
         }
+        used += item;
     }
+    if !spans.is_empty() || lines.is_empty() {
+        lines.push(Line::from(spans));
+    }
+    lines
+}
 
-    frame.render_widget(Paragraph::new(Line::from(spans)), inner);
+fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
+    let block = panel(
+        Line::from(Span::styled(
+            " commands ",
+            Style::default().fg(c_overlay1()),
+        )),
+        c_surface1(),
+    );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let items = command_items(app);
+
+    let lines = command_lines(app, &items, inner.width);
+    frame.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
@@ -6048,13 +6122,26 @@ mod tests {
     }
 
     #[test]
+    fn commands_box_grows_when_items_wrap() {
+        let app = test_app();
+        let wide = commands_height(&app, Rect::new(0, 0, 180, 40));
+        let narrow = commands_height(&app, Rect::new(0, 0, 54, 40));
+        assert_eq!(wide, 3);
+        assert!(narrow > wide);
+        let items = command_items(&app);
+        let lines = command_line_count(&app, &items, 52);
+        assert_eq!(narrow, lines as u16 + 2);
+    }
+
+    #[test]
     fn selected_tab_uses_lavender_text_without_background() {
         let mut app = test_app();
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
 
-        let layout = app_layout(Rect::new(0, 0, 80, 24), false);
+        let area = Rect::new(0, 0, 80, 24);
+        let layout = app_layout_with_commands(area, false, commands_height(&app, area));
         let tabs = tab_layouts(layout.tabs);
         let buffer = terminal.backend().buffer();
 

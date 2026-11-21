@@ -45,13 +45,13 @@ use crate::{
     },
     cover_worker::CoverWorker,
     download_worker::DownloadWorker,
-    draw::draw,
+    draw::{commands_height, draw},
     host_worker::HostWorker,
     input::Action,
     layout::{
-        app_layout, contains, grid_index_at, inner, library_grid_area, library_layout, more_layout,
-        reader_bar_layout, setting_columns, settings_rows, tab_layouts, tile_cover_height,
-        TILE_TEXT_HEIGHT,
+        app_layout_with_commands, contains, grid_index_at, inner, library_grid_area,
+        library_layout, more_layout, reader_bar_layout, setting_columns, settings_rows,
+        tab_layouts, tile_cover_height, TILE_TEXT_HEIGHT,
     },
     scroll_worker::ScrollWorker,
     search_worker::GlobalSearchWorker,
@@ -487,7 +487,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::ToggleFullscreen => app.toggle_fullscreen(),
                 Action::Click { column, row } => {
                     let (width, height) = crossterm::terminal::size()?;
-                    let layout = app_layout(Rect::new(0, 0, width, height), app.fullscreen);
+                    let area = Rect::new(0, 0, width, height);
+                    let layout =
+                        app_layout_with_commands(area, app.fullscreen, commands_height(app, area));
                     handle_reader_click(layout.tabs, app, column, row);
                 }
                 _ => {}
@@ -1036,7 +1038,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
 }
 
 fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
-    let layout = app_layout(area, app.fullscreen);
+    let layout = app_layout_with_commands(area, app.fullscreen, commands_height(app, area));
 
     if app.reader.is_some() {
         handle_reader_click(layout.tabs, app, column, row);

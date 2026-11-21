@@ -343,7 +343,8 @@ Do not copy these old patterns (all fixed in 0.2, kept here as a warning):
   the reader; the bottom bar shows prev/next chapter, a page gauge, and the mode toggle.
 - Default theme: Catppuccin Mocha with lavender as the accent. Other built-in themes live
   in `palette.rs`; accents are palette colors or custom hex. Square borders, a single-row
-  shared tab bar at the bottom, a commands box below it, and colored metadata fields.
+  shared tab bar at the bottom, a commands box below it that grows and wraps when actions
+  do not fit on one line, and colored metadata fields.
   Fullscreen hides the title and commands boxes.
 - `rustfmt` defaults.
 - New code: explicit imports, `snake_case`, small modules, doc comments on public core
