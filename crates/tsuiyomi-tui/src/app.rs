@@ -22,11 +22,12 @@ use tsuiyomi_core::{
     remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
     source_dir_name, story_cache_path, today_key, visible_chapters, BookmarkStore, CachedStory,
     Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, Config,
-    ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, Library,
-    LibrarySort, LocalSourceOrder, Page, PageSource, ProgressStore, ReadState, ReadingMode,
-    ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries,
-    RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
-    SourcePreferenceValue, SourcePreferences, Theme, TriState,
+    ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
+    InstallJob, Library, LibrarySort, LocalSourceOrder, NotLoadedExtension, Page, PageSource,
+    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, SourceDisplayMode,
+    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
+    Theme, TriState,
 };
 
 use crate::{
@@ -175,7 +176,33 @@ pub enum SourceRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExtensionRow {
     Header(String),
+    NotLoaded(usize),
     Extension(usize),
+}
+
+#[derive(Debug, Clone)]
+pub struct ExtensionJobState {
+    pub job_id: String,
+    pub pkg: String,
+    pub name: String,
+    pub verb: String,
+    pub apk: String,
+    pub state: String,
+    pub progress: f64,
+    pub error: Option<String>,
+}
+
+impl ExtensionJobState {
+    pub fn label(&self) -> String {
+        match self.state.as_str() {
+            "pending" => "pending".to_owned(),
+            "downloading" => format!("downloading {:.0}%", self.progress * 100.0),
+            "installing" => "installing".to_owned(),
+            "cancelled" => "cancelled".to_owned(),
+            "error" => "error".to_owned(),
+            state => state.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -310,6 +337,10 @@ pub struct RemoteState {
     pub global_finished: usize,
     pub global_loading: bool,
     pub global_generation: u64,
+    /// Installed files the host could not load.
+    pub not_loaded: Vec<NotLoadedExtension>,
+    /// Async install/update jobs keyed by package name.
+    pub extension_jobs: BTreeMap<String, ExtensionJobState>,
     pub global_group: usize,
     pub global_item: usize,
     /// Where RemoteDetails returns to (regular results or global search).
@@ -354,6 +385,8 @@ impl Default for RemoteState {
             global_finished: 0,
             global_loading: false,
             global_generation: 0,
+            not_loaded: Vec::new(),
+            extension_jobs: BTreeMap::new(),
             global_group: 0,
             global_item: 0,
             remote_details_origin: BrowseView::RemoteResults,
@@ -394,6 +427,7 @@ pub enum SettingId {
     ThumbnailSize,
     Incognito,
     HostUrl,
+    ShowNsfw,
 }
 
 /// Settings pages mirroring Mihon's `SettingsMainScreen` entries.
@@ -467,13 +501,14 @@ const TRACKING_ROWS: [MoreRow; 3] = [
     MoreRow::Note("This build manages a local Mihon library only."),
 ];
 
-const BROWSE_ROWS: [MoreRow; 6] = [
+const BROWSE_ROWS: [MoreRow; 7] = [
     MoreRow::Divider("Sources"),
     MoreRow::Setting(SettingId::LibraryPath),
     MoreRow::Setting(SettingId::HostUrl),
+    MoreRow::Divider("Extensions"),
+    MoreRow::Setting(SettingId::ShowNsfw),
     MoreRow::Note("Local source lists series directories in the library folder."),
     MoreRow::Note("Extension host runs APKs. Add repositories in Browse → Extensions."),
-    MoreRow::Note("Browse reads the same local/ layout as Mihon."),
 ];
 
 const DATA_ROWS: [MoreRow; 4] = [
@@ -1547,10 +1582,10 @@ impl AppState {
     }
 
     pub fn selected_extension(&self) -> Option<&ExtensionInfo> {
-        let index = *self
-            .filtered_extension_indices()
-            .get(self.browse_selection)?;
-        self.remote.extensions.get(index)
+        match self.extension_selection_rows().get(self.browse_selection)? {
+            ExtensionRow::Extension(index) => self.remote.extensions.get(*index),
+            _ => None,
+        }
     }
 
     pub fn selected_store(&self) -> Option<&String> {
@@ -2907,14 +2942,46 @@ impl AppState {
 
     fn matching_extension_indices(&self) -> Vec<usize> {
         let query = self.extension_query.trim().to_lowercase();
+        let languages = self.config.enabled_languages.as_ref();
         self.remote
             .extensions
+            .iter()
+            .enumerate()
+            .filter(|(_, extension)| {
+                if extension.nsfw && !self.config.show_nsfw_extensions {
+                    return false;
+                }
+                if !extension.installed
+                    && languages.is_some_and(|languages| {
+                        !extension.lang.is_empty() && !languages.contains(&extension.lang)
+                    })
+                {
+                    return false;
+                }
+                query.is_empty()
+                    || extension.name.to_lowercase().contains(&query)
+                    || extension.pkg.to_lowercase().contains(&query)
+                    || extension.sources.iter().any(|source| {
+                        source.name.to_lowercase().contains(&query)
+                            || source.lang.to_lowercase().contains(&query)
+                    })
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    fn matching_not_loaded_indices(&self) -> Vec<usize> {
+        let query = self.extension_query.trim().to_lowercase();
+        self.remote
+            .not_loaded
             .iter()
             .enumerate()
             .filter(|(_, extension)| {
                 query.is_empty()
                     || extension.name.to_lowercase().contains(&query)
                     || extension.pkg.to_lowercase().contains(&query)
+                    || extension.file.to_lowercase().contains(&query)
+                    || extension.reason.to_lowercase().contains(&query)
             })
             .map(|(index, _)| index)
             .collect()
@@ -2962,6 +3029,11 @@ impl AppState {
             rows.push(ExtensionRow::Header("Updates".to_owned()));
             rows.extend(updates.into_iter().map(ExtensionRow::Extension));
         }
+        let not_loaded = self.matching_not_loaded_indices();
+        if !not_loaded.is_empty() {
+            rows.push(ExtensionRow::Header("Not loaded".to_owned()));
+            rows.extend(not_loaded.into_iter().map(ExtensionRow::NotLoaded));
+        }
         if !installed.is_empty() {
             rows.push(ExtensionRow::Header("Installed".to_owned()));
             rows.extend(installed.into_iter().map(ExtensionRow::Extension));
@@ -2983,13 +3055,27 @@ impl AppState {
             .into_iter()
             .filter_map(|row| match row {
                 ExtensionRow::Extension(index) => Some(index),
-                ExtensionRow::Header(_) => None,
+                ExtensionRow::NotLoaded(_) | ExtensionRow::Header(_) => None,
             })
             .collect()
     }
 
     pub fn filtered_extension_count(&self) -> usize {
-        self.filtered_extension_indices().len()
+        self.extension_selection_rows().len()
+    }
+
+    fn extension_selection_rows(&self) -> Vec<ExtensionRow> {
+        self.extension_rows()
+            .into_iter()
+            .filter(|row| !matches!(row, ExtensionRow::Header(_)))
+            .collect()
+    }
+
+    pub fn selected_not_loaded(&self) -> Option<&NotLoadedExtension> {
+        match self.extension_selection_rows().get(self.browse_selection)? {
+            ExtensionRow::NotLoaded(index) => self.remote.not_loaded.get(*index),
+            _ => None,
+        }
     }
 
     pub fn selected_extension_row(&self) -> Option<usize> {
@@ -4381,6 +4467,7 @@ impl AppState {
             }
         }
         self.remote.extensions = merge_extensions(installed, entries);
+        self.remote.not_loaded = client.not_loaded_extensions().unwrap_or_default();
         self.remote.repos = repos;
         if self.remote.status.is_none() {
             self.remote.error = false;
@@ -4404,10 +4491,34 @@ impl AppState {
     }
 
     pub fn install_selected_extension(&mut self) {
+        if let Some(extension) = self.selected_not_loaded() {
+            self.remote.status = Some(format!(
+                "{} · {}: delete the failed file with x before reinstalling",
+                extension.reason, extension.message
+            ));
+            self.remote.error = true;
+            return;
+        }
+        if let Some(job) = self
+            .selected_extension()
+            .and_then(|extension| self.remote.extension_jobs.get(&extension.pkg))
+        {
+            let pkg = job.pkg.clone();
+            let label = job.label();
+            let name = job.name.clone();
+            if !matches!(job.state.as_str(), "error" | "cancelled") {
+                self.remote.status = Some(format!("{name} is {label}"));
+                self.remote.error = false;
+                return;
+            }
+            self.remote.extension_jobs.remove(&pkg);
+        }
         let extensions: Vec<ExtensionInfo> = self
             .selected_extensions()
             .into_iter()
-            .filter(|extension| !extension.installed)
+            .filter(|extension| {
+                !extension.installed && !self.remote.extension_jobs.contains_key(&extension.pkg)
+            })
             .collect();
         if extensions.is_empty() {
             self.remote.status = Some("Selected extensions are already installed".to_owned());
@@ -4418,6 +4529,53 @@ impl AppState {
     }
 
     fn install_extensions(&mut self, extensions: Vec<ExtensionInfo>, verb: &str) {
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let mut started = 0usize;
+        let mut fallback = Vec::new();
+        for extension in extensions {
+            if extension.repo_url.is_empty() || extension.apk.is_empty() {
+                continue;
+            }
+            match client.install_extension_async(&extension.repo_url, &extension.apk) {
+                Ok(job) if !job.job_id.is_empty() => {
+                    self.remote.extension_jobs.insert(
+                        extension.pkg.clone(),
+                        ExtensionJobState {
+                            job_id: job.job_id,
+                            pkg: extension.pkg,
+                            name: extension.name,
+                            verb: verb.to_owned(),
+                            apk: extension.apk,
+                            state: job.state,
+                            progress: job.progress,
+                            error: job.error,
+                        },
+                    );
+                    started += 1;
+                }
+                _ => fallback.push(extension),
+            }
+        }
+        if !fallback.is_empty() {
+            self.install_extensions_blocking(fallback, verb);
+        }
+        if started > 0 {
+            self.remote.status = Some(format!(
+                "Installing {started} {}…",
+                if started == 1 {
+                    "extension"
+                } else {
+                    "extensions"
+                }
+            ));
+            self.remote.error = false;
+            self.multi_select = None;
+        }
+    }
+
+    fn install_extensions_blocking(&mut self, extensions: Vec<ExtensionInfo>, verb: &str) {
         let Some(client) = self.host_client.clone() else {
             return;
         };
@@ -4457,7 +4615,145 @@ impl AppState {
         self.multi_select = None;
     }
 
+    /// Poll async install/update jobs and refresh extension/source lists when any finish.
+    pub fn poll_extension_jobs(&mut self) -> bool {
+        if self.remote.extension_jobs.is_empty() {
+            return false;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return false;
+        };
+        let ids: Vec<(String, String)> = self
+            .remote
+            .extension_jobs
+            .iter()
+            .map(|(pkg, job)| (pkg.clone(), job.job_id.clone()))
+            .collect();
+        let mut changed = false;
+        let mut finished: Vec<(String, InstallJob)> = Vec::new();
+        for (pkg, job_id) in ids {
+            match client.install_job(&job_id) {
+                Ok(job) => {
+                    if let Some(state) = self.remote.extension_jobs.get_mut(&pkg) {
+                        if state.state != job.state || (state.progress - job.progress).abs() > 0.001
+                        {
+                            state.state = job.state.clone();
+                            state.progress = job.progress;
+                            state.error = job.error.clone();
+                            changed = true;
+                        }
+                    }
+                    if job.finished() {
+                        finished.push((pkg, job));
+                    }
+                }
+                Err(error) => {
+                    if let Some(state) = self.remote.extension_jobs.get_mut(&pkg) {
+                        if state.state != "error" {
+                            state.state = "error".to_owned();
+                            state.error = Some(error.to_string());
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        if finished.is_empty() {
+            return changed;
+        }
+
+        let mut completed = 0usize;
+        let mut failed = 0usize;
+        let mut cancelled = 0usize;
+        let mut swapped = false;
+        for (pkg, job) in finished {
+            let Some(state) = self.remote.extension_jobs.remove(&pkg) else {
+                continue;
+            };
+            match job.state.as_str() {
+                "done" => {
+                    completed += 1;
+                    if self.install_desktop_jar(&state.apk) {
+                        swapped = true;
+                    }
+                }
+                "cancelled" => cancelled += 1,
+                _ => {
+                    failed += 1;
+                    self.remote.extension_jobs.insert(
+                        pkg,
+                        ExtensionJobState {
+                            state: "error".to_owned(),
+                            error: job.error.clone().or(state.error),
+                            ..state
+                        },
+                    );
+                }
+            }
+        }
+        if completed > 0 {
+            if swapped {
+                self.restart_bundled_host();
+            }
+            self.load_extensions();
+            self.load_remote_sources();
+        }
+        let parts = [
+            (completed, "installed"),
+            (failed, "failed"),
+            (cancelled, "cancelled"),
+        ]
+        .into_iter()
+        .filter(|(count, _)| *count > 0)
+        .map(|(count, label)| format!("{count} {label}"))
+        .collect::<Vec<_>>();
+        if !parts.is_empty() {
+            self.remote.status = Some(parts.join(" · "));
+            self.remote.error = failed > 0;
+        }
+        true
+    }
+
+    pub fn cancel_extension_jobs(&mut self) {
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let jobs: Vec<(String, String)> = self
+            .remote
+            .extension_jobs
+            .iter()
+            .filter(|(_, job)| !job.state.eq_ignore_ascii_case("error"))
+            .map(|(pkg, job)| (pkg.clone(), job.job_id.clone()))
+            .collect();
+        if jobs.is_empty() {
+            self.remote.status = Some("No extension installs are running".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        let mut cancelled = 0usize;
+        for (pkg, job_id) in jobs {
+            if client.cancel_install_job(&job_id).is_ok() {
+                cancelled += 1;
+                if let Some(job) = self.remote.extension_jobs.get_mut(&pkg) {
+                    job.state = "cancelled".to_owned();
+                    job.error = Some("cancelled".to_owned());
+                }
+            }
+        }
+        self.remote.status = Some(format!("Cancelled {cancelled} extension installs"));
+        self.remote.error = cancelled == 0;
+    }
+
     pub fn uninstall_selected_extension(&mut self) {
+        if let Some(extension) = self.selected_not_loaded().cloned() {
+            self.uninstall_confirm = Some(vec![(
+                format!("not-loaded:{}", extension.file),
+                extension.name.clone(),
+            )]);
+            self.remote.status = Some(format!("Press y to delete {}, Esc cancels", extension.file));
+            self.remote.error = false;
+            return;
+        }
         let extensions: Vec<ExtensionInfo> = self
             .selected_extensions()
             .into_iter()
@@ -4492,7 +4788,12 @@ impl AppState {
         let mut removed = 0usize;
         let mut failed = 0usize;
         for (pkg, _) in &items {
-            match client.uninstall_extension(pkg) {
+            let result = if let Some(file) = pkg.strip_prefix("not-loaded:") {
+                client.delete_not_loaded(file)
+            } else {
+                client.uninstall_extension(pkg)
+            };
+            match result {
                 Ok(()) => removed += 1,
                 Err(_) => {
                     failed += 1;
@@ -4534,6 +4835,14 @@ impl AppState {
     }
 
     pub fn open_extension_details(&mut self) {
+        if let Some(extension) = self.selected_not_loaded() {
+            self.remote.status = Some(format!(
+                "{} could not load ({}) · {}",
+                extension.name, extension.reason, extension.message
+            ));
+            self.remote.error = true;
+            return;
+        }
         let Some(extension) = self.selected_extension().cloned() else {
             return;
         };
@@ -4715,6 +5024,7 @@ impl AppState {
                 extension.update_available()
                     && !extension.repo_url.is_empty()
                     && !extension.apk.is_empty()
+                    && !self.remote.extension_jobs.contains_key(&extension.pkg)
             })
             .collect();
         if extensions.is_empty() {
@@ -4734,6 +5044,7 @@ impl AppState {
                 extension.update_available()
                     && !extension.repo_url.is_empty()
                     && !extension.apk.is_empty()
+                    && !self.remote.extension_jobs.contains_key(&extension.pkg)
             })
             .cloned()
             .collect();
@@ -8693,6 +9004,10 @@ impl AppState {
                 self.config.incognito = !self.config.incognito;
                 self.persist_settings();
             }
+            SettingId::ShowNsfw => {
+                self.config.show_nsfw_extensions = !self.config.show_nsfw_extensions;
+                self.persist_settings();
+            }
             SettingId::RescanLibrary => self.refresh(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
@@ -9088,6 +9403,9 @@ impl AppState {
             }
             SettingId::Incognito => {
                 self.config.incognito = !self.config.incognito;
+            }
+            SettingId::ShowNsfw => {
+                self.config.show_nsfw_extensions = !self.config.show_nsfw_extensions;
             }
             SettingId::LibraryPath | SettingId::RescanLibrary | SettingId::HostUrl => return,
         }
@@ -13022,6 +13340,7 @@ mod tests {
             .iter()
             .map(|row| match row {
                 ExtensionRow::Header(label) => format!("[{label}]"),
+                ExtensionRow::NotLoaded(index) => app.remote.not_loaded[*index].name.clone(),
                 ExtensionRow::Extension(index) => app.remote.extensions[*index].name.clone(),
             })
             .collect();
@@ -13030,6 +13349,91 @@ mod tests {
             ["[Updates]", "Alpha", "[Installed]", "Beta", "[EN]", "Zeta"]
         );
         assert_eq!(app.filtered_extension_count(), 3);
+    }
+
+    #[test]
+    fn not_loaded_extensions_are_grouped_and_removable() {
+        let mut app = remote_app();
+        app.host_autostart = false;
+        app.tab = 3;
+        app.browse_view = BrowseView::Extensions;
+        app.remote.extensions = vec![ExtensionInfo {
+            name: "Comick".to_owned(),
+            pkg: "en.comick".to_owned(),
+            lang: "en".to_owned(),
+            version: "1.0".to_owned(),
+            apk: "comick.apk".to_owned(),
+            installed: true,
+            nsfw: false,
+            source_count: 1,
+            sources: vec![ExtensionSource {
+                name: "Comick".to_owned(),
+                lang: "en".to_owned(),
+            }],
+            repo_url: "https://repo/index.min.json".to_owned(),
+            available_version: Some("1.0".to_owned()),
+        }];
+        app.remote.not_loaded = vec![NotLoadedExtension {
+            pkg: "en.bad".to_owned(),
+            name: "Bad Extension".to_owned(),
+            file: "bad.apk".to_owned(),
+            reason: "failed".to_owned(),
+            message: "manifest missing".to_owned(),
+            has_update: false,
+        }];
+
+        let labels: Vec<String> = app
+            .extension_rows()
+            .into_iter()
+            .map(|row| match row {
+                ExtensionRow::Header(label) => format!("[{label}]"),
+                ExtensionRow::NotLoaded(index) => app.remote.not_loaded[index].name.clone(),
+                ExtensionRow::Extension(index) => app.remote.extensions[index].name.clone(),
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            ["[Not loaded]", "Bad Extension", "[Installed]", "Comick"]
+        );
+        assert_eq!(app.filtered_extension_count(), 2);
+
+        app.browse_selection = 0;
+        assert_eq!(
+            app.selected_not_loaded()
+                .map(|extension| extension.name.as_str()),
+            Some("Bad Extension")
+        );
+        app.install_selected_extension();
+        assert!(app
+            .remote
+            .status
+            .as_deref()
+            .unwrap_or("")
+            .contains("manifest missing"));
+
+        app.uninstall_selected_extension();
+        assert_eq!(
+            app.uninstall_confirm
+                .as_ref()
+                .and_then(|items| items.first())
+                .map(|(pkg, _)| pkg.as_str()),
+            Some("not-loaded:bad.apk")
+        );
+    }
+
+    #[test]
+    fn extension_job_labels_report_progress() {
+        let state = ExtensionJobState {
+            job_id: "1".to_owned(),
+            pkg: "en.comick".to_owned(),
+            name: "Comick".to_owned(),
+            verb: "Installed".to_owned(),
+            apk: "comick.apk".to_owned(),
+            state: "downloading".to_owned(),
+            progress: 0.42,
+            error: None,
+        };
+        assert_eq!(state.label(), "downloading 42%");
     }
 
     #[test]
@@ -13072,6 +13476,44 @@ mod tests {
         app.browse_selection = 6;
         app.activate_extension_detail_selection();
         assert!(app.uninstall_confirm.is_some());
+    }
+
+    #[test]
+    fn extension_lists_respect_language_and_nsfw_filters() {
+        let mut app = remote_app();
+        app.config.enabled_languages = Some(vec!["en".to_owned()]);
+        let extension = |name: &str, lang: &str, nsfw: bool| ExtensionInfo {
+            name: name.to_owned(),
+            pkg: format!("pkg.{name}"),
+            lang: lang.to_owned(),
+            version: "1.0".to_owned(),
+            apk: format!("{name}.apk"),
+            installed: false,
+            nsfw,
+            source_count: 1,
+            sources: vec![ExtensionSource {
+                name: name.to_owned(),
+                lang: lang.to_owned(),
+            }],
+            repo_url: "https://repo/index.min.json".to_owned(),
+            available_version: Some("1.0".to_owned()),
+        };
+        app.remote.extensions = vec![
+            extension("English", "en", false),
+            extension("Japanese", "ja", false),
+            extension("Adult", "en", true),
+        ];
+
+        assert_eq!(app.filtered_extension_count(), 2);
+        app.config.show_nsfw_extensions = false;
+        assert_eq!(app.filtered_extension_count(), 1);
+        assert_eq!(
+            app.extension_rows().into_iter().find_map(|row| match row {
+                ExtensionRow::Extension(index) => Some(app.remote.extensions[index].name.as_str()),
+                _ => None,
+            }),
+            Some("English")
+        );
     }
 
     #[test]

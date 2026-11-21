@@ -14,17 +14,31 @@ index 6405438..13bd319 100644
  
      if (config.flareSolverrUrl != null) {
          println("[miwayomi] FlareSolverr enabled at ${config.flareSolverrUrl}")
+diff --git a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
+index f5b623f..94bb147 100644
+--- a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
++++ b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
+@@ -80,6 +80,7 @@ fun Application.registerApi() {
+     }
+ 
+     registerMangaApi()
++    registerFilterApi()
+     registerAnimeApi()
+     registerStreamingApi()
+     registerExtensionApi()
 diff --git a/server/src/main/kotlin/miwayomi/api/Dtos.kt b/server/src/main/kotlin/miwayomi/api/Dtos.kt
-index 54c1a1f..8994b4d 100644
+index 54c1a1f..aea14e1 100644
 --- a/server/src/main/kotlin/miwayomi/api/Dtos.kt
 +++ b/server/src/main/kotlin/miwayomi/api/Dtos.kt
-@@ -9,4 +9,5 @@
+@@ -9,6 +9,7 @@ data class SourceDto(
      val lang: String,
      val type: String,
      val pkg: String? = null,
 +    val supportsLatest: Boolean = true,
  )
-@@ -22,6 +22,7 @@ data class MangaDto(
+ 
+ @Serializable
+@@ -22,6 +23,7 @@ data class MangaDto(
      val status: Int,
      val thumbnail_url: String?,
      val initialized: Boolean,
@@ -32,7 +46,7 @@ index 54c1a1f..8994b4d 100644
  )
  
  @Serializable
-@@ -31,6 +32,7 @@ data class ChapterDto(
+@@ -31,6 +33,7 @@ data class ChapterDto(
      val date_upload: Long,
      val chapter_number: Float,
      val scanlator: String?,
@@ -40,265 +54,492 @@ index 54c1a1f..8994b4d 100644
  )
  
  @Serializable
-diff --git a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt b/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
-index e2ec6fa..12af79f 100644
---- a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
-+++ b/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
-@@ -1,18 +1,31 @@
- package miwayomi.api
- 
- import eu.kanade.tachiyomi.source.model.FilterList
-+import eu.kanade.tachiyomi.source.model.Page
- import eu.kanade.tachiyomi.source.model.SChapter
- import eu.kanade.tachiyomi.source.model.SManga
- import eu.kanade.tachiyomi.source.online.HttpSource
- import io.ktor.server.application.Application
-+import io.ktor.server.application.ApplicationCall
- import io.ktor.server.application.call
- import io.ktor.server.response.respond
- import io.ktor.server.routing.get
- import io.ktor.server.routing.routing
-+import kotlinx.serialization.json.Json
-+import kotlinx.serialization.json.JsonObject
-+import kotlinx.serialization.json.jsonObject
- import miwayomi.source.MangaSourceManager
+diff --git a/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt b/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt
+index 7de4e81..16f2ef6 100644
+--- a/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt
++++ b/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt
+@@ -26,6 +26,9 @@ import miwayomi.extension.ExtensionManager
  import uy.kohesive.injekt.Injekt
  import uy.kohesive.injekt.api.get
+ import java.io.File
++import java.util.concurrent.ConcurrentHashMap
++import java.util.concurrent.atomic.AtomicInteger
++import kotlin.concurrent.thread
  
-+private val memoJson = Json { ignoreUnknownKeys = true }
+ /**
+  * Persists the currently loaded extensions in the SQLite registry and prunes
+@@ -71,6 +74,13 @@ data class RepoEntryDto(
+     val version: String,
+     val installed: Boolean,
+     val sources: List<RepoSourceDto> = emptyList(),
++    val versionCode: Long? = null,
++    val store: String? = null,
++    val storeUrl: String? = null,
++    val contentWarning: String? = null,
++    val isObsolete: Boolean = false,
++    val isShared: Boolean = false,
++    val signature: String? = null,
+ )
+ 
+ @Serializable
+@@ -106,6 +116,34 @@ data class InstallResultDto(
+     val error: String? = null,
+ )
+ 
++@Serializable
++data class InstallJobDto(
++    val jobId: String,
++    val state: String,
++    val progress: Double = 0.0,
++    val error: String? = null,
++    val name: String? = null,
++    val pkg: String? = null,
++    val manga: Int = 0,
++    val anime: Int = 0,
++)
 +
-+/** Extensions keep per-item state (slugs, ids, tokens) in `memo`; it must round-trip. */
-+private fun ApplicationCall.memoParam(name: String = "memo"): JsonObject? =
-+    request.queryParameters[name]
-+        ?.takeIf { it.isNotBlank() }
-+        ?.let { raw -> runCatching { memoJson.parseToJsonElement(raw).jsonObject }.getOrNull() }
++@Serializable
++data class NotLoadedDto(
++    val pkg: String,
++    val name: String,
++    val file: String,
++    val reason: String,
++    val message: String,
++    val hasUpdate: Boolean = false,
++)
 +
- fun Application.registerMangaApi() {
-     val mangaSources = Injekt.get<MangaSourceManager>()
++@Serializable
++data class NotLoadedListDto(val extensions: List<NotLoadedDto>)
++
++@Serializable
++data class DeleteNotLoadedRequestDto(val file: String)
++
+ @Serializable
+ data class UninstallRequestDto(
+     val pkg: String,
+@@ -119,11 +157,187 @@ data class UninstallResultDto(
+     val error: String? = null,
+ )
  
-@@ -50,8 +63,9 @@ fun Application.registerMangaApi() {
-         get("/api/v1/manga/{sourceId}/details") {
-             val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
-             val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
--            val manga = SManga.create().also { it.url = url }
--            val res = source.getMangaDetails(manga)
-+            val manga = SManga.create().also { it.url = url; it.title = "" }
-+            call.memoParam()?.let { manga.memo = it }
-+            val res = source.getMangaUpdate(manga, emptyList(), fetchDetails = true, fetchChapters = false).manga
-             if (runCatching { res.url }.getOrNull().isNullOrBlank()) res.url = url
-             call.respond(res.toDto())
-         }
-@@ -59,19 +73,48 @@ fun Application.registerMangaApi() {
-         get("/api/v1/manga/{sourceId}/chapters") {
-             val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
-             val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
--            val manga = SManga.create().also { it.url = url }
--            val chapters = source.getChapterList(manga)
-+            val manga = SManga.create().also { it.url = url; it.title = "" }
-+            call.memoParam()?.let { manga.memo = it }
-+            val chapters = source.getMangaUpdate(manga, emptyList(), fetchDetails = false, fetchChapters = true).chapters
-             call.respond(ChaptersDto(chapters.map { it.toDto() }))
-         }
- 
-+        // Page-aware image fetch. Some sources (MangaDex, for example) split a page
-+        // across a server list and a relative path, so the reader cannot just GET
-+        // `imageUrl`. This endpoint reconstructs the Page and lets the source build and
-+        // execute the request with its own client, cookies, and headers.
-+        get("/api/v1/image") {
-+            val sourceId = call.sourceId().manga(mangaSources)
-+            val httpSource = sourceId as? HttpSource
-+                ?: return@get call.respond(
-+                    io.ktor.http.HttpStatusCode.BadRequest,
-+                    miwayomi.api.ErrorDto("source does not support image fetching"),
-+                )
-+            val pageUrl = call.request.queryParameters["url"].orEmpty()
-+            val imageUrl = call.request.queryParameters["imageUrl"]
-+                ?.takeIf { it.isNotBlank() }
-+                ?: pageUrl.takeIf { it.startsWith("http") }
-+            val page = Page(0, pageUrl, imageUrl)
-+            val response = httpSource.getImage(page)
-+            val contentType = response.body?.contentType()?.toString() ?: "application/octet-stream"
-+            call.proxyStream(response, contentType, io.ktor.http.HttpStatusCode.OK)
++private class InstallJobState {
++    @Volatile var state = "pending"
++    @Volatile var progress = 0.0
++    @Volatile var error: String? = null
++    @Volatile var name: String? = null
++    @Volatile var pkg: String? = null
++    @Volatile var manga = 0
++    @Volatile var anime = 0
++    @Volatile var cancelled = false
++}
++
+ fun Application.registerExtensionApi() {
+     val json = Json { ignoreUnknownKeys = true }
+     val extensionManager = Injekt.get<ExtensionManager>()
+     val extensionsDir = ConfigHolder.config.extensionsDir
+     val store = SqliteStore(File(CompatRuntime.cacheDir, "miwayomi.db"))
++    val jobs = ConcurrentHashMap<String, InstallJobState>()
++    val jobIds = AtomicInteger()
++
++    fun performInstall(
++        req: InstallRequestDto,
++        report: (String, Double) -> Unit,
++        cancelled: () -> Boolean,
++    ): InstallResultDto {
++        val apkName = req.apk
++        val isAbsolute = apkName.startsWith("http://") || apkName.startsWith("https://")
++        val repoBase = if (isAbsolute) null else req.repoUrl.substringBeforeLast('/')
++        val url = if (isAbsolute) apkName else "$repoBase/apk/$apkName"
++        val destName = url.substringAfterLast('/')
++        if (!destName.endsWith(".apk", ignoreCase = true)) {
++            return InstallResultDto(ok = false, error = "invalid apk name")
++        }
++        if (cancelled()) {
++            return InstallResultDto(ok = false, error = "cancelled")
 +        }
 +
-         get("/api/v1/manga/{sourceId}/pages") {
-             val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
-             val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
--            val chapter = SChapter.create().also { it.url = url }
-+            val chapter = SChapter.create().also {
-+                it.url = url
-+                it.name = call.request.queryParameters["name"].orEmpty()
++        report("downloading", 0.05)
++        val client = Injekt.get<NetworkHelper>().client
++        val response = try {
++            client.newCall(GET(url)).execute()
++        } catch (e: Throwable) {
++            return InstallResultDto(ok = false, error = e.message ?: "download failed")
++        }
++        if (!response.isSuccessful) {
++            val code = response.code
++            response.close()
++            return InstallResultDto(ok = false, error = "download failed ($code)")
++        }
++        val bytes = try {
++            response.body.bytes()
++        } catch (e: Throwable) {
++            return InstallResultDto(ok = false, error = e.message ?: "could not read download")
++        } finally {
++            response.close()
++        }
++        if (cancelled()) {
++            return InstallResultDto(ok = false, error = "cancelled")
++        }
++
++        report("installing", 0.55)
++        val dest = File(extensionsDir, destName)
++        val existed = dest.exists()
++        val tmp = File(extensionsDir, destName + ".part")
++        runCatching { tmp.parentFile?.mkdirs() }
++        tmp.writeBytes(bytes)
++        if (!tmp.renameTo(dest)) {
++            dest.writeBytes(bytes)
++            tmp.delete()
++        }
++        if (cancelled()) {
++            if (!existed) dest.delete()
++            return InstallResultDto(ok = false, error = "cancelled")
++        }
++
++        // Best-effort: some repos also publish a desktop JVM jar with the
++        // same base name. Using it avoids the dex2jar DEX->JVM conversion,
++        // which corrupts R8 output (bad `invokespecial <init>` owners) and
++        // breaks the extension with a VerifyError. If the repo has no jar,
++        // fall back to conversion.
++        if (repoBase != null) {
++            val jarName = destName.substringBeforeLast('.').plus(".jar")
++            val jarUrl = "$repoBase/jar/$jarName"
++            val jarResponse = try {
++                client.newCall(GET(jarUrl)).execute()
++            } catch (_: Throwable) {
++                null
 +            }
-+            call.memoParam()?.let { chapter.memo = it }
-             val pages = source.getPageList(chapter)
-             val httpSource = source as? HttpSource
-             pages.forEach { p ->
--                if (p.imageUrl == null && httpSource != null) {
-+                // Some sources set a relative image path and resolve it through
-+                // getImageUrl; others set an absolute URL directly.
-+                val image = p.imageUrl
-+                if (httpSource != null && (image == null || !image.startsWith("http"))) {
-                     runCatching { p.imageUrl = httpSource.getImageUrl(p) }
-                 }
-             }
-diff --git a/server/src/main/kotlin/miwayomi/api/Mappers.kt b/server/src/main/kotlin/miwayomi/api/Mappers.kt
-index 6c0c3c0..06e751e 100644
---- a/server/src/main/kotlin/miwayomi/api/Mappers.kt
-+++ b/server/src/main/kotlin/miwayomi/api/Mappers.kt
-@@ -14,3 +14,17 @@
--fun MangaSource.toDto(pkg: String? = null): SourceDto = SourceDto(id = id.toString(), name = name, lang = lang, type = "manga", pkg = pkg)
--
--fun AnimeSource.toDto(pkg: String? = null): SourceDto = SourceDto(id = id.toString(), name = name, lang = lang, type = "anime", pkg = pkg)
-+fun MangaSource.toDto(pkg: String? = null): SourceDto = SourceDto(
-+    id = id.toString(),
-+    name = name,
-+    lang = lang,
-+    type = "manga",
-+    pkg = pkg,
-+    supportsLatest = (this as? eu.kanade.tachiyomi.source.CatalogueSource)?.supportsLatest ?: true,
-+)
++            if (jarResponse != null) {
++                if (jarResponse.isSuccessful) {
++                    val jarBytes = jarResponse.body.bytes()
++                    jarResponse.close()
++                    val jarDest = File(extensionsDir, jarName)
++                    val jarTmp = File(extensionsDir, jarName + ".part")
++                    jarTmp.writeBytes(jarBytes)
++                    if (!jarTmp.renameTo(jarDest)) {
++                        jarDest.writeBytes(jarBytes)
++                        jarTmp.delete()
++                    }
++                    println("[miwayomi] downloaded desktop jar $jarName for $destName")
++                } else {
++                    jarResponse.close()
++                }
++            }
++        }
 +
-+fun AnimeSource.toDto(pkg: String? = null): SourceDto = SourceDto(
-+    id = id.toString(),
-+    name = name,
-+    lang = lang,
-+    type = "anime",
-+    pkg = pkg,
-+    supportsLatest = (this as? eu.kanade.tachiyomi.animesource.AnimeCatalogueSource)?.supportsLatest ?: true,
-+)
-@@ -25,6 +25,7 @@ fun SManga.toDto(): MangaDto = MangaDto(
-     status = status,
-     thumbnail_url = thumbnail_url,
-     initialized = initialized,
-+    memo = memo.takeIf { it.isNotEmpty() }?.toString(),
- )
- 
- fun SChapter.toDto(): ChapterDto = ChapterDto(
-@@ -33,6 +34,7 @@ fun SChapter.toDto(): ChapterDto = ChapterDto(
-     date_upload = date_upload,
-     chapter_number = chapter_number,
-     scanlator = scanlator,
-+    memo = memo.takeIf { it.isNotEmpty() }?.toString(),
- )
- 
- fun Page.toDto(): PageDto = PageDto(
-diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt
-new file mode 100644
-index 0000000..b090b6f
---- /dev/null
-+++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt
-@@ -0,0 +1,15 @@
-+package eu.kanade.tachiyomi
++        report("installing", 0.8)
++        val loaded = try {
++            extensionManager.load(dest)
++        } catch (e: Throwable) {
++            val root = generateSequence(e) { it.cause }.lastOrNull() ?: e
++            return InstallResultDto(ok = false, error = root.message ?: e.message ?: "error loading")
++        }
 +
-+/**
-+ * Host identity used by extensions built against extension-lib 1.3+.
-+ *
-+ * Mihon ships this in the app module; headless hosts have to provide it themselves.
-+ */
-+object AppInfo {
-+    fun getVersionCode(): Int = 102
++        store.extensionUpsert(
++            StoredExtension(
++                pkg = loaded.meta.pkgName,
++                name = loaded.meta.name,
++                versionName = loaded.meta.versionName,
++                versionCode = loaded.meta.versionCode,
++                isNsfw = loaded.meta.isNsfw,
++                isAnime = loaded.meta.isAnime,
++                apkFile = loaded.apk.name,
++                jarFile = loaded.jar.name,
++                sourceCount = loaded.manga + loaded.anime,
++                installedAt = System.currentTimeMillis(),
++            ),
++        )
 +
-+    fun getVersionName(): String = "1.0.2"
-+
-+    fun getSupportedImageMimeTypes(): List<String> =
-+        listOf("image/jpeg", "image/png", "image/webp", "image/gif", "image/avif")
-+}
-diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt
-index 948b7c4..c9e25ed 100644
---- a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt
-+++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt
-@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.source
- import eu.kanade.tachiyomi.source.model.Page
- import eu.kanade.tachiyomi.source.model.SChapter
- import eu.kanade.tachiyomi.source.model.SManga
-+import eu.kanade.tachiyomi.source.model.SMangaUpdate
- import eu.kanade.tachiyomi.util.awaitSingle
- import rx.Observable
- 
-@@ -30,6 +31,22 @@ interface MangaSource {
-         return fetchPageList(chapter).awaitSingle()
-     }
- 
-+    /**
-+     * Combined fetch used by extensions-lib 1.6 sources. Legacy sources fall back to the
-+     * separate details and chapter calls.
-+     */
-+    @Suppress("DEPRECATION")
-+    suspend fun getMangaUpdate(
-+        manga: SManga,
-+        chapters: List<SChapter>,
-+        fetchDetails: Boolean,
-+        fetchChapters: Boolean,
-+    ): SMangaUpdate {
-+        val details = if (fetchDetails) getMangaDetails(manga) else manga
-+        val list = if (fetchChapters) getChapterList(manga) else chapters
-+        return SMangaUpdate(details, list)
++        report("done", 1.0)
++        return InstallResultDto(
++            ok = true,
++            name = loaded.meta.name,
++            pkg = loaded.meta.pkgName,
++            manga = loaded.manga,
++            anime = loaded.anime,
++        )
 +    }
 +
-     @Deprecated(
-         "Use the non-RxJava API instead",
-         ReplaceWith("getMangaDetails"),
-diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/model/SMangaUpdate.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/model/SMangaUpdate.kt
-new file mode 100644
-index 0000000..a36eb2f
---- /dev/null
-+++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/model/SMangaUpdate.kt
-@@ -0,0 +1,4 @@
-+package eu.kanade.tachiyomi.source.model
++    fun startJob(req: InstallRequestDto): String {
++        val id = "install-${jobIds.incrementAndGet()}"
++        val state = InstallJobState()
++        jobs[id] = state
++        thread(isDaemon = true, name = id) {
++            state.state = "downloading"
++            val result = performInstall(
++                req,
++                report = { stage, progress ->
++                    state.state = stage
++                    state.progress = progress
++                },
++                cancelled = { state.cancelled },
++            )
++            if (state.cancelled) {
++                state.state = "cancelled"
++                state.error = "cancelled"
++                state.progress = 0.0
++            } else if (result.ok) {
++                state.state = "done"
++                state.progress = 1.0
++                state.name = result.name
++                state.pkg = result.pkg
++                state.manga = result.manga
++                state.anime = result.anime
++            } else {
++                state.state = "error"
++                state.error = result.error
++            }
++        }
++        return id
++    }
 +
-+/** Combined details + chapter result used by the extensions-lib 1.6 suspend API. */
-+class SMangaUpdate(val manga: SManga, val chapters: List<SChapter>)
-diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt
-index 1fffa01..781e153 100644
---- a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt
-+++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt
-@@ -118,7 +118,8 @@ abstract class HttpSource : CatalogueSource {
-         return GET(baseUrl + manga.url, headers)
-     }
++    fun stateDto(id: String, state: InstallJobState): InstallJobDto = InstallJobDto(
++        jobId = id,
++        state = state.state,
++        progress = state.progress,
++        error = state.error,
++        name = state.name,
++        pkg = state.pkg,
++        manga = state.manga,
++        anime = state.anime,
++    )
  
--    protected abstract fun mangaDetailsParse(response: Response): SManga
-+    protected open fun mangaDetailsParse(response: Response): SManga =
-+        throw UnsupportedOperationException("mangaDetailsParse is not implemented")
+     routing {
+         get("/api/v1/extensions/repo") {
+@@ -140,12 +354,19 @@ fun Application.registerExtensionApi() {
+             val bytes = response.body.bytes()
+             response.close()
  
-     @Suppress("DEPRECATION")
-     override suspend fun getChapterList(manga: SManga): List<SChapter> {
-@@ -138,7 +139,8 @@ abstract class HttpSource : CatalogueSource {
-         return GET(baseUrl + manga.url, headers)
-     }
++            val storeUrl = repo.substringBeforeLast('/')
++            val storeName = repo.substringAfter("://").substringBefore('/')
+             val installedPkgs = extensionManager.loaded.map { it.meta.pkgName }.toSet()
+             val entries = try {
+                 if (isKeiProto(repo, bytes)) {
  
--    protected abstract fun chapterListParse(response: Response): List<SChapter>
-+    protected open fun chapterListParse(response: Response): List<SChapter> =
-+        throw UnsupportedOperationException("chapterListParse is not implemented")
+                     parseKeiProto(bytes).map {
+-                        it.copy(installed = it.pkg.isNotEmpty() && installedPkgs.contains(it.pkg))
++                        it.copy(
++                            installed = it.pkg.isNotEmpty() && installedPkgs.contains(it.pkg),
++                            store = storeName,
++                            storeUrl = storeUrl,
++                            contentWarning = if (it.nsfw) "nsfw" else "safe",
++                        )
+                     }
+                 } else {
  
-     // Legacy method, removed from extensions-lib >= 1.4. Kept as open so
-     // sources compiled from keiyoushi source (which don't override it) compile fine.
-@@ -163,7 +165,8 @@ abstract class HttpSource : CatalogueSource {
-         return GET(baseUrl + chapter.url, headers)
-     }
+@@ -154,13 +375,16 @@ fun Application.registerExtensionApi() {
+                         val o = el.jsonObject
+                         val apk = o["apk"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                         val pkg = o["pkg"]?.jsonPrimitive?.contentOrNull ?: ""
++                        val nsfw = (o["nsfw"]?.jsonPrimitive?.contentOrNull ?: "0") == "1"
+                         RepoEntryDto(
+                             name = o["name"]?.jsonPrimitive?.contentOrNull ?: "",
+                             pkg = pkg,
+                             lang = o["lang"]?.jsonPrimitive?.contentOrNull ?: "",
+-                            nsfw = (o["nsfw"]?.jsonPrimitive?.contentOrNull ?: "0") == "1",
++                            nsfw = nsfw,
+                             apk = apk,
+                             version = o["version"]?.jsonPrimitive?.contentOrNull ?: "",
++                            versionCode = (o["versionCode"]?.jsonPrimitive?.contentOrNull
++                                ?: o["versionId"]?.jsonPrimitive?.contentOrNull)?.toLongOrNull(),
+                             installed = apk.isNotEmpty() &&
+                                 (installedPkgs.contains(pkg) || (!apk.startsWith("http") && File(extensionsDir, apk).exists())),
+                             sources = (o["sources"]?.jsonArray ?: emptyList()).mapNotNull { s ->
+@@ -170,6 +394,10 @@ fun Application.registerExtensionApi() {
+                                     lang = so["lang"]?.jsonPrimitive?.contentOrNull ?: "",
+                                 )
+                             },
++                            store = storeName,
++                            storeUrl = storeUrl,
++                            contentWarning = if (nsfw) "nsfw" else "safe",
++                            isObsolete = (o["obsolete"]?.jsonPrimitive?.contentOrNull ?: "0") == "1",
+                         )
+                     }
+                 }
+@@ -206,20 +434,49 @@ fun Application.registerExtensionApi() {
+                     nsfw = ext.meta.isNsfw,
+                     apk = ext.apk.name,
+                     version = ext.meta.versionName,
++                    versionCode = ext.meta.versionCode,
+                     installed = true,
+                     sources = ext.sources.mapNotNull { s ->
+-                        val name = when (s) {
+-                            is MangaSource -> s.name
+-                            is AnimeSource -> s.name
++                        when (s) {
++                            is MangaSource -> RepoSourceDto(s.name, s.lang)
++                            is AnimeSource -> RepoSourceDto(s.name, s.lang)
+                             else -> null
+-                        } ?: return@mapNotNull null
+-                        RepoSourceDto(name, "")
++                        }
+                     },
++                    contentWarning = if (ext.meta.isNsfw) "nsfw" else "safe",
+                 )
+             }
+             call.respond(RepoListDto("installed", entries.size, entries.size, entries))
+         }
  
--    protected abstract fun pageListParse(response: Response): List<Page>
-+    protected open fun pageListParse(response: Response): List<Page> =
-+        throw UnsupportedOperationException("pageListParse is not implemented")
++        get("/api/v1/extensions/not-loaded") {
++            call.respond(
++                NotLoadedListDto(
++                    extensionManager.notLoadedExtensions.map {
++                        NotLoadedDto(
++                            pkg = it.pkg,
++                            name = it.name,
++                            file = it.file,
++                            reason = it.reason,
++                            message = it.message,
++                        )
++                    },
++                ),
++            )
++        }
++
++        post("/api/v1/extensions/not-loaded/delete") {
++            val req = runCatching { call.receive<DeleteNotLoadedRequestDto>() }.getOrNull()
++                ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorDto("invalid body"))
++            val removed = extensionManager.removeNotLoaded(req.file)
++                ?: return@post call.respond(HttpStatusCode.NotFound, ErrorDto("not loaded entry not found"))
++            runCatching { File(extensionsDir, req.file).delete() }
++            val base = req.file.substringBeforeLast('.')
++            runCatching { File(extensionsDir, "$base.apk").delete() }
++            runCatching { File(extensionsDir, "$base.jar").delete() }
++            call.respond(UninstallResultDto(ok = true, name = removed.name, pkg = removed.pkg))
++        }
++
+         // User-added repository URLs, persisted in the database so they don't
+         // have to be re-entered every time (no default repo is loaded).
+         get("/api/v1/extensions/repos") {
+@@ -235,97 +492,36 @@ fun Application.registerExtensionApi() {
  
-     @Suppress("DEPRECATION")
-     open suspend fun getImageUrl(page: Page): String {
-
-diff --git a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
---- a/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
-+++ b/server/src/main/kotlin/miwayomi/api/ApiRoutes.kt
-@@ -81,5 +81,6 @@ fun Application.registerApi() {
+         post("/api/v1/extensions/install") {
+             val req = call.receive<InstallRequestDto>()
+-            val apkName = req.apk
+-
+-            val isAbsolute = apkName.startsWith("http://") || apkName.startsWith("https://")
+-            val repoBase = if (isAbsolute) null else req.repoUrl.substringBeforeLast('/')
+-            val url = if (isAbsolute) apkName else "$repoBase/apk/$apkName"
+-            val destName = url.substringAfterLast('/')
+-            if (!destName.endsWith(".apk", ignoreCase = true)) {
+-                return@post call.respond(HttpStatusCode.BadRequest, InstallResultDto(ok = false, error = "invalid apk name"))
+-            }
+-
+-            val client = Injekt.get<NetworkHelper>().client
+-            val response = client.newCall(GET(url)).execute()
+-            if (!response.isSuccessful) {
+-                val code = response.code
+-                response.close()
+-                return@post call.respond(HttpStatusCode.BadGateway, InstallResultDto(ok = false, error = "download failed ($code)"))
+-            }
+-            val bytes = response.body.bytes()
+-            response.close()
+-
+-            val dest = File(extensionsDir, destName)
+-            val tmp = File(extensionsDir, destName + ".part")
+-            runCatching { tmp.parentFile?.mkdirs() }
+-            tmp.writeBytes(bytes)
+-            if (!tmp.renameTo(dest)) {
+-                dest.writeBytes(bytes)
+-                tmp.delete()
++            if (call.request.queryParameters["async"] == "true") {
++                val id = startJob(req)
++                call.respond(
++                    stateDto(
++                        id,
++                        jobs[id] ?: InstallJobState(),
++                    ),
++                )
++                return@post
+             }
++            call.respond(performInstall(req, { _, _ -> }, { false }))
++        }
  
-     registerMangaApi()
-+    registerFilterApi()
-     registerAnimeApi()
-     registerStreamingApi()
-     registerExtensionApi()
+-            // Best-effort: some repos also publish a desktop JVM jar with the
+-            // same base name. Using it avoids the dex2jar DEX->JVM conversion,
+-            // which corrupts R8 output (bad `invokespecial <init>` owners) and
+-            // breaks the extension with a VerifyError. If the repo has no jar,
+-            // fall back to conversion.
+-            if (repoBase != null) {
+-                val jarName = destName.substringBeforeLast('.').plus(".jar")
+-                val jarUrl = "$repoBase/jar/$jarName"
+-                val jarResponse = try {
+-                    client.newCall(GET(jarUrl)).execute()
+-                } catch (_: Throwable) {
+-                    null
+-                }
+-                if (jarResponse != null) {
+-                    if (jarResponse.isSuccessful) {
+-                        val jarBytes = jarResponse.body.bytes()
+-                        jarResponse.close()
+-                        val jarDest = File(extensionsDir, jarName)
+-                        val jarTmp = File(extensionsDir, jarName + ".part")
+-                        jarTmp.writeBytes(jarBytes)
+-                        if (!jarTmp.renameTo(jarDest)) {
+-                            jarDest.writeBytes(jarBytes)
+-                            jarTmp.delete()
+-                        }
+-                        println("[miwayomi] downloaded desktop jar $jarName for $destName")
+-                    } else {
+-                        jarResponse.close()
+-                    }
+-                }
+-            }
++        get("/api/v1/extensions/jobs/{jobId}") {
++            val id = call.parameters["jobId"].orEmpty()
++            val state = jobs[id]
++                ?: return@get call.respond(HttpStatusCode.NotFound, ErrorDto("job not found"))
++            call.respond(stateDto(id, state))
++        }
+ 
+-            val loaded = try {
+-                extensionManager.load(dest)
+-            } catch (e: Throwable) {
+-                val root = generateSequence(e) { it.cause }.lastOrNull() ?: e
+-                return@post call.respond(HttpStatusCode.InternalServerError, InstallResultDto(ok = false, error = root.message ?: e.message ?: "error loading"))
++        post("/api/v1/extensions/jobs/{jobId}/cancel") {
++            val id = call.parameters["jobId"].orEmpty()
++            val state = jobs[id]
++                ?: return@post call.respond(HttpStatusCode.NotFound, ErrorDto("job not found"))
++            state.cancelled = true
++            if (state.state != "done" && state.state != "error") {
++                state.state = "cancelled"
++                state.error = "cancelled"
+             }
+-
+-            store.extensionUpsert(
+-                StoredExtension(
+-                    pkg = loaded.meta.pkgName,
+-                    name = loaded.meta.name,
+-                    versionName = loaded.meta.versionName,
+-                    versionCode = loaded.meta.versionCode,
+-                    isNsfw = loaded.meta.isNsfw,
+-                    isAnime = loaded.meta.isAnime,
+-                    apkFile = loaded.apk.name,
+-                    jarFile = loaded.jar.name,
+-                    sourceCount = loaded.manga + loaded.anime,
+-                    installedAt = System.currentTimeMillis(),
+-                ),
+-            )
+-
+-            call.respond(
+-                InstallResultDto(
+-                    ok = true,
+-                    name = loaded.meta.name,
+-                    pkg = loaded.meta.pkgName,
+-                    manga = loaded.manga,
+-                    anime = loaded.anime,
+-                ),
+-            )
++            call.respond(stateDto(id, state))
+         }
+ 
+         post("/api/v1/extensions/uninstall") {
 diff --git a/server/src/main/kotlin/miwayomi/api/FilterRoutes.kt b/server/src/main/kotlin/miwayomi/api/FilterRoutes.kt
 new file mode 100644
-index 0000000..0000000
+index 0000000..ff99d96
 --- /dev/null
 +++ b/server/src/main/kotlin/miwayomi/api/FilterRoutes.kt
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,158 @@
 +package miwayomi.api
 +
 +import eu.kanade.tachiyomi.source.model.Filter
@@ -312,6 +553,7 @@ index 0000000..0000000
 +import io.ktor.http.HttpStatusCode
 +import io.ktor.server.routing.routing
 +import kotlinx.serialization.Serializable
++import eu.kanade.tachiyomi.network.JvmCookieJar
 +import eu.kanade.tachiyomi.network.NetworkHelper
 +import eu.kanade.tachiyomi.source.online.HttpSource
 +import miwayomi.source.MangaSourceManager
@@ -441,13 +683,360 @@ index 0000000..0000000
 +                    CookieClearDto(ok = false, error = "source does not support cookies"),
 +                )
 +            val network = Injekt.get<NetworkHelper>()
-+            val urls = listOf(source.baseUrl, source.getHomeUrl())
++            val jar = network.cookieJar as? JvmCookieJar
++                ?: return@post call.respond(
++                    HttpStatusCode.BadRequest,
++                    CookieClearDto(ok = false, error = "cookie store does not support clearing"),
++                )
++            val urls = listOf(source.baseUrl)
 +                .filter { it.isNotEmpty() }
 +                .distinct()
 +            val cleared = urls.sumOf { url ->
-+                runCatching { network.cookieJar.remove(url.toHttpUrl()) }.getOrDefault(0)
++                runCatching { jar.remove(url.toHttpUrl()) }.getOrDefault(0)
 +            }
 +            call.respond(CookieClearDto(ok = true, cleared = cleared))
 +        }
 +    }
 +}
+diff --git a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt b/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
+index e2ec6fa..12af79f 100644
+--- a/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
++++ b/server/src/main/kotlin/miwayomi/api/MangaRoutes.kt
+@@ -1,18 +1,31 @@
+ package miwayomi.api
+ 
+ import eu.kanade.tachiyomi.source.model.FilterList
++import eu.kanade.tachiyomi.source.model.Page
+ import eu.kanade.tachiyomi.source.model.SChapter
+ import eu.kanade.tachiyomi.source.model.SManga
+ import eu.kanade.tachiyomi.source.online.HttpSource
+ import io.ktor.server.application.Application
++import io.ktor.server.application.ApplicationCall
+ import io.ktor.server.application.call
+ import io.ktor.server.response.respond
+ import io.ktor.server.routing.get
+ import io.ktor.server.routing.routing
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.jsonObject
+ import miwayomi.source.MangaSourceManager
+ import uy.kohesive.injekt.Injekt
+ import uy.kohesive.injekt.api.get
+ 
++private val memoJson = Json { ignoreUnknownKeys = true }
++
++/** Extensions keep per-item state (slugs, ids, tokens) in `memo`; it must round-trip. */
++private fun ApplicationCall.memoParam(name: String = "memo"): JsonObject? =
++    request.queryParameters[name]
++        ?.takeIf { it.isNotBlank() }
++        ?.let { raw -> runCatching { memoJson.parseToJsonElement(raw).jsonObject }.getOrNull() }
++
+ fun Application.registerMangaApi() {
+     val mangaSources = Injekt.get<MangaSourceManager>()
+ 
+@@ -50,8 +63,9 @@ fun Application.registerMangaApi() {
+         get("/api/v1/manga/{sourceId}/details") {
+             val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
+             val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
+-            val manga = SManga.create().also { it.url = url }
+-            val res = source.getMangaDetails(manga)
++            val manga = SManga.create().also { it.url = url; it.title = "" }
++            call.memoParam()?.let { manga.memo = it }
++            val res = source.getMangaUpdate(manga, emptyList(), fetchDetails = true, fetchChapters = false).manga
+             if (runCatching { res.url }.getOrNull().isNullOrBlank()) res.url = url
+             call.respond(res.toDto())
+         }
+@@ -59,19 +73,48 @@ fun Application.registerMangaApi() {
+         get("/api/v1/manga/{sourceId}/chapters") {
+             val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
+             val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
+-            val manga = SManga.create().also { it.url = url }
+-            val chapters = source.getChapterList(manga)
++            val manga = SManga.create().also { it.url = url; it.title = "" }
++            call.memoParam()?.let { manga.memo = it }
++            val chapters = source.getMangaUpdate(manga, emptyList(), fetchDetails = false, fetchChapters = true).chapters
+             call.respond(ChaptersDto(chapters.map { it.toDto() }))
+         }
+ 
++        // Page-aware image fetch. Some sources (MangaDex, for example) split a page
++        // across a server list and a relative path, so the reader cannot just GET
++        // `imageUrl`. This endpoint reconstructs the Page and lets the source build and
++        // execute the request with its own client, cookies, and headers.
++        get("/api/v1/image") {
++            val sourceId = call.sourceId().manga(mangaSources)
++            val httpSource = sourceId as? HttpSource
++                ?: return@get call.respond(
++                    io.ktor.http.HttpStatusCode.BadRequest,
++                    miwayomi.api.ErrorDto("source does not support image fetching"),
++                )
++            val pageUrl = call.request.queryParameters["url"].orEmpty()
++            val imageUrl = call.request.queryParameters["imageUrl"]
++                ?.takeIf { it.isNotBlank() }
++                ?: pageUrl.takeIf { it.startsWith("http") }
++            val page = Page(0, pageUrl, imageUrl)
++            val response = httpSource.getImage(page)
++            val contentType = response.body?.contentType()?.toString() ?: "application/octet-stream"
++            call.proxyStream(response, contentType, io.ktor.http.HttpStatusCode.OK)
++        }
++
+         get("/api/v1/manga/{sourceId}/pages") {
+             val source = call.sourceId().manga(mangaSources) ?: return@get call.respondNotFound()
+             val url = call.requiredUrl() ?: return@get call.respondMissingUrl()
+-            val chapter = SChapter.create().also { it.url = url }
++            val chapter = SChapter.create().also {
++                it.url = url
++                it.name = call.request.queryParameters["name"].orEmpty()
++            }
++            call.memoParam()?.let { chapter.memo = it }
+             val pages = source.getPageList(chapter)
+             val httpSource = source as? HttpSource
+             pages.forEach { p ->
+-                if (p.imageUrl == null && httpSource != null) {
++                // Some sources set a relative image path and resolve it through
++                // getImageUrl; others set an absolute URL directly.
++                val image = p.imageUrl
++                if (httpSource != null && (image == null || !image.startsWith("http"))) {
+                     runCatching { p.imageUrl = httpSource.getImageUrl(p) }
+                 }
+             }
+diff --git a/server/src/main/kotlin/miwayomi/api/Mappers.kt b/server/src/main/kotlin/miwayomi/api/Mappers.kt
+index 6c0c3c0..d14dcd8 100644
+--- a/server/src/main/kotlin/miwayomi/api/Mappers.kt
++++ b/server/src/main/kotlin/miwayomi/api/Mappers.kt
+@@ -11,9 +11,23 @@ import eu.kanade.tachiyomi.source.model.SChapter
+ import eu.kanade.tachiyomi.source.model.SManga
+ import okhttp3.Headers
+ 
+-fun MangaSource.toDto(pkg: String? = null): SourceDto = SourceDto(id = id.toString(), name = name, lang = lang, type = "manga", pkg = pkg)
++fun MangaSource.toDto(pkg: String? = null): SourceDto = SourceDto(
++    id = id.toString(),
++    name = name,
++    lang = lang,
++    type = "manga",
++    pkg = pkg,
++    supportsLatest = (this as? eu.kanade.tachiyomi.source.CatalogueSource)?.supportsLatest ?: true,
++)
+ 
+-fun AnimeSource.toDto(pkg: String? = null): SourceDto = SourceDto(id = id.toString(), name = name, lang = lang, type = "anime", pkg = pkg)
++fun AnimeSource.toDto(pkg: String? = null): SourceDto = SourceDto(
++    id = id.toString(),
++    name = name,
++    lang = lang,
++    type = "anime",
++    pkg = pkg,
++    supportsLatest = (this as? eu.kanade.tachiyomi.animesource.AnimeCatalogueSource)?.supportsLatest ?: true,
++)
+ 
+ fun SManga.toDto(): MangaDto = MangaDto(
+     url = url,
+@@ -25,6 +39,7 @@ fun SManga.toDto(): MangaDto = MangaDto(
+     status = status,
+     thumbnail_url = thumbnail_url,
+     initialized = initialized,
++    memo = memo.takeIf { it.isNotEmpty() }?.toString(),
+ )
+ 
+ fun SChapter.toDto(): ChapterDto = ChapterDto(
+@@ -33,6 +48,7 @@ fun SChapter.toDto(): ChapterDto = ChapterDto(
+     date_upload = date_upload,
+     chapter_number = chapter_number,
+     scanlator = scanlator,
++    memo = memo.takeIf { it.isNotEmpty() }?.toString(),
+ )
+ 
+ fun Page.toDto(): PageDto = PageDto(
+diff --git a/server/src/main/kotlin/miwayomi/extension/ExtensionManager.kt b/server/src/main/kotlin/miwayomi/extension/ExtensionManager.kt
+index 44faf60..0a7ed57 100644
+--- a/server/src/main/kotlin/miwayomi/extension/ExtensionManager.kt
++++ b/server/src/main/kotlin/miwayomi/extension/ExtensionManager.kt
+@@ -41,8 +41,18 @@ class ExtensionManager(
+         val sources: List<Any> = emptyList(),
+     )
+ 
++    data class NotLoadedExtension(
++        val pkg: String,
++        val name: String,
++        val file: String,
++        val reason: String,
++        val message: String,
++    )
++
+     private val extensions = ConcurrentHashMap<String, LoadedExtension>()
+ 
++    private val notLoaded = ConcurrentHashMap<String, NotLoadedExtension>()
++
+     private val sourceOwner = ConcurrentHashMap<Long, String>()
+ 
+     private companion object {
+@@ -52,6 +62,39 @@ class ExtensionManager(
+     val loaded: List<LoadedExtension>
+         get() = extensions.values.toList()
+ 
++    /** Files that could not be loaded, kept for the client's Not loaded section. */
++    val notLoadedExtensions: List<NotLoadedExtension>
++        get() = notLoaded.values.sortedBy { it.name.lowercase() }
++
++    fun removeNotLoaded(fileName: String): NotLoadedExtension? = notLoaded.remove(fileName)
++
++    private fun recordLoadFailure(file: File, error: Throwable) {
++        val root = generateSequence(error) { it.cause }.lastOrNull() ?: error
++        val message = root.message ?: root.toString()
++        val apkMeta = if (file.extension.equals("apk", ignoreCase = true)) {
++            runCatching { PackageTools.parseMeta(file) }.getOrNull()
++        } else {
++            null
++        }
++        val jarMeta = if (file.extension.equals("jar", ignoreCase = true)) {
++            runCatching { readSourceJarMeta(file) }.getOrNull()
++        } else {
++            null
++        }
++        val pkg = apkMeta?.pkgName ?: jarMeta?.pkgName ?: file.nameWithoutExtension
++        val name = apkMeta?.name ?: jarMeta?.name ?: file.name
++        val reason = when {
++            message.contains("trust", ignoreCase = true) -> "untrusted"
++            message.contains("signature", ignoreCase = true) -> "unsigned"
++            message.contains("sdk", ignoreCase = true) ||
++                message.contains("version", ignoreCase = true) -> "unsupported"
++            message.contains("filter", ignoreCase = true) -> "filtered"
++            message.contains("manifest", ignoreCase = true) -> "malformed"
++            else -> "failed"
++        }
++        notLoaded[file.name] = NotLoadedExtension(pkg, name, file.name, reason, message)
++    }
++
+     fun pkgOf(sourceId: Long): String? = sourceOwner[sourceId]
+ 
+     fun loadAll(): Int {
+@@ -71,6 +114,7 @@ class ExtensionManager(
+                 load(apk)
+                 ok++
+             } catch (e: Throwable) {
++                recordLoadFailure(apk, e)
+                 System.err.println("[miwayomi] Error loading $apk: ${e}")
+                 e.printStackTrace()
+             }
+@@ -85,6 +129,7 @@ class ExtensionManager(
+                 loadSourceJar(jar)
+                 ok++
+             } catch (e: Throwable) {
++                recordLoadFailure(jar, e)
+                 System.err.println("[miwayomi] Error loading source jar $jar: ${e}")
+                 e.printStackTrace()
+             }
+@@ -150,6 +195,7 @@ class ExtensionManager(
+         }
+ 
+         val loaded = registerInstances(extMeta, apk = jar, jar = jar, classLoader = classLoader, instances = instances)
++        notLoaded.remove(jar.name)
+         extensions[extMeta.pkgName] = loaded
+         println("[miwayomi] Extension (source) loaded: ${extMeta.name} (${extMeta.pkgName}) - manga: ${loaded.manga}, anime: ${loaded.anime}")
+         return loaded
+@@ -223,6 +269,7 @@ class ExtensionManager(
+         }
+ 
+         val loaded = registerInstances(meta, apk, jar, classLoader, instances)
++        notLoaded.remove(apk.name)
+         extensions[meta.pkgName] = loaded
+         println("[miwayomi] Extension loaded: ${meta.name} (${meta.pkgName}) - manga: ${loaded.manga}, anime: ${loaded.anime}")
+         return loaded
+diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt
+new file mode 100644
+index 0000000..b090b6f
+--- /dev/null
++++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/AppInfo.kt
+@@ -0,0 +1,15 @@
++package eu.kanade.tachiyomi
++
++/**
++ * Host identity used by extensions built against extension-lib 1.3+.
++ *
++ * Mihon ships this in the app module; headless hosts have to provide it themselves.
++ */
++object AppInfo {
++    fun getVersionCode(): Int = 102
++
++    fun getVersionName(): String = "1.0.2"
++
++    fun getSupportedImageMimeTypes(): List<String> =
++        listOf("image/jpeg", "image/png", "image/webp", "image/gif", "image/avif")
++}
+diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt
+index 948b7c4..c9e25ed 100644
+--- a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt
++++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/MangaSource.kt
+@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.source
+ import eu.kanade.tachiyomi.source.model.Page
+ import eu.kanade.tachiyomi.source.model.SChapter
+ import eu.kanade.tachiyomi.source.model.SManga
++import eu.kanade.tachiyomi.source.model.SMangaUpdate
+ import eu.kanade.tachiyomi.util.awaitSingle
+ import rx.Observable
+ 
+@@ -30,6 +31,22 @@ interface MangaSource {
+         return fetchPageList(chapter).awaitSingle()
+     }
+ 
++    /**
++     * Combined fetch used by extensions-lib 1.6 sources. Legacy sources fall back to the
++     * separate details and chapter calls.
++     */
++    @Suppress("DEPRECATION")
++    suspend fun getMangaUpdate(
++        manga: SManga,
++        chapters: List<SChapter>,
++        fetchDetails: Boolean,
++        fetchChapters: Boolean,
++    ): SMangaUpdate {
++        val details = if (fetchDetails) getMangaDetails(manga) else manga
++        val list = if (fetchChapters) getChapterList(manga) else chapters
++        return SMangaUpdate(details, list)
++    }
++
+     @Deprecated(
+         "Use the non-RxJava API instead",
+         ReplaceWith("getMangaDetails"),
+diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/model/SMangaUpdate.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/model/SMangaUpdate.kt
+new file mode 100644
+index 0000000..a36eb2f
+--- /dev/null
++++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/model/SMangaUpdate.kt
+@@ -0,0 +1,4 @@
++package eu.kanade.tachiyomi.source.model
++
++/** Combined details + chapter result used by the extensions-lib 1.6 suspend API. */
++class SMangaUpdate(val manga: SManga, val chapters: List<SChapter>)
+diff --git a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt
+index 1fffa01..781e153 100644
+--- a/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt
++++ b/source-api/src/main/kotlin/eu/kanade/tachiyomi/source/online/HttpSource.kt
+@@ -118,7 +118,8 @@ abstract class HttpSource : CatalogueSource {
+         return GET(baseUrl + manga.url, headers)
+     }
+ 
+-    protected abstract fun mangaDetailsParse(response: Response): SManga
++    protected open fun mangaDetailsParse(response: Response): SManga =
++        throw UnsupportedOperationException("mangaDetailsParse is not implemented")
+ 
+     @Suppress("DEPRECATION")
+     override suspend fun getChapterList(manga: SManga): List<SChapter> {
+@@ -138,7 +139,8 @@ abstract class HttpSource : CatalogueSource {
+         return GET(baseUrl + manga.url, headers)
+     }
+ 
+-    protected abstract fun chapterListParse(response: Response): List<SChapter>
++    protected open fun chapterListParse(response: Response): List<SChapter> =
++        throw UnsupportedOperationException("chapterListParse is not implemented")
+ 
+     // Legacy method, removed from extensions-lib >= 1.4. Kept as open so
+     // sources compiled from keiyoushi source (which don't override it) compile fine.
+@@ -163,7 +165,8 @@ abstract class HttpSource : CatalogueSource {
+         return GET(baseUrl + chapter.url, headers)
+     }
+ 
+-    protected abstract fun pageListParse(response: Response): List<Page>
++    protected open fun pageListParse(response: Response): List<Page> =
++        throw UnsupportedOperationException("pageListParse is not implemented")
+ 
+     @Suppress("DEPRECATION")
+     open suspend fun getImageUrl(page: Page): String {

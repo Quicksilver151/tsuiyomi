@@ -129,6 +129,8 @@ pub struct Config {
     pub source_display_mode: SourceDisplayMode,
     /// Hide manga already saved in the library from source results.
     pub browse_hide_saved: bool,
+    /// Show extensions whose source marks them NSFW.
+    pub show_nsfw_extensions: bool,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// Local series removed from the library but kept on disk, relative to the
@@ -181,6 +183,7 @@ impl Default for Config {
             global_search_only_results: false,
             source_display_mode: SourceDisplayMode::default(),
             browse_hide_saved: false,
+            show_nsfw_extensions: true,
             remote_library: Vec::new(),
             hidden_series: Vec::new(),
             chapter_defaults: ChapterSettings::default(),

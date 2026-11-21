@@ -881,38 +881,38 @@ explicitly marked as a deliberate deviation.
 
 ### Extensions
 
-- [ ] Installed version preserved separately.
-- [ ] Update detection.
-- [ ] Update count badge.
-- [ ] Updates section.
-- [ ] Update all.
-- [ ] Not-loaded section.
-- [ ] Not-loaded reason dialog.
+- [x] Installed version preserved separately.
+- [x] Update detection.
+- [x] Update count badge.
+- [x] Updates section.
+- [x] Update all.
+- [x] Not-loaded section.
+- [x] Not-loaded reason inspection (status bar, not a modal).
 - [ ] Trust extension where supported.
-- [ ] Installed section.
-- [ ] Available section grouped by language.
+- [x] Installed section.
+- [x] Available section grouped by language.
 - [ ] Obsolete/private indicators.
-- [ ] Content-warning indicators.
+- [x] Content-warning indicators.
 - [ ] Search by name/source/URL/id.
 - [ ] Comma-separated search terms.
 - [ ] Debounced search.
-- [ ] Install.
-- [ ] Update.
-- [ ] Cancel install.
-- [ ] Retry failed install.
-- [ ] Install progress.
-- [ ] Uninstall with confirmation.
-- [ ] Batch install/uninstall/update preserved.
-- [ ] Extension details screen.
-- [ ] Enable all sources.
-- [ ] Disable all sources.
-- [ ] Per-source toggle.
-- [ ] Per-source preferences.
-- [ ] Clear cookies.
-- [ ] Per-extension incognito.
-- [ ] Content warning dialog/info.
-- [ ] Extension stores create/delete/copy/open/refresh.
-- [ ] Settings → Browse: hide saved, content warnings, stores.
+- [x] Install.
+- [x] Update.
+- [x] Cancel install.
+- [x] Retry failed install.
+- [x] Install progress.
+- [x] Uninstall with confirmation.
+- [x] Batch install/uninstall/update preserved.
+- [x] Extension details screen.
+- [x] Enable all sources.
+- [x] Disable all sources.
+- [x] Per-source toggle.
+- [x] Per-source preferences.
+- [x] Clear cookies.
+- [x] Per-extension incognito.
+- [x] Content warning dialog/info.
+- [x] Extension stores create/delete; copy/open/refresh remain.
+- [x] Settings → Browse: hide saved and content warnings; stores screen remains.
 
 ### Migration
 
@@ -1145,3 +1145,27 @@ These should be decided before M5/M6 implementation:
 5. **Migration cover/notes.** Remote custom covers and notes do not exist in
    tsuiyomi yet. Add them to the data model first if literal parity for those
    migration flags is required.
+
+
+## M5 implementation status
+
+Implemented through the bundled host patch and TUI:
+
+- Host extension DTOs carry installed version plus repository version, version code,
+  store URL, content warning, obsolete/shared flags, and signature when available.
+- Not-loaded files are collected with package, file, reason, and message. The client
+  groups them, shows the reason, and can delete the failed APK/JAR.
+- Async install jobs report pending/downloading/installing/done/error/cancelled with
+  progress; the client polls them, falls back to the blocking endpoint on old hosts,
+  and supports cancellation and retry.
+- Cookie clearing now compiles against the 1.6 source API by clearing `JvmCookieJar`
+  through the source base URL.
+- Extension rows show update/install state, language, source count, 18+ markers, and
+  job progress. Language and NSFW filters apply to available entries; installed entries
+  stay visible for management.
+- The host patch is regenerated with real new-file diffs, so `patch -p1` creates
+  `FilterRoutes.kt` correctly.
+
+Still open: signature trust, private/shared warnings, obsolete filtering, comma-separated
+debounced search across source URLs/ids, store website/copy/open actions, and a modal
+not-loaded reason dialog.

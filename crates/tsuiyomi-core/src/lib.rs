@@ -49,7 +49,8 @@ pub use filters::SourceFilter;
 pub use history::{HistoryEntry, HistoryStore, LocalHistory, RemoteHistory};
 pub use host::{
     fetch_bytes, progress_key, progress_prefix, ExtensionInfo, ExtensionSource, HostClient,
-    InstallOutcome, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSource,
+    InstallJob, InstallOutcome, NotLoadedExtension, RemoteChapter, RemoteFavorite, RemoteManga,
+    RemoteMangaPage, RemoteSource,
 };
 pub use library::{
     ensure_series_cover, read_cover, scan_library, Chapter, ChapterKind, Library, RemoteSeries,

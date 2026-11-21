@@ -117,6 +117,10 @@ Chapter/story parity plan: `story-parity-plan.md`.
 - [x] Local source search (`s`), recent view (`l`), and title ordering (`v`).
 - [x] Extension update detection, pending count in the tab title, available-version
       display, and `U` update-all.
+- [x] Extension lifecycle: host-side async install/update jobs with progress,
+      cancellation, and retry; blocking fallback for old hosts; not-loaded reporting
+      with reason inspection/deletion; language and NSFW filtering; cookie clearing
+      fixed; row job/status metadata. Signature trust remains a documented limitation.
 - [x] Background global search with per-source progress and pinned/all scope (`A`).
 - [x] Inline extension search (name or package).
 - [x] Pin all sources of an extension from the Extensions tab.

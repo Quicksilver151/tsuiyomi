@@ -120,6 +120,56 @@ impl ExtensionInfo {
     }
 }
 
+/// One installed file the host could not load. Trust cannot be granted because the
+/// host does not verify extension signatures; the client can inspect the reason or
+/// delete the file.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct NotLoadedExtension {
+    #[serde(default)]
+    pub pkg: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub file: String,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(rename = "hasUpdate", default)]
+    pub has_update: bool,
+}
+
+/// State of an asynchronous extension install/update job.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct InstallJob {
+    #[serde(rename = "jobId", default)]
+    pub job_id: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub progress: f64,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub pkg: Option<String>,
+    #[serde(default)]
+    pub manga: usize,
+    #[serde(default)]
+    pub anime: usize,
+}
+
+impl InstallJob {
+    pub fn finished(&self) -> bool {
+        matches!(self.state.as_str(), "done" | "error" | "cancelled")
+    }
+
+    pub fn sources(&self) -> usize {
+        self.manga + self.anime
+    }
+}
+
 /// A manga saved in the host's library (favorites table).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteFavorite {
@@ -532,6 +582,72 @@ impl HostClient {
             Err(CoreError::Network {
                 url: self.absolute_url("/api/v1/extensions/install"),
                 message: result.error.unwrap_or_else(|| "install failed".to_owned()),
+            })
+        }
+    }
+
+    /// Start an install/update job. The endpoint returns immediately; poll it with
+    /// [`Self::install_job`] on older hosts this returns an error and the caller should
+    /// fall back to [`Self::install_extension`].
+    pub fn install_extension_async(
+        &self,
+        repo_url: &str,
+        apk: &str,
+    ) -> Result<InstallJob, CoreError> {
+        let job: InstallJob = self.post(
+            "/api/v1/extensions/install?async=true",
+            json!({ "repoUrl": repo_url, "apk": apk }),
+        )?;
+        if job.job_id.is_empty() {
+            return Err(CoreError::Network {
+                url: self.absolute_url("/api/v1/extensions/install?async=true"),
+                message: "host does not support asynchronous installs".to_owned(),
+            });
+        }
+        Ok(job)
+    }
+
+    pub fn install_job(&self, job_id: &str) -> Result<InstallJob, CoreError> {
+        self.get(&format!("/api/v1/extensions/jobs/{}", encode(job_id)))
+    }
+
+    pub fn cancel_install_job(&self, job_id: &str) -> Result<InstallJob, CoreError> {
+        self.post(
+            &format!("/api/v1/extensions/jobs/{}/cancel", encode(job_id)),
+            json!({}),
+        )
+    }
+
+    pub fn not_loaded_extensions(&self) -> Result<Vec<NotLoadedExtension>, CoreError> {
+        #[derive(Deserialize)]
+        struct Data {
+            #[serde(default)]
+            extensions: Vec<NotLoadedExtension>,
+        }
+        let data: Data = self.get("/api/v1/extensions/not-loaded")?;
+        Ok(data.extensions)
+    }
+
+    pub fn delete_not_loaded(&self, file: &str) -> Result<(), CoreError> {
+        #[derive(Deserialize)]
+        struct Result_ {
+            #[serde(default)]
+            ok: bool,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        let result: Result_ = self.post(
+            "/api/v1/extensions/not-loaded/delete",
+            json!({ "file": file }),
+        )?;
+        if result.ok {
+            Ok(())
+        } else {
+            Err(CoreError::Network {
+                url: self.absolute_url("/api/v1/extensions/not-loaded/delete"),
+                message: result
+                    .error
+                    .unwrap_or_else(|| "could not remove not-loaded extension".to_owned()),
             })
         }
     }
@@ -1250,6 +1366,48 @@ mod tests {
             .recv()
             .unwrap()
             .starts_with("POST /api/v1/extensions/install"));
+    }
+
+    #[test]
+    fn reads_not_loaded_extensions_and_jobs() {
+        let (address, requests) = server(vec![
+            r#"{"extensions":[{"pkg":"en.bad","name":"Bad Extension","file":"bad.apk","reason":"failed","message":"manifest missing","hasUpdate":false}]}"#,
+            r#"{"jobId":"install-1","state":"downloading","progress":0.2}"#,
+            r#"{"jobId":"install-1","state":"done","progress":1.0,"name":"Comick","pkg":"en.comick","manga":1,"anime":0}"#,
+            r#"{"jobId":"install-1","state":"cancelled","progress":0.0}"#,
+            r#"{"ok":true}"#,
+        ]);
+        let client = HostClient::new(address);
+
+        let broken = client.not_loaded_extensions().unwrap();
+        assert_eq!(broken[0].pkg, "en.bad");
+        assert_eq!(broken[0].reason, "failed");
+
+        let job = client
+            .install_extension_async("https://repo", "comick.apk")
+            .unwrap();
+        assert_eq!(job.job_id, "install-1");
+        assert!(!job.finished());
+
+        let done = client.install_job("install-1").unwrap();
+        assert!(done.finished());
+        assert_eq!(done.sources(), 1);
+
+        let cancelled = client.cancel_install_job("install-1").unwrap();
+        assert_eq!(cancelled.state, "cancelled");
+
+        client.delete_not_loaded("bad.apk").unwrap();
+        let mut paths = Vec::new();
+        for _ in 0..5 {
+            paths.push(requests.recv().unwrap());
+        }
+        assert!(paths
+            .iter()
+            .any(|path| path.contains("extensions/install?async=true")));
+        assert!(paths
+            .iter()
+            .any(|path| path.contains("jobs/install-1/cancel")));
+        assert!(paths.iter().any(|path| path.contains("not-loaded/delete")));
     }
 
     #[test]

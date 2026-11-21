@@ -140,6 +140,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         if app.poll_downloads() {
             needs_draw = true;
         }
+        if app.poll_extension_jobs() {
+            needs_draw = true;
+        }
         if app.poll_story_refresh() {
             needs_draw = true;
         }
@@ -907,6 +910,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::OpenConfig => {
                 if app.story_screen_active() {
                     app.open_category_picker();
+                } else if app.tab == 3
+                    && matches!(
+                        app.browse_view,
+                        BrowseView::Extensions | BrowseView::ExtensionDetails
+                    )
+                {
+                    app.cancel_extension_jobs();
                 } else {
                     app.select_tab(4);
                 }

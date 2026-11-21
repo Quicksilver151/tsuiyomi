@@ -185,9 +185,15 @@ Rules:
   (or the next remote page action) while `has_next_page` is true. The Extensions tab has an
   inline search bar, detects installed-vs-repository version differences, shows the pending
   update count in the tab title, groups updates/installed/available by language, and offers
-  `U` update-all. `o` on Extensions opens extension details with per-source toggles,
-  enable/disable-all actions, source preferences, per-extension Incognito, clear-cookies,
-  and uninstall. Migrate lists saved manga by source, multi-selects favorites, matches
+  `U` update-all. Installs and updates use host jobs with downloading/installing
+  progress, cancellation (`c`), and retry; rows show job state, versions, languages,
+  source counts, and content warnings. A failed file appears under Not loaded with its
+  reason and can be inspected or deleted. Extension language filtering follows
+  `enabled_languages`, and `show_nsfw_extensions` hides NSFW entries. `o` on Extensions
+  opens extension details with per-source toggles, enable/disable-all actions, source
+  preferences, per-extension Incognito, clear-cookies, and uninstall. Signature trust is
+  not implemented: the host cannot verify extension signatures, so there is no trust
+  action. Migrate lists saved manga by source, multi-selects favorites, matches
   titles against enabled sources with regular/deep queries, previews targets, and
   migrates (`M`) or copies (`C`) progress/bookmarks/history/categories. `/` on Sources
   runs a background global search over enabled pinned
@@ -292,8 +298,8 @@ Rules:
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
-  `browse_hide_saved`, `remote_library`, `downloads_path`, and `hidden_series`, and
-  preserves unknown keys from existing files.
+  `browse_hide_saved`, `show_nsfw_extensions`, `remote_library`, `downloads_path`, and
+  `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

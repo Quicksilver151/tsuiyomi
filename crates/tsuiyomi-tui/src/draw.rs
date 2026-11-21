@@ -1098,6 +1098,7 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("P", "pin"),
                 ("u", "update"),
                 ("U", "update all"),
+                ("c", "cancel"),
                 ("a", "store"),
                 ("t", "stores"),
                 ("[ ]", "tabs"),
@@ -1245,9 +1246,10 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
     }
     if app.tab == 3
         && app.browse_view == BrowseView::Extensions
-        && app
+        && (app
             .selected_extension()
             .is_some_and(|extension| extension.installed)
+            || app.selected_not_loaded().is_some())
         && !items.iter().any(|(key, _)| *key == "x/Del")
     {
         let at = items.len().saturating_sub(1);
@@ -3016,6 +3018,11 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
             c_overlay1(),
         ),
         field(
+            "Warning",
+            if extension.nsfw { "NSFW" } else { "safe" },
+            if extension.nsfw { c_peach() } else { c_green() },
+        ),
+        field(
             "Sources",
             &format!(
                 "{} · {} enabled",
@@ -3032,14 +3039,14 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
     ];
     frame.render_widget(
         Paragraph::new(Text::from(info)),
-        Rect::new(body.x, body.y + 1, body.width, 6),
+        Rect::new(body.x, body.y + 1, body.width, 7),
     );
 
     let list_area = Rect::new(
         body.x,
-        body.y + 7,
+        body.y + 8,
         body.width,
-        body.height.saturating_sub(7),
+        body.height.saturating_sub(8),
     );
     let rows = app.extension_detail_rows();
     let items: Vec<ListItem> =
@@ -3491,14 +3498,42 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     .fg(c_overlay0())
                     .add_modifier(Modifier::BOLD),
             ))),
+            ExtensionRow::NotLoaded(index) => {
+                let extension = &app.remote.not_loaded[*index];
+                ListItem::new(Line::from(vec![
+                    Span::styled("! ", Style::default().fg(c_peach())),
+                    Span::styled(
+                        extension.name.clone(),
+                        Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("  {} · {}", extension.reason, extension.file),
+                        Style::default().fg(c_overlay0()),
+                    ),
+                ]))
+            }
             ExtensionRow::Extension(index) => {
                 let extension = &app.remote.extensions[*index];
-                let status = if extension.update_available() {
-                    "update"
+                let job = app.remote.extension_jobs.get(&extension.pkg);
+                let status = if let Some(job) = job {
+                    job.label()
+                } else if extension.update_available() {
+                    "update".to_owned()
                 } else if extension.installed {
-                    "installed"
+                    "installed".to_owned()
                 } else {
-                    "available"
+                    "available".to_owned()
+                };
+                let status_style = if job.is_some_and(|job| job.state == "error") {
+                    Style::default().fg(c_peach())
+                } else if job.is_some() {
+                    Style::default().fg(c_yellow())
+                } else if extension.update_available() {
+                    Style::default().fg(c_peach())
+                } else if extension.installed {
+                    Style::default().fg(c_green())
+                } else {
+                    Style::default().fg(c_overlay1())
                 };
                 let nsfw = if extension.nsfw { " · 18+" } else { "" };
                 let mut spans = Vec::new();
@@ -3527,16 +3562,7 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                         ));
                     }
                 }
-                spans.push(Span::styled(
-                    format!("  {status}"),
-                    Style::default().fg(if extension.update_available() {
-                        c_peach()
-                    } else if extension.installed {
-                        c_green()
-                    } else {
-                        c_overlay1()
-                    }),
-                ));
+                spans.push(Span::styled(format!("  {status}"), status_style));
                 ListItem::new(Line::from(spans))
             }
         })
@@ -4694,6 +4720,15 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 .host_url
                 .clone()
                 .unwrap_or_else(|| "not set".to_owned()),
+        ),
+        SettingId::ShowNsfw => (
+            "Show NSFW extensions".to_owned(),
+            if app.config.show_nsfw_extensions {
+                "Yes"
+            } else {
+                "No"
+            }
+            .to_owned(),
         ),
     }
 }
