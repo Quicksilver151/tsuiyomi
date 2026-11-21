@@ -5101,6 +5101,7 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 .clone()
                 .unwrap_or_else(|| "not set".to_owned()),
         ),
+        SettingId::ImportBackup => ("Import Mihon backup".to_owned(), "Enter path".to_owned()),
         SettingId::DownloadsPath => (
             "Downloads folder".to_owned(),
             downloads_dir(&app.config)

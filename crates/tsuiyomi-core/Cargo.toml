@@ -8,6 +8,7 @@ rust-version.workspace = true
 chrono.workspace = true
 confy.workspace = true
 directories.workspace = true
+flate2.workspace = true
 image.workspace = true
 natord.workspace = true
 quick-xml.workspace = true

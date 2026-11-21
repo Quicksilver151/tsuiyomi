@@ -21,8 +21,8 @@ use tsuiyomi_core::{
     best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
     downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
     legacy_remote_cover_path, load_cached_story, merge_extensions, missing_chapter_count,
-    normalized_title, page_dimensions, progress_prefix, read_cover, read_page, read_state,
-    remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
+    normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
+    read_state, remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
     source_dir_name, story_cache_path, today_key, visible_chapters, BookmarkStore, CachedStory,
     Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, Config,
     ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
@@ -307,6 +307,7 @@ pub enum TextAction {
     SetDownloadsPath,
     AddCategory,
     RenameCategory,
+    ImportBackup,
     StoryNotes,
     SetCustomCover,
 }
@@ -461,6 +462,7 @@ pub enum SettingId {
     ShowNsfw,
     FlareSolverr,
     DownloadsPath,
+    ImportBackup,
 }
 
 /// Settings pages mirroring Mihon's `SettingsMainScreen` entries.
@@ -546,11 +548,12 @@ const BROWSE_ROWS: [MoreRow; 7] = [
     MoreRow::Note("Extension host runs APKs. Add repositories in Browse → Extensions."),
 ];
 
-const DATA_ROWS: [MoreRow; 4] = [
+const DATA_ROWS: [MoreRow; 5] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::LibraryPath),
-    MoreRow::Note("Progress: $XDG_DATA_HOME/tsuiyomi/progress.json"),
-    MoreRow::Note("Backup import and export are not implemented yet."),
+    MoreRow::Divider("Backups"),
+    MoreRow::Setting(SettingId::ImportBackup),
+    MoreRow::Note("Import reads Mihon .tachibk / .proto.gz backups; export is not implemented."),
 ];
 
 const SECURITY_ROWS: [MoreRow; 3] = [
@@ -5146,6 +5149,7 @@ impl AppState {
             TextAction::SetDownloadsPath => self.set_downloads_path(&input.value),
             TextAction::AddCategory => self.add_category(&input.value),
             TextAction::RenameCategory => self.rename_category(&input.value),
+            TextAction::ImportBackup => self.import_backup(&input.value),
             TextAction::StoryNotes => self.save_story_notes(&input.value),
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
         }
@@ -5967,6 +5971,207 @@ impl AppState {
         self.host_process = None;
         self.host_client = None;
         self.start_bundled_host();
+    }
+
+    fn import_backup(&mut self, value: &str) {
+        let path = PathBuf::from(value.trim());
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.status = Some(format!("Cannot read {}: {error}", path.display()));
+                return;
+            }
+        };
+        let backup = match parse_mihon_backup(&bytes) {
+            Ok(backup) => backup,
+            Err(error) => {
+                self.status = Some(error.to_string());
+                return;
+            }
+        };
+        if backup.mangas.is_empty() {
+            self.status = Some("Backup contains no manga.".to_owned());
+            return;
+        }
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        if self.remote.sources.is_empty() {
+            self.load_remote_sources();
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let source_names: std::collections::HashMap<i64, String> = backup
+            .sources
+            .iter()
+            .map(|source| (source.source_id, source.name.clone()))
+            .collect();
+        let category_names: std::collections::HashMap<i64, String> = backup
+            .categories
+            .iter()
+            .map(|category| (category.id, category.name.clone()))
+            .collect();
+
+        let mut imported = 0usize;
+        let mut skipped = 0usize;
+        let mut failed = 0usize;
+        let mut progress_count = 0usize;
+        let mut bookmark_count = 0usize;
+        let mut history_count = 0usize;
+        let mut categories_to_apply: Vec<(String, Vec<String>)> = Vec::new();
+
+        for manga in &backup.mangas {
+            let source = if let Some(name) = source_names.get(&manga.source_id) {
+                let normalized = normalized_title(name);
+                self.remote.sources.iter().find(|source| {
+                    normalized_title(&source.name) == normalized
+                        || normalized_title(&source.display_name()) == normalized
+                })
+            } else {
+                self.remote
+                    .sources
+                    .iter()
+                    .find(|source| source.id == manga.source_id.to_string())
+            }
+            .cloned();
+            let Some(source) = source else {
+                skipped += 1;
+                continue;
+            };
+            let remote_manga = RemoteManga {
+                source_id: source.id.clone(),
+                url: manga.url.clone(),
+                title: manga.title.clone(),
+                author: manga.author.clone(),
+                artist: manga.artist.clone(),
+                description: manga.description.clone(),
+                genre: manga.genre.clone(),
+                status: "unknown".to_owned(),
+                thumbnail_url: manga.thumbnail_url.clone(),
+                memo: None,
+            };
+            let story_key = remote_story_key(&source.id, &manga.url);
+            if manga.favorite
+                && !self.is_favorite(&source.id, &manga.url)
+                && client.add_favorite(&remote_manga).is_err()
+            {
+                failed += 1;
+            }
+            let categories: Vec<String> = manga
+                .category_ids
+                .iter()
+                .filter_map(|id| category_names.get(id).cloned())
+                .collect();
+            if !categories.is_empty() {
+                categories_to_apply.push((story_key.clone(), categories));
+            }
+            if !manga.notes.trim().is_empty() {
+                self.config
+                    .story_notes
+                    .insert(story_key.clone(), manga.notes.clone());
+            }
+
+            let chapters: std::collections::HashMap<&str, &tsuiyomi_core::BackupChapter> = manga
+                .chapters
+                .iter()
+                .map(|chapter| (chapter.url.as_str(), chapter))
+                .collect();
+            for chapter in &manga.chapters {
+                if chapter.url.is_empty() {
+                    continue;
+                }
+                let key = remote_progress_key(&source.id, &manga.url, &chapter.url);
+                let last = chapter.last_page_read.max(0) as usize;
+                if chapter.read {
+                    self.progress.update(&key, last, last.saturating_add(1));
+                    progress_count += 1;
+                } else if last > 0 {
+                    self.progress.update(&key, last, last.saturating_add(2));
+                    progress_count += 1;
+                }
+                if chapter.bookmark {
+                    self.bookmarks.set(&key, true);
+                    bookmark_count += 1;
+                }
+            }
+            for history in &manga.history {
+                let Some(chapter) = chapters.get(history.url.as_str()).copied() else {
+                    continue;
+                };
+                let pages = chapter.last_page_read.max(0) as usize + 1;
+                let page = chapter.last_page_read.max(0) as usize;
+                let remote_chapter = RemoteChapter {
+                    url: chapter.url.clone(),
+                    name: if chapter.name.is_empty() {
+                        "Chapter".to_owned()
+                    } else {
+                        chapter.name.clone()
+                    },
+                    chapter_number: chapter.chapter_number,
+                    scanlator: chapter.scanlator.clone(),
+                    upload_date: chapter.date_upload,
+                    memo: None,
+                };
+                let key = remote_progress_key(&source.id, &manga.url, &chapter.url);
+                let mut entry = HistoryEntry::remote(
+                    manga.title.clone(),
+                    remote_chapter.name.clone(),
+                    source.display_name(),
+                    remote_manga.clone(),
+                    remote_chapter,
+                    page,
+                    pages,
+                );
+                entry.last_read = unix_seconds(history.last_read.max(0) as u64);
+                entry.read_duration_secs = history.read_duration.max(0) as u64;
+                self.history
+                    .record(key.to_string_lossy().into_owned(), entry);
+                history_count += 1;
+            }
+            imported += 1;
+        }
+
+        if imported > 0 {
+            self.load_favorites();
+            for (key, categories) in categories_to_apply {
+                if let Some(favorite) =
+                    self.config.remote_library.iter_mut().find(|favorite| {
+                        remote_story_key(&favorite.source_id, &favorite.url) == key
+                    })
+                {
+                    let mut known: std::collections::BTreeSet<String> =
+                        favorite.categories.iter().cloned().collect();
+                    known.extend(categories);
+                    favorite.categories = known.into_iter().collect();
+                }
+            }
+            self.merge_remote_library();
+            let _ = self.progress.save();
+            let _ = self.bookmarks.save();
+            let _ = self.history.save();
+            self.progress_dirty = false;
+            self.history_dirty = false;
+            self.persist_settings();
+        }
+        let mut parts = vec![format!("Imported {imported} manga")];
+        if progress_count > 0 {
+            parts.push(format!("{progress_count} chapter states"));
+        }
+        if bookmark_count > 0 {
+            parts.push(format!("{bookmark_count} bookmarks"));
+        }
+        if history_count > 0 {
+            parts.push(format!("{history_count} history entries"));
+        }
+        if skipped > 0 {
+            parts.push(format!("{skipped} unmatched sources"));
+        }
+        if failed > 0 {
+            parts.push(format!("{failed} add failures"));
+        }
+        self.status = Some(parts.join(" · "));
+        self.remote.error = failed > 0;
     }
 
     fn set_downloads_path(&mut self, value: &str) {
@@ -10280,6 +10485,9 @@ impl AppState {
                 let current = self.config.flaresolverr_url.clone().unwrap_or_default();
                 self.open_text_input(TextAction::SetFlareSolverr, "FlareSolverr URL", &current);
             }
+            SettingId::ImportBackup => {
+                self.open_text_input(TextAction::ImportBackup, "Mihon backup path", "");
+            }
             SettingId::DownloadsPath => {
                 let current = downloads_dir(&self.config)
                     .map(|path| path.display().to_string())
@@ -10830,7 +11038,8 @@ impl AppState {
             | SettingId::RescanLibrary
             | SettingId::HostUrl
             | SettingId::FlareSolverr
-            | SettingId::DownloadsPath => return,
+            | SettingId::DownloadsPath
+            | SettingId::ImportBackup => return,
         }
 
         self.persist_settings();
@@ -12577,6 +12786,14 @@ fn migrate_legacy_cover(path: &Path, source_id: &str, manga_url: &str) -> bool {
     write_cover_atomically(path, &bytes);
     let _ = std::fs::remove_file(legacy);
     true
+}
+
+fn unix_seconds(value: u64) -> u64 {
+    if value > 100_000_000_000 {
+        value / 1000
+    } else {
+        value
+    }
 }
 
 fn open_external_target(target: &str) -> std::io::Result<()> {
@@ -14647,6 +14864,19 @@ mod tests {
         app.cancel_downloads();
         assert!(cancel.load(Ordering::Relaxed));
         assert!(app.download_queue.cancelling);
+    }
+
+    #[test]
+    fn backup_import_reports_missing_and_empty_files() {
+        let mut app = AppState::default();
+        app.import_backup("/definitely/missing/backup.tachibk");
+        assert!(app.status.as_deref().unwrap_or("").contains("Cannot read"));
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("empty.tachibk");
+        std::fs::write(&path, []).unwrap();
+        app.import_backup(&path.display().to_string());
+        assert_eq!(app.status.as_deref(), Some("Backup contains no manga."));
     }
 
     #[test]

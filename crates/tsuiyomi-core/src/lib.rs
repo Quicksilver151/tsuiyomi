@@ -5,6 +5,7 @@
 //! types in this crate.
 
 mod archive;
+pub mod backup;
 pub mod bookmarks;
 pub mod browse;
 pub mod chapter;
@@ -27,6 +28,10 @@ pub mod runtime;
 pub mod source_prefs;
 pub mod story_cache;
 
+pub use backup::{
+    parse_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
+    MihonBackup,
+};
 pub use bookmarks::BookmarkStore;
 pub use browse::normalized_title;
 pub use chapter::parse_chapter_number;

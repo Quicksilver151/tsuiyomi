@@ -2509,6 +2509,7 @@ dependencies = [
  "chrono",
  "confy",
  "directories",
+ "flate2",
  "image",
  "natord",
  "quick-xml",

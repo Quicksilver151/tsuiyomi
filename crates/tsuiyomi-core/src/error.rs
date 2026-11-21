@@ -46,4 +46,7 @@ pub enum CoreError {
 
     #[error("operation cancelled")]
     Cancelled,
+
+    #[error("invalid backup: {message}")]
+    Backup { message: String },
 }

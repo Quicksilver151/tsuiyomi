@@ -43,7 +43,7 @@ Legend:
 | Covers | Generated first-page cover | Yes | Yes | ✅ | Best effort, capped at 512 px longest edge. |
 | Categories | Mihon database categories | Yes | 🟡 | 🟡 | `categories.json` in the library root; unlisted series use `Default`. |
 | Metadata writes | Mihon-readable metadata export | Yes | ❌ | ❌ | No `ComicInfo.xml`/`details.json` writing. |
-| Backups | Import `.tachibk` / `.proto.gz` | Yes | ❌ | ❌ | Not implemented. |
+| Backups | Import `.tachibk` / `.proto.gz` | Yes | 🟡 | 🟡 | Remote favorites/categories/notes/progress/bookmarks/history; local-source entries and some metadata are skipped. |
 | Backups | Export Mihon-restorable backups | Yes | ❌ | ❌ | Not implemented. |
 
 ## 2. Library
@@ -270,7 +270,7 @@ Legend:
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Downloads | Download settings/management page | Yes | 🟡 | 🟡 | Configurable downloads folder; no per-series download list/queue screen yet. |
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
-| Data | Backup import/export | Yes | ❌ | ❌ | |
+| Data | Backup import/export | Yes | 🟡 | 🟡 | Import from More → Data and storage; export pending. |
 | Data | Storage statistics/cleanup | Yes | ❌ | ❌ | |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
 | Statistics | Dedicated statistics screen | Yes | 🟡 | 🟡 | History → Stats mini-tab. |
