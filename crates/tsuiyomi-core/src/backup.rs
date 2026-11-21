@@ -288,6 +288,148 @@ fn invalid(message: &str) -> CoreError {
     }
 }
 
+/// Encode a backup in Mihon's protobuf format and gzip it.
+pub fn encode_mihon_backup(backup: &MihonBackup) -> Vec<u8> {
+    let mut data = Vec::new();
+    for manga in &backup.mangas {
+        let mut message = Vec::new();
+        put_varint(&mut message, 1, manga.source_id.max(0) as u64);
+        put_bytes(&mut message, 2, manga.url.as_bytes());
+        put_bytes(&mut message, 3, manga.title.as_bytes());
+        if let Some(artist) = &manga.artist {
+            put_bytes(&mut message, 4, artist.as_bytes());
+        }
+        if let Some(author) = &manga.author {
+            put_bytes(&mut message, 5, author.as_bytes());
+        }
+        if let Some(description) = &manga.description {
+            put_bytes(&mut message, 6, description.as_bytes());
+        }
+        for genre in &manga.genre {
+            put_bytes(&mut message, 7, genre.as_bytes());
+        }
+        if let Some(thumbnail) = &manga.thumbnail_url {
+            put_bytes(&mut message, 9, thumbnail.as_bytes());
+        }
+        for chapter in &manga.chapters {
+            let mut chapter_message = Vec::new();
+            put_bytes(&mut chapter_message, 1, chapter.url.as_bytes());
+            put_bytes(&mut chapter_message, 2, chapter.name.as_bytes());
+            if let Some(scanlator) = &chapter.scanlator {
+                put_bytes(&mut chapter_message, 3, scanlator.as_bytes());
+            }
+            if chapter.read {
+                put_varint(&mut chapter_message, 4, 1);
+            }
+            if chapter.bookmark {
+                put_varint(&mut chapter_message, 5, 1);
+            }
+            if chapter.last_page_read > 0 {
+                put_varint(&mut chapter_message, 6, chapter.last_page_read as u64);
+            }
+            if chapter.date_upload != 0 {
+                put_varint(&mut chapter_message, 8, chapter.date_upload.max(0) as u64);
+            }
+            if chapter.chapter_number != 0.0 {
+                put_fixed32(&mut chapter_message, 9, chapter.chapter_number);
+            }
+            put_bytes(&mut message, 16, &chapter_message);
+        }
+        for category in &manga.category_ids {
+            put_varint(&mut message, 17, (*category).max(0) as u64);
+        }
+        for history in &manga.history {
+            let mut history_message = Vec::new();
+            put_bytes(&mut history_message, 1, history.url.as_bytes());
+            put_varint(&mut history_message, 2, history.last_read.max(0) as u64);
+            if history.read_duration > 0 {
+                put_varint(&mut history_message, 3, history.read_duration as u64);
+            }
+            put_bytes(&mut message, 104, &history_message);
+        }
+        if manga.favorite {
+            put_varint(&mut message, 100, 1);
+        }
+        if !manga.notes.is_empty() {
+            put_bytes(&mut message, 110, manga.notes.as_bytes());
+        }
+        put_bytes(&mut data, 1, &message);
+    }
+    for category in &backup.categories {
+        let mut message = Vec::new();
+        put_bytes(&mut message, 1, category.name.as_bytes());
+        put_varint(&mut message, 3, category.id.max(0) as u64);
+        put_bytes(&mut data, 2, &message);
+    }
+    for source in &backup.sources {
+        let mut message = Vec::new();
+        put_bytes(&mut message, 1, source.name.as_bytes());
+        put_varint(&mut message, 2, source.source_id.max(0) as u64);
+        put_bytes(&mut data, 101, &message);
+    }
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut encoder, &data).expect("gzip write to memory");
+    encoder.finish().expect("gzip finish")
+}
+
+/// Write a gzipped Mihon backup to `path`.
+pub fn write_mihon_backup(path: &std::path::Path, backup: &MihonBackup) -> std::io::Result<()> {
+    std::fs::write(path, encode_mihon_backup(backup))
+}
+
+fn put_key(out: &mut Vec<u8>, field: u32, wire: u8) {
+    let mut key = (u64::from(field) << 3) | u64::from(wire);
+    loop {
+        let mut byte = (key & 0x7f) as u8;
+        key >>= 7;
+        if key != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if key == 0 {
+            break;
+        }
+    }
+}
+
+fn put_varint(out: &mut Vec<u8>, field: u32, value: u64) {
+    put_key(out, field, 0);
+    let mut value = value;
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+}
+
+fn put_bytes(out: &mut Vec<u8>, field: u32, value: &[u8]) {
+    put_key(out, field, 2);
+    let mut length = value.len() as u64;
+    loop {
+        let mut byte = (length & 0x7f) as u8;
+        length >>= 7;
+        if length != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if length == 0 {
+            break;
+        }
+    }
+    out.extend_from_slice(value);
+}
+
+fn put_fixed32(out: &mut Vec<u8>, field: u32, value: f32) {
+    put_key(out, field, 5);
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,6 +511,45 @@ mod tests {
         assert!(parsed.mangas[0].chapters[0].read);
         assert_eq!(parsed.categories[0].name, "Reading");
         assert_eq!(parsed.sources[0].name, "Asura Scans");
+    }
+
+    #[test]
+    fn encodes_a_backup_that_parses_back() {
+        let backup = MihonBackup {
+            mangas: vec![BackupManga {
+                source_id: 42,
+                url: "/manga/alpha".to_owned(),
+                title: "Alpha".to_owned(),
+                favorite: true,
+                notes: "note".to_owned(),
+                chapters: vec![BackupChapter {
+                    url: "/chapter/1".to_owned(),
+                    name: "Chapter 1".to_owned(),
+                    read: true,
+                    bookmark: true,
+                    last_page_read: 9,
+                    chapter_number: 1.0,
+                    ..BackupChapter::default()
+                }],
+                category_ids: vec![7],
+                history: vec![BackupHistory {
+                    url: "/chapter/1".to_owned(),
+                    last_read: 1_700_000_000_000,
+                    read_duration: 60,
+                }],
+                ..BackupManga::default()
+            }],
+            categories: vec![BackupCategory {
+                id: 7,
+                name: "Reading".to_owned(),
+            }],
+            sources: vec![BackupSource {
+                name: "Source".to_owned(),
+                source_id: 42,
+            }],
+        };
+        let parsed = parse_mihon_backup(&encode_mihon_backup(&backup)).unwrap();
+        assert_eq!(parsed, backup);
     }
 
     #[test]

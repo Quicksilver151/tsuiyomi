@@ -25,7 +25,7 @@ Legend:
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| 1. Mihon on-disk compatibility | 17 | 3 | 2 | 0 | 84.1% |
+| 1. Mihon on-disk compatibility | 17 | 4 | 1 | 0 | 86.4% |
 | 2. Library | 12 | 1 | 3 | 0 | 78.1% |
 | 3. Browse, sources, and global search | 28 | 3 | 1 | 0 | 92.2% |
 | 4. Extensions and host lifecycle | 22 | 1 | 2 | 0 | 90.0% |
@@ -33,9 +33,9 @@ Legend:
 | 6. Reader | 14 | 1 | 1 | 0 | 90.6% |
 | 7. History and Stats | 19 | 0 | 0 | 0 | 100.0% |
 | 8. Migrate | 16 | 2 | 2 | 0 | 85.0% |
-| 9. Settings, security, and data | 9 | 4 | 1 | 0 | 78.6% |
+| 9. Settings, security, and data | 10 | 3 | 1 | 0 | 82.1% |
 | 10. Documented TUI deviations | 2 | 1 | 1 | 2 | 62.5% |
-| **All feature tables** | **178** | **17** | **20** | **2** | **86.7%** |
+| **All feature tables** | **179** | **17** | **19** | **2** | **87.2%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` marks intentional TUI
 deviations and is excluded. Recompute with `python3 scripts/parity-score.py` after changing status rows.
@@ -43,7 +43,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 <!-- parity-summary:end -->
 
 ## 1. Mihon on-disk compatibility
-<!-- parity-score --> *Completion: **84.1%** · 17 ✅ · 3 🟡 · 2 ❌*
+<!-- parity-score --> *Completion: **86.4%** · 17 ✅ · 4 🟡 · 1 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -68,7 +68,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Categories | Mihon database categories | Yes | 🟡 | 🟡 | `categories.json` in the library root; unlisted series use `Default`. |
 | Metadata writes | Mihon-readable metadata export | Yes | ❌ | ❌ | No `ComicInfo.xml`/`details.json` writing. |
 | Backups | Import `.tachibk` / `.proto.gz` | Yes | 🟡 | 🟡 | Remote favorites/categories/notes/progress/bookmarks/history; local-source entries and some metadata are skipped. |
-| Backups | Export Mihon-restorable backups | Yes | ❌ | ❌ | Not implemented. |
+| Backups | Export Mihon-restorable backups | Yes | 🟡 | 🟡 | Remote library/categories/chapter state/history written; local-source entries omitted and Mihon restore is not yet round-trip verified. |
 
 ## 2. Library
 <!-- parity-score --> *Completion: **78.1%** · 12 ✅ · 1 🟡 · 3 ❌*
@@ -288,7 +288,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Downloads | Move/delete old downloads | Yes | ❌ | ❌ | |
 
 ## 9. Settings, security, and data
-<!-- parity-score --> *Completion: **78.6%** · 9 ✅ · 4 🟡 · 1 ❌*
+<!-- parity-score --> *Completion: **82.1%** · 10 ✅ · 3 🟡 · 1 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -302,7 +302,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Downloads | Download settings/management page | Yes | 🟡 | 🟡 | Configurable downloads folder; no per-series download list/queue screen yet. |
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
-| Data | Backup import/export | Yes | 🟡 | 🟡 | Import from More → Data and storage; export pending. |
+| Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
 | Data | Storage statistics/cleanup | Yes | 🟡 | 🟡 | Library/downloads/host sizes and counts; cleanup actions pending. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
 | Statistics | Dedicated statistics screen | Yes | 🟡 | 🟡 | History → Stats mini-tab. |

@@ -96,6 +96,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_save_categories(frame, app);
     draw_tag_picker(frame, app);
     draw_migration_sources(frame, app);
+    draw_migration_search(frame, app);
 }
 
 fn draw_cover_overlay(frame: &mut Frame, app: &mut AppState) {
@@ -208,6 +209,75 @@ fn draw_download_delete_confirm(frame: &mut Frame, app: &AppState) {
         ])),
         inner,
     );
+}
+
+fn draw_migration_search(frame: &mut Frame, app: &AppState) {
+    let Some(search) = app.migration_search.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let height = (search.results.len() as u16 + 2).min(area.height).max(4);
+    let width = 76.min(area.width).max(24);
+    if width < 20 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Manual migration target ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Enter select · Esc cancel ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = search
+        .results
+        .iter()
+        .enumerate()
+        .map(|(index, result)| {
+            let selected = index == search.selected;
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    result.manga.title.clone(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+                Span::styled(
+                    format!("  {:>3.0}%", result.score * 100.0),
+                    Style::default().fg(c_teal()),
+                ),
+                Span::styled(
+                    format!("  {}", result.source.display_name()),
+                    Style::default().fg(c_overlay0()),
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(
+        search.selected.min(search.results.len().saturating_sub(1)),
+    ));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
 fn draw_migration_sources(frame: &mut Frame, app: &AppState) {
@@ -1346,6 +1416,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                     ("q", "quit"),
                     ("↑↓", "match"),
                     ("s", "skip"),
+                    ("o", "override"),
                     ("t", "sources"),
                     ("M", "migrate"),
                     ("C", "copy"),
@@ -1365,6 +1436,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
             vec![
                 ("q", "quit"),
                 ("r", "refresh"),
+                ("c", "clear covers"),
                 ("[ ]", "sections"),
                 ("Esc", "back"),
             ]
@@ -5192,6 +5264,7 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 .unwrap_or_else(|| "not set".to_owned()),
         ),
         SettingId::ImportBackup => ("Import Mihon backup".to_owned(), "Enter path".to_owned()),
+        SettingId::ExportBackup => ("Export Mihon backup".to_owned(), "Enter path".to_owned()),
         SettingId::DownloadsPath => (
             "Downloads folder".to_owned(),
             downloads_dir(&app.config)

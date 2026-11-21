@@ -29,8 +29,8 @@ pub mod source_prefs;
 pub mod story_cache;
 
 pub use backup::{
-    parse_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
-    MihonBackup,
+    encode_mihon_backup, parse_mihon_backup, write_mihon_backup, BackupCategory, BackupChapter,
+    BackupHistory, BackupManga, BackupSource, MihonBackup,
 };
 pub use bookmarks::BookmarkStore;
 pub use browse::normalized_title;
@@ -66,8 +66,8 @@ pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
 pub use reading_stats::{date_key_for_unix, today_key, ReadingStats, SeriesReadingTime};
 pub use runtime::{
-    ensure_runtime, host_data_dir, legacy_remote_cover_path, remote_cover_path, HostProcess,
-    HostRuntime, HOST_VERSION,
+    covers_dir, ensure_runtime, host_data_dir, legacy_remote_cover_path, remote_cover_path,
+    HostProcess, HostRuntime, HOST_VERSION,
 };
 pub use source_prefs::{
     preference_body, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,

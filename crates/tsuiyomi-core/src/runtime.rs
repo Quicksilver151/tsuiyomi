@@ -99,15 +99,16 @@ pub fn host_data_dir() -> Option<PathBuf> {
 /// name derived from the source and manga URL. This lives in the data directory
 /// rather than the cache directory so routine cache cleanup does not remove saved
 /// library artwork.
+pub fn covers_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| dirs.data_dir().join("tsuiyomi").join("covers"))
+}
+
 pub fn remote_cover_path(source_id: &str, manga_url: &str) -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|dirs| {
-        dirs.data_dir()
-            .join("tsuiyomi")
-            .join("covers")
-            .join(format!(
-                "{}.img",
-                stable_hash(&format!("{source_id}\n{manga_url}"))
-            ))
+    covers_dir().map(|dir| {
+        dir.join(format!(
+            "{}.img",
+            stable_hash(&format!("{source_id}\n{manga_url}"))
+        ))
     })
 }
 

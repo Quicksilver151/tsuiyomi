@@ -23,14 +23,15 @@ use tsuiyomi_core::{
     legacy_remote_cover_path, load_cached_story, merge_extensions, missing_chapter_count,
     normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
     read_state, remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
-    source_dir_name, story_cache_path, today_key, visible_chapters, BookmarkStore, CachedStory,
-    Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, Config,
-    ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
-    InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch, NotLoadedExtension, Page,
-    PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, SourceDisplayMode,
-    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
-    Theme, TriState,
+    source_dir_name, story_cache_path, title_similarity, today_key, visible_chapters,
+    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
+    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
+    ChapterSort, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient,
+    HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup,
+    NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats,
+    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource,
+    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    SourcePreferenceValue, SourcePreferences, Theme, TriState,
 };
 
 use crate::{
@@ -308,6 +309,8 @@ pub enum TextAction {
     AddCategory,
     RenameCategory,
     ImportBackup,
+    ExportBackup,
+    MigrationSearch,
     StoryNotes,
     SetCustomCover,
 }
@@ -463,6 +466,7 @@ pub enum SettingId {
     FlareSolverr,
     DownloadsPath,
     ImportBackup,
+    ExportBackup,
 }
 
 /// Settings pages mirroring Mihon's `SettingsMainScreen` entries.
@@ -548,12 +552,13 @@ const BROWSE_ROWS: [MoreRow; 7] = [
     MoreRow::Note("Extension host runs APKs. Add repositories in Browse → Extensions."),
 ];
 
-const DATA_ROWS: [MoreRow; 5] = [
+const DATA_ROWS: [MoreRow; 6] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::LibraryPath),
     MoreRow::Divider("Backups"),
     MoreRow::Setting(SettingId::ImportBackup),
-    MoreRow::Note("Import reads Mihon .tachibk / .proto.gz backups; export is not implemented."),
+    MoreRow::Setting(SettingId::ExportBackup),
+    MoreRow::Note("Backups use Mihon's .tachibk / .proto.gz format."),
 ];
 
 const SECURITY_ROWS: [MoreRow; 3] = [
@@ -844,6 +849,19 @@ pub struct MigrationSourcePicker {
     pub chosen: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct MigrationSearchResult {
+    pub source: RemoteSource,
+    pub manga: RemoteManga,
+    pub score: f64,
+}
+
+#[derive(Debug, Default)]
+pub struct MigrationSearchState {
+    pub results: Vec<MigrationSearchResult>,
+    pub selected: usize,
+}
+
 pub struct HistoryDeleteDialog {
     pub keys: Vec<String>,
     pub series_keys: Vec<String>,
@@ -1081,6 +1099,7 @@ pub struct AppState {
     pub save_categories: Option<SaveCategories>,
     pub tag_picker: Option<TagPicker>,
     pub migration_source_picker: Option<MigrationSourcePicker>,
+    pub migration_search: Option<MigrationSearchState>,
     pub cover_overlay: bool,
     pub status: Option<String>,
 }
@@ -1215,6 +1234,7 @@ impl AppState {
             save_categories: None,
             tag_picker: None,
             migration_source_picker: None,
+            migration_search: None,
             cover_overlay: false,
             status,
         }
@@ -2195,6 +2215,139 @@ impl AppState {
         ));
         self.remote.error = found == 0;
         true
+    }
+
+    pub fn open_migration_search(&mut self) {
+        if self.tab != 3
+            || self.browse_view != BrowseView::Migrate
+            || self.migrate.screen != MigrateScreen::Matches
+        {
+            return;
+        }
+        let Some(title) = self
+            .migrate
+            .matches
+            .get(self.browse_selection)
+            .map(|matched| matched.old.title.clone())
+        else {
+            return;
+        };
+        self.open_text_input(TextAction::MigrationSearch, "Search target", &title);
+    }
+
+    fn run_migration_search(&mut self, query: &str) {
+        let query = query.trim();
+        if query.is_empty() {
+            return;
+        }
+        let Some(old) = self
+            .migrate
+            .matches
+            .get(self.browse_selection)
+            .map(|matched| matched.old.clone())
+        else {
+            return;
+        };
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let mut results = Vec::new();
+        for source in self.migration_targets() {
+            if source.id == old.source_id {
+                continue;
+            }
+            let Ok(page) = client.search(&source.id, query, 1) else {
+                continue;
+            };
+            for manga in page.mangas {
+                results.push(MigrationSearchResult {
+                    score: title_similarity(&old.title, &manga.title),
+                    source: source.clone(),
+                    manga,
+                });
+            }
+        }
+        results.sort_by(|left, right| {
+            right
+                .score
+                .partial_cmp(&left.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.truncate(50);
+        if results.is_empty() {
+            self.remote.status = Some("No manual targets found.".to_owned());
+            self.remote.error = true;
+            return;
+        }
+        self.remote.status = Some(format!("{} manual targets", results.len()));
+        self.remote.error = false;
+        self.migration_search = Some(MigrationSearchState {
+            results,
+            selected: 0,
+        });
+    }
+
+    pub fn migration_search_previous(&mut self) {
+        if let Some(state) = self.migration_search.as_mut() {
+            state.selected = state.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn migration_search_next(&mut self) {
+        if let Some(state) = self.migration_search.as_mut() {
+            if !state.results.is_empty() {
+                state.selected = (state.selected + 1).min(state.results.len() - 1);
+            }
+        }
+    }
+
+    pub fn cancel_migration_search(&mut self) {
+        self.migration_search = None;
+    }
+
+    pub fn confirm_migration_search(&mut self) {
+        let Some(state) = self.migration_search.take() else {
+            return;
+        };
+        let Some(result) = state.results.get(state.selected).cloned() else {
+            return;
+        };
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let chapters = client.chapters(
+            &result.source.id,
+            &result.manga.url,
+            result.manga.memo.as_deref(),
+        );
+        let (message, error) = match chapters {
+            Ok(chapters) if !chapters.is_empty() => {
+                let Some(matched) = self.migrate.matches.get_mut(self.browse_selection) else {
+                    return;
+                };
+                matched.target = Some(result.manga.clone());
+                matched.target_source = Some(result.source.clone());
+                matched.target_chapters = chapters;
+                matched.score = result.score;
+                matched.error = None;
+                matched.skipped = false;
+                (
+                    format!(
+                        "Target set to {} ({})",
+                        result.manga.title,
+                        result.source.display_name()
+                    ),
+                    false,
+                )
+            }
+            Ok(_) => ("Target has no chapters.".to_owned(), true),
+            Err(error) => (error.to_string(), true),
+        };
+        self.remote.status = Some(message);
+        self.remote.error = error;
     }
 
     pub fn migrate_toggle_skip(&mut self) {
@@ -5360,6 +5513,8 @@ impl AppState {
             TextAction::AddCategory => self.add_category(&input.value),
             TextAction::RenameCategory => self.rename_category(&input.value),
             TextAction::ImportBackup => self.import_backup(&input.value),
+            TextAction::ExportBackup => self.export_backup(&input.value),
+            TextAction::MigrationSearch => self.run_migration_search(&input.value),
             TextAction::StoryNotes => self.save_story_notes(&input.value),
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
         }
@@ -6181,6 +6336,170 @@ impl AppState {
         self.host_process = None;
         self.host_client = None;
         self.start_bundled_host();
+    }
+
+    fn export_backup(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            self.status = Some("Enter an export path.".to_owned());
+            return;
+        }
+        if self.config.remote_library.is_empty() {
+            self.status = Some("No saved remote manga to export.".to_owned());
+            return;
+        }
+        let mut path = PathBuf::from(value);
+        if path.extension().is_none() {
+            path.set_extension("tachibk");
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && std::fs::create_dir_all(parent).is_err() {
+                self.status = Some("Cannot create the backup directory.".to_owned());
+                return;
+            }
+        }
+
+        let category_names: Vec<String> = self
+            .library
+            .categories
+            .iter()
+            .filter(|name| name.as_str() != "Default")
+            .cloned()
+            .collect();
+        let category_ids: BTreeMap<String, i64> = category_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (name.clone(), index as i64 + 1))
+            .collect();
+        let categories: Vec<BackupCategory> = category_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| BackupCategory {
+                id: index as i64 + 1,
+                name: name.clone(),
+            })
+            .collect();
+        let mut sources: BTreeMap<i64, BackupSource> = BTreeMap::new();
+        let mut mangas = Vec::new();
+        let mut chapter_count = 0usize;
+        let mut history_count = 0usize;
+
+        for favorite in &self.config.remote_library {
+            let Ok(source_id) = favorite.source_id.parse::<i64>() else {
+                continue;
+            };
+            let story = load_cached_story(&favorite.source_id, &favorite.url);
+            let (details, story_chapters) = story
+                .map(|story| (Some(story.manga), story.chapters))
+                .unwrap_or((None, Vec::new()));
+            let source_name = self
+                .remote
+                .sources
+                .iter()
+                .find(|source| source.id == favorite.source_id)
+                .map(|source| source.name.clone())
+                .unwrap_or_else(|| favorite.source_id.clone());
+            sources.insert(
+                source_id,
+                BackupSource {
+                    name: source_name,
+                    source_id,
+                },
+            );
+            let key = remote_story_key(&favorite.source_id, &favorite.url);
+            let mut history_by_chapter: BTreeMap<String, Vec<BackupHistory>> = BTreeMap::new();
+            for (_, entry) in self.history.recent() {
+                if entry.series_key() != key {
+                    continue;
+                }
+                let Some(remote) = &entry.remote else {
+                    continue;
+                };
+                history_by_chapter
+                    .entry(remote.chapter.url.clone())
+                    .or_default()
+                    .push(BackupHistory {
+                        url: remote.chapter.url.clone(),
+                        last_read: entry.last_read.saturating_mul(1000) as i64,
+                        read_duration: entry.read_duration_secs as i64,
+                    });
+                history_count += 1;
+            }
+            let mut chapters = Vec::new();
+            for chapter in &story_chapters {
+                let progress =
+                    remote_progress_key(&favorite.source_id, &favorite.url, &chapter.url);
+                let entry = self.progress.entry(&progress);
+                let read = entry.is_some_and(|entry| entry.page + 1 >= entry.pages);
+                let last_page = entry.map(|entry| entry.page as i64).unwrap_or(0);
+                let bookmark = self.bookmarks.is_bookmarked(&progress);
+                if entry.is_some() || bookmark {
+                    chapter_count += 1;
+                }
+                chapters.push(BackupChapter {
+                    url: chapter.url.clone(),
+                    name: chapter.name.clone(),
+                    scanlator: chapter.scanlator.clone(),
+                    read,
+                    bookmark,
+                    last_page_read: last_page,
+                    date_upload: chapter.upload_date,
+                    chapter_number: chapter.chapter_number,
+                });
+            }
+            let history = chapters
+                .iter()
+                .flat_map(|chapter| history_by_chapter.remove(&chapter.url).unwrap_or_default())
+                .collect();
+            let categories_for_manga: Vec<i64> = favorite
+                .categories
+                .iter()
+                .filter_map(|name| category_ids.get(name).copied())
+                .collect();
+            mangas.push(BackupManga {
+                source_id,
+                url: favorite.url.clone(),
+                title: favorite.title.clone(),
+                author: details.as_ref().and_then(|manga| manga.author.clone()),
+                artist: details.as_ref().and_then(|manga| manga.artist.clone()),
+                description: details.as_ref().and_then(|manga| manga.description.clone()),
+                genre: details
+                    .as_ref()
+                    .map(|manga| manga.genre.clone())
+                    .unwrap_or_default(),
+                thumbnail_url: None,
+                chapters,
+                category_ids: categories_for_manga,
+                favorite: true,
+                notes: self
+                    .config
+                    .story_notes
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_default(),
+                history,
+            });
+        }
+
+        let backup = MihonBackup {
+            mangas,
+            categories,
+            sources: sources.into_values().collect(),
+        };
+        match write_mihon_backup(&path, &backup) {
+            Ok(()) => {
+                self.status = Some(format!(
+                    "Exported {} manga · {chapter_count} chapter states · {history_count} history to {}",
+                    backup.mangas.len(),
+                    path.display()
+                ));
+                self.remote.error = false;
+            }
+            Err(error) => {
+                self.status = Some(format!("Could not export backup: {error}"));
+                self.remote.error = true;
+            }
+        }
     }
 
     fn import_backup(&mut self, value: &str) {
@@ -10698,6 +11017,9 @@ impl AppState {
             SettingId::ImportBackup => {
                 self.open_text_input(TextAction::ImportBackup, "Mihon backup path", "");
             }
+            SettingId::ExportBackup => {
+                self.open_text_input(TextAction::ExportBackup, "Export backup to", "");
+            }
             SettingId::DownloadsPath => {
                 let current = downloads_dir(&self.config)
                     .map(|path| path.display().to_string())
@@ -11079,6 +11401,35 @@ impl AppState {
         }
     }
 
+    /// Remove cached remote covers. Local custom covers live beside their series and
+    /// are not touched. Covers are regenerated on the next draw.
+    pub fn clear_cover_cache(&mut self) {
+        let Some(dir) = tsuiyomi_core::covers_dir() else {
+            self.status = Some("Cannot resolve the cover cache directory.".to_owned());
+            return;
+        };
+        let mut removed = 0usize;
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                let result = if path.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                };
+                if result.is_ok() {
+                    removed += 1;
+                }
+            }
+        }
+        self.tile_covers.clear();
+        self.failed_covers.clear();
+        if self.storage_snapshot.is_some() {
+            self.refresh_storage();
+        }
+        self.status = Some(format!("Removed {removed} cached covers"));
+    }
+
     /// Recompute on-disk storage usage for the Data and storage screen.
     pub fn refresh_storage(&mut self) {
         let library_bytes = directory_size(&self.library.root);
@@ -11276,7 +11627,8 @@ impl AppState {
             | SettingId::HostUrl
             | SettingId::FlareSolverr
             | SettingId::DownloadsPath
-            | SettingId::ImportBackup => return,
+            | SettingId::ImportBackup
+            | SettingId::ExportBackup => return,
         }
 
         self.persist_settings();

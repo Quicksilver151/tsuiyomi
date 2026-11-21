@@ -232,6 +232,19 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.migration_search.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.migration_search_previous(),
+                Action::Next => app.migration_search_next(),
+                Action::Open | Action::Confirm => app.confirm_migration_search(),
+                Action::Back => app.cancel_migration_search(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.migration_source_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -832,6 +845,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::SourceFilters => {
                 if app.story_screen_active() {
                     app.open_story_source();
+                } else if app.tab == 3
+                    && app.browse_view == BrowseView::Migrate
+                    && app.migrate.screen == app::MigrateScreen::Matches
+                {
+                    app.open_migration_search();
                 } else if app.tab == 3 && app.browse_view == BrowseView::GlobalResults {
                     app.global_open_group();
                 } else if app.tab == 3 && app.browse_view == BrowseView::Stores {

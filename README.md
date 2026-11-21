@@ -395,9 +395,10 @@ categories:
 - **Downloads** — configurable download folder, with the active queue shown in story
   headers.
 - **Data and storage** — storage counts and library/downloads/host sizes, refreshed
-  with `r`. Imports a Mihon `.tachibk` / `.proto.gz` backup. Remote
-  favorites, categories, notes, chapter state, bookmarks, and history are restored when
-  their source names match the extension host. Export is not implemented.
+  with `r`. Imports and exports Mihon `.tachibk` / `.proto.gz` backups. Import restores
+  remote favorites, categories, notes, chapter state, bookmarks, and history when source
+  names match the extension host. Export writes the saved remote library, categories,
+  chapter state, and history; local-source entries are not exported yet.
 - **Advanced** — optional FlareSolverr URL, used by the bundled host for Cloudflare
   challenges. Changing it restarts a running host.
 - **Downloads** — shows the download folder; `D` downloads the selected remote
