@@ -1294,6 +1294,13 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("↵", "enter"),
                 ("Esc", "back"),
             ]
+        } else if app.more_section == MoreSection::Storage {
+            vec![
+                ("q", "quit"),
+                ("r", "refresh"),
+                ("[ ]", "sections"),
+                ("Esc", "back"),
+            ]
         } else if app.more_section == MoreSection::Categories {
             vec![
                 ("q", "quit"),
@@ -2351,6 +2358,21 @@ fn draw_history_stats(frame: &mut Frame, area: Rect, app: &mut AppState) {
             .scroll((app.history_stats_scroll.min(u16::MAX as usize) as u16, 0)),
         area,
     );
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = KIB * 1024;
+    const GIB: u64 = MIB * 1024;
+    if bytes >= GIB {
+        format!("{:.1} GiB", bytes as f64 / GIB as f64)
+    } else if bytes >= MIB {
+        format!("{:.1} MiB", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB", bytes as f64 / KIB as f64)
+    } else {
+        format!("{bytes} B")
+    }
 }
 
 fn format_duration(seconds: u64) -> String {
@@ -5295,7 +5317,7 @@ fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_more_storage(frame: &mut Frame, area: Rect, app: &AppState) {
-    let lines = vec![
+    let mut lines = vec![
         field("Library", &app.library.root.display().to_string(), c_text()),
         field(
             "Categories",
@@ -5306,12 +5328,37 @@ fn draw_more_storage(frame: &mut Frame, area: Rect, app: &AppState) {
                 .to_string(),
             c_overlay1(),
         ),
-        field(
-            "Progress",
-            "XDG data / tsuiyomi/progress.json",
-            c_overlay1(),
-        ),
     ];
+    if let Some(storage) = &app.storage_snapshot {
+        lines.push(Line::from(""));
+        lines.push(field("Series", &storage.series.to_string(), c_green()));
+        lines.push(field(
+            "Installed extensions",
+            &storage.extensions.to_string(),
+            c_green(),
+        ));
+        lines.push(field(
+            "Library size",
+            &format_bytes(storage.library_bytes),
+            c_blue(),
+        ));
+        lines.push(field(
+            "Downloads",
+            &format_bytes(storage.downloads_bytes),
+            c_blue(),
+        ));
+        lines.push(field(
+            "Host data",
+            &format_bytes(storage.host_bytes),
+            c_blue(),
+        ));
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Press r to calculate storage usage.",
+            Style::default().fg(c_overlay1()),
+        )));
+    }
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(

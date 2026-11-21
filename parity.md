@@ -19,7 +19,31 @@ Legend:
 - ❌ not implemented
 - ➖ intentionally not applicable to a terminal application
 
+<!-- parity-summary:start -->
+
+### Completion summary
+
+| Category | ✅ | 🟡 | ❌ | ➖ | Score |
+|---|---:|---:|---:|---:|---:|
+| 1. Mihon on-disk compatibility | 17 | 3 | 2 | 0 | 84.1% |
+| 2. Library | 12 | 1 | 3 | 0 | 78.1% |
+| 3. Browse, sources, and global search | 28 | 3 | 1 | 0 | 92.2% |
+| 4. Extensions and host lifecycle | 22 | 1 | 2 | 0 | 90.0% |
+| 5. Shared story / chapter screen | 39 | 1 | 7 | 0 | 84.0% |
+| 6. Reader | 14 | 1 | 1 | 0 | 90.6% |
+| 7. History and Stats | 19 | 0 | 0 | 0 | 100.0% |
+| 8. Migrate | 15 | 2 | 3 | 0 | 80.0% |
+| 9. Settings, security, and data | 9 | 4 | 1 | 0 | 78.6% |
+| 10. Documented TUI deviations | 2 | 1 | 1 | 2 | 62.5% |
+| **All feature tables** | **177** | **17** | **21** | **2** | **86.3%** |
+
+Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` marks intentional TUI
+deviations and is excluded. Recompute with `python3 scripts/parity-score.py` after changing status rows.
+
+<!-- parity-summary:end -->
+
 ## 1. Mihon on-disk compatibility
+<!-- parity-score --> *Completion: **84.1%** · 17 ✅ · 3 🟡 · 2 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -47,6 +71,7 @@ Legend:
 | Backups | Export Mihon-restorable backups | Yes | ❌ | ❌ | Not implemented. |
 
 ## 2. Library
+<!-- parity-score --> *Completion: **78.1%** · 12 ✅ · 1 🟡 · 3 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -68,6 +93,7 @@ Legend:
 | Scan | Import browser / file picker | Yes | ❌ | ❌ | Drop folders into `local/` and rescan. |
 
 ## 3. Browse, sources, and global search
+<!-- parity-score --> *Completion: **92.2%** · 28 ✅ · 3 🟡 · 1 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -105,6 +131,7 @@ Legend:
 | Search | Debounced extension search | Yes | ❌ | ❌ | Local filtering is immediate. |
 
 ## 4. Extensions and host lifecycle
+<!-- parity-score --> *Completion: **90.0%** · 22 ✅ · 1 🟡 · 2 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -135,6 +162,7 @@ Legend:
 | WebView | WebView-dependent sources | Yes | ❌ | ❌ | Unsupported by design. |
 
 ## 5. Shared story / chapter screen
+<!-- parity-score --> *Completion: **84.0%** · 39 ✅ · 1 🟡 · 7 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -187,6 +215,7 @@ Legend:
 | Gestures | Swipe to read/bookmark/download | Yes | ❌ | ❌ | TUI uses keys and menu actions. |
 
 ## 6. Reader
+<!-- parity-score --> *Completion: **90.6%** · 14 ✅ · 1 🟡 · 1 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -208,6 +237,7 @@ Legend:
 | Privacy | Incognito suppresses history/time | Yes | ✅ | ✅ | Global and per-extension. |
 
 ## 7. History and Stats
+<!-- parity-score --> *Completion: **100.0%** · 19 ✅ · 0 🟡 · 0 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -232,6 +262,7 @@ Legend:
 | Migration | Migrate from duplicate dialog | Yes | ✅ | ✅ | `M`. |
 
 ## 8. Migrate
+<!-- parity-score --> *Completion: **80.0%** · 15 ✅ · 2 🟡 · 3 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -257,6 +288,7 @@ Legend:
 | Downloads | Move/delete old downloads | Yes | ❌ | ❌ | |
 
 ## 9. Settings, security, and data
+<!-- parity-score --> *Completion: **78.6%** · 9 ✅ · 4 🟡 · 1 ❌*
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
@@ -271,11 +303,12 @@ Legend:
 | Downloads | Download settings/management page | Yes | 🟡 | 🟡 | Configurable downloads folder; no per-series download list/queue screen yet. |
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
 | Data | Backup import/export | Yes | 🟡 | 🟡 | Import from More → Data and storage; export pending. |
-| Data | Storage statistics/cleanup | Yes | ❌ | ❌ | |
+| Data | Storage statistics/cleanup | Yes | 🟡 | 🟡 | Library/downloads/host sizes and counts; cleanup actions pending. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
 | Statistics | Dedicated statistics screen | Yes | 🟡 | 🟡 | History → Stats mini-tab. |
 
 ## 10. Documented TUI deviations
+<!-- parity-score --> *Completion: **62.5%** · 2 ✅ · 1 🟡 · 1 ❌ · 2 ➖*
 
 | Android feature | TUI equivalent | Status | Notes |
 |---|---|---|---|

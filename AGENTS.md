@@ -15,7 +15,8 @@ compiling, but do not extend it. It will be replaced by the manga library.
 ## Status
 
 `parity.md` is the single maintained table of Mihon feature parity. Update the affected
-rows whenever behavior changes or work lands.
+rows whenever behavior changes or work lands, then run `python3 scripts/parity-score.py`
+to refresh the per-category and global percentages.
 
 Local-library and extension-host MVP: scanning, browsing, metadata, covers, reading,
 progress, settings, remote sources, extension management, and reading history work.
@@ -326,11 +327,12 @@ Rules:
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
   About. Entry pages are listed in `SettingsPage`; each page is a gray-divider grouped
   row list. Implemented real options: appearance/theme/accent/thumbnail size, library
-  path/rescan/sort/default category, reader mode/zoom/prefetch/cache, and Security →
-  Incognito (stops progress writes). Downloads shows the download folder; tracking is an
-  informational placeholder. More has a single focus: Enter enters the selected
-  section/page or activates a setting, Esc backs out one level, and left/right adjust the
-  selected setting. Clicking sections, menu rows, and sliders works.
+  path/rescan/sort/default category, reader mode/zoom/fit/prefetch/cache, downloads
+  folder, backup import, and Security → Incognito (stops progress writes). Tracking is an
+  informational placeholder. More → Data and storage shows library/downloads/host sizes
+  on demand (`r`); cleanup actions are still pending. More has a single focus: Enter
+  enters the selected section/page or activates a setting, Esc backs out one level, and
+  left/right adjust the selected setting. Clicking sections, menu rows, and sliders works.
 - Core has tests for chapter parsing, config loading, scanning, categories, page
   discovery, and reading progress. The TUI has TestBackend rendering tests for the library,
   chapter, and reader views.

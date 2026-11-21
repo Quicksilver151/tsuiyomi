@@ -688,7 +688,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::SelectTab(index) => app.select_tab(index),
             Action::Refresh => {
-                if app.tab == 3 {
+                if app.tab == 4 && app.more_section == MoreSection::Storage {
+                    app.refresh_storage();
+                } else if app.tab == 3 {
                     app.refresh_browse();
                 } else if app.tab == 0 && app.view == LibraryView::RemoteDetails {
                     app.reload_library_remote_chapters();

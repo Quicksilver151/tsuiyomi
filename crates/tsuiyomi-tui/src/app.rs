@@ -844,6 +844,15 @@ pub struct HistoryDeleteDialog {
     pub all_series: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct StorageSnapshot {
+    pub library_bytes: u64,
+    pub downloads_bytes: u64,
+    pub host_bytes: u64,
+    pub series: usize,
+    pub extensions: usize,
+}
+
 #[derive(Clone)]
 pub struct ScanContext {
     previous_series: Option<PathBuf>,
@@ -984,6 +993,7 @@ pub struct AppState {
     pub(crate) scan_worker: Option<ScanWorker>,
     scan_generation: u64,
     scan_context: Option<ScanContext>,
+    pub storage_snapshot: Option<StorageSnapshot>,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1128,6 +1138,7 @@ impl AppState {
             scan_worker: None,
             scan_generation: 0,
             scan_context: None,
+            storage_snapshot: None,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -10753,6 +10764,9 @@ impl AppState {
 
     pub fn focus_more_content(&mut self) {
         self.more_focus = MoreFocus::Content;
+        if self.more_section == MoreSection::Storage && self.storage_snapshot.is_none() {
+            self.refresh_storage();
+        }
     }
 
     pub fn category_manage_previous(&mut self) {
@@ -10882,6 +10896,30 @@ impl AppState {
             Ok(()) => {}
             Err(error) => self.status = Some(format!("Could not save categories: {error}")),
         }
+    }
+
+    /// Recompute on-disk storage usage for the Data and storage screen.
+    pub fn refresh_storage(&mut self) {
+        let library_bytes = directory_size(&self.library.root);
+        let downloads_bytes = downloads_dir(&self.config)
+            .map(|path| directory_size(&path))
+            .unwrap_or(0);
+        let host_bytes = host_data_dir()
+            .map(|path| directory_size(&path))
+            .unwrap_or(0);
+        self.storage_snapshot = Some(StorageSnapshot {
+            library_bytes,
+            downloads_bytes,
+            host_bytes,
+            series: self.library.series.len(),
+            extensions: self
+                .remote
+                .extensions
+                .iter()
+                .filter(|extension| extension.installed)
+                .count(),
+        });
+        self.status = Some("Storage usage refreshed".to_owned());
     }
 
     pub fn leave_more(&mut self) {
@@ -12804,6 +12842,22 @@ fn migrate_legacy_cover(path: &Path, source_id: &str, manga_url: &str) -> bool {
     write_cover_atomically(path, &bytes);
     let _ = std::fs::remove_file(legacy);
     true
+}
+
+fn directory_size(path: &Path) -> u64 {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return 0;
+    };
+    if metadata.is_file() {
+        return metadata.len();
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| directory_size(&entry.path()))
+        .sum()
 }
 
 fn unix_seconds(value: u64) -> u64 {
@@ -14882,6 +14936,15 @@ mod tests {
         app.cancel_downloads();
         assert!(cancel.load(Ordering::Relaxed));
         assert!(app.download_queue.cancelling);
+    }
+
+    #[test]
+    fn directory_size_walks_nested_files() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("a"), b"12345").unwrap();
+        std::fs::create_dir_all(root.path().join("nested")).unwrap();
+        std::fs::write(root.path().join("nested/b"), b"123").unwrap();
+        assert_eq!(directory_size(root.path()), 8);
     }
 
     #[test]

@@ -393,7 +393,8 @@ categories:
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
 - **Downloads** — configurable download folder, with the active queue shown in story
   headers.
-- **Data and storage** — import a Mihon `.tachibk` / `.proto.gz` backup. Remote
+- **Data and storage** — storage counts and library/downloads/host sizes, refreshed
+  with `r`. Imports a Mihon `.tachibk` / `.proto.gz` backup. Remote
   favorites, categories, notes, chapter state, bookmarks, and history are restored when
   their source names match the extension host. Export is not implemented.
 - **Advanced** — optional FlareSolverr URL, used by the bundled host for Cloudflare
