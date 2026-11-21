@@ -1364,13 +1364,7 @@ impl AppState {
                     self.select_browse_entry(0);
                     return;
                 }
-                self.remote.manga = Some(manga);
-                self.remote.remote_details_origin = BrowseView::RemoteResults;
-                self.load_remote_details();
-                self.load_remote_chapters();
-                self.browse_view = BrowseView::RemoteDetails;
-                self.browse_selection = 0;
-                self.select_browse_entry(0);
+                self.open_remote_story_async(manga, BrowseView::RemoteResults);
             }
             BrowseView::RemoteDetails => self.open_remote_chapter(self.browse_selection),
             BrowseView::Extensions => self.install_selected_extension(),
@@ -4157,13 +4151,7 @@ impl AppState {
         let Some(manga) = group.mangas.get(self.remote.global_item).cloned() else {
             return;
         };
-        self.remote.manga = Some(manga);
-        self.remote.remote_details_origin = BrowseView::GlobalResults;
-        self.load_remote_details();
-        self.load_remote_chapters();
-        self.browse_view = BrowseView::RemoteDetails;
-        self.browse_selection = 0;
-        self.select_browse_entry(0);
+        self.open_remote_story_async(manga, BrowseView::GlobalResults);
     }
 
     /// Connect to the configured host, or start the bundled one.
@@ -4451,6 +4439,34 @@ impl AppState {
 
     /// Refresh the details pane from the source. Search results often omit the
     /// description and tags, so this replaces the list entry with the full metadata.
+    /// Open a remote story immediately and fetch details/chapters on the story worker.
+    fn open_remote_story_async(&mut self, manga: RemoteManga, origin: BrowseView) {
+        let key = remote_story_key(&manga.source_id, &manga.url);
+        self.remote.manga = Some(manga.clone());
+        self.remote.chapters.clear();
+        self.remote.downloaded.clear();
+        self.remote.remote_details_origin = origin;
+        self.browse_view = BrowseView::RemoteDetails;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+        self.remote.status = Some("Loading details…".to_owned());
+        self.remote.error = false;
+        if let (Some(worker), Some(client)) = (self.story_worker.as_ref(), self.host_client.clone())
+        {
+            worker.request(StoryRequest {
+                key: key.clone(),
+                manga,
+                client,
+            });
+            self.story_refresh = Some(key.clone());
+            self.story_refreshed.insert(key);
+            return;
+        }
+        self.load_remote_details();
+        self.load_remote_chapters();
+        self.remote.status = None;
+    }
+
     fn load_remote_details(&mut self) {
         let Some(client) = self.host_client.clone() else {
             return;
@@ -6063,6 +6079,16 @@ impl AppState {
             if self.story_refresh.as_deref() == Some(result.key.as_str()) {
                 self.story_refresh = None;
             }
+            if let Some(error) = &result.error {
+                if self.remote.manga.as_ref().is_some_and(|manga| {
+                    remote_story_key(&manga.source_id, &manga.url) == result.key
+                }) {
+                    self.remote.status = Some(error.clone());
+                    self.remote.error = true;
+                }
+                self.status = Some(error.clone());
+                continue;
+            }
             if result.chapters.is_empty() || self.removed_stories.contains(&result.key) {
                 continue;
             }
@@ -6135,6 +6161,9 @@ impl AppState {
                     .as_ref()
                     .map(|manga| self.mark_downloaded(manga, &self.remote.chapters))
                     .unwrap_or_default();
+                if self.remote.status.as_deref() == Some("Loading details…") {
+                    self.remote.status = None;
+                }
                 changed = true;
             }
         }

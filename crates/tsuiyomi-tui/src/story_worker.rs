@@ -16,6 +16,7 @@ pub(crate) struct StoryResult {
     pub key: String,
     pub manga: RemoteManga,
     pub chapters: Vec<RemoteChapter>,
+    pub error: Option<String>,
 }
 
 pub(crate) struct StoryWorker {
@@ -47,12 +48,21 @@ impl StoryWorker {
                     }
                 }
 
-                let Ok(mut chapters) =
-                    request
-                        .client
-                        .chapters(&manga.source_id, &manga.url, manga.memo.as_deref())
-                else {
-                    continue;
+                let mut chapters = match request.client.chapters(
+                    &manga.source_id,
+                    &manga.url,
+                    manga.memo.as_deref(),
+                ) {
+                    Ok(chapters) => chapters,
+                    Err(error) => {
+                        let _ = result_tx.send(StoryResult {
+                            key: request.key,
+                            manga,
+                            chapters: Vec::new(),
+                            error: Some(error.to_string()),
+                        });
+                        continue;
+                    }
                 };
                 chapters.sort_by(|left, right| {
                     right
@@ -65,6 +75,7 @@ impl StoryWorker {
                     key: request.key,
                     manga,
                     chapters,
+                    error: None,
                 });
             }
         });
