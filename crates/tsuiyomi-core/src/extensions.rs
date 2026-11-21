@@ -66,6 +66,8 @@ mod tests {
             sources: vec![ExtensionSource {
                 name: pkg.to_owned(),
                 lang: "en".to_owned(),
+                id: String::new(),
+                base_url: String::new(),
             }],
             repo_url: String::new(),
             available_version: None,

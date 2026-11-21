@@ -847,6 +847,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Migrate => {
                 if app.story_screen_active() {
                     app.migrate_this_story();
+                } else if app.tab == 3
+                    && matches!(
+                        app.browse_view,
+                        BrowseView::RemoteResults | BrowseView::GlobalResults
+                    )
+                {
+                    app.migrate_selected_result();
                 } else if app.tab == 3 && app.browse_view == BrowseView::Migrate {
                     match app.migrate.screen {
                         app::MigrateScreen::Favorites => app.migrate_start_matching(),

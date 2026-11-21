@@ -193,8 +193,8 @@ Rules:
   source counts, and content warnings. A failed file appears under Not loaded with its
   reason and can be inspected or deleted. Extension language filtering follows
   `enabled_languages`, and `show_nsfw_extensions` hides NSFW entries. Extension search
-  accepts comma-separated terms matched against names, packages, languages, and source
-  names. `o` on Extensions
+  accepts comma-separated terms matched against names, packages, languages, source
+  names, and installed source IDs/base URLs. `o` on Extensions
   opens extension details with per-source toggles, enable/disable-all actions, source
   preferences, per-extension Incognito, clear-cookies, and uninstall. Signature trust is
   not implemented: the host cannot verify extension signatures, so there is no trust

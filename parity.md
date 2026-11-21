@@ -98,7 +98,7 @@ Legend:
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
 | Stores | Store name / website / counts | Yes | 🟡 | 🟡 | Rows show URL, extension count, and installed count; no website metadata. |
 | Networking | Background Browse calls | Yes | ❌ | ❌ | Source/results/details/chapters still block the UI. |
-| Search | Extension source URL/id search terms | Yes | ❌ | ❌ | Names, packages, languages, source names only. |
+| Search | Extension source URL/id search terms | Yes | 🟡 | 🟡 | Installed source ids/base URLs; repo-only entries expose names/languages. |
 | Search | Debounced extension search | Yes | ❌ | ❌ | Local filtering is immediate. |
 
 ## 4. Extensions and host lifecycle

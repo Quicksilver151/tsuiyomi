@@ -893,7 +893,7 @@ explicitly marked as a deliberate deviation.
 - [x] Available section grouped by language.
 - [ ] Obsolete/private indicators.
 - [x] Content-warning indicators.
-- [ ] Search by name/source/URL/id.
+- [x] Search by name/source/URL/id (installed source ids/base URLs; repo-only rows expose names/languages).
 - [x] Comma-separated search terms.
 - [ ] Debounced search.
 - [x] Install.

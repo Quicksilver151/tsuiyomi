@@ -137,7 +137,7 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   switches between all and recently modified series, and `v` reverses the title order.
 - **Extensions** — updates, not-loaded files, installed extensions, and available
   extensions by language. `/` searches comma-separated terms across names, packages,
-  languages, and source names, `i` or `Enter` installs or
+  languages, source names, and installed source IDs/base URLs, `i` or `Enter` installs or
   retries available extensions, `x` or `Delete` uninstalls installed extensions or
   deletes failed files after a `y` confirmation, `u` updates the selected extension, `U`
   updates every extension with a pending update, `c` cancels running installs, `P` pins

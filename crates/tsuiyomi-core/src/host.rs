@@ -86,6 +86,12 @@ pub struct RemoteChapter {
 pub struct ExtensionSource {
     pub name: String,
     pub lang: String,
+    /// Host source ID, present for installed extensions.
+    #[serde(default)]
+    pub id: String,
+    /// Source base URL when the host can supply it.
+    #[serde(default)]
+    pub base_url: String,
 }
 
 /// One row in a repository index or in the installed-extension list.
@@ -1088,6 +1094,10 @@ struct ExtensionSourceRow {
     name: String,
     #[serde(default)]
     lang: String,
+    #[serde(default)]
+    id: String,
+    #[serde(rename = "baseUrl", default)]
+    base_url: String,
 }
 
 impl ExtensionRow {
@@ -1098,6 +1108,8 @@ impl ExtensionRow {
             .map(|source| ExtensionSource {
                 name: source.name,
                 lang: source.lang,
+                id: source.id,
+                base_url: source.base_url,
             })
             .collect();
         ExtensionInfo {

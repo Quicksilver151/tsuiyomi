@@ -1411,6 +1411,19 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
+            BrowseView::RemoteResults if !self.remote.query.trim().is_empty() => {
+                self.remote.query.clear();
+                self.remote.listing = RemoteListing::Popular;
+                self.remote.page = 1;
+                self.browse_selection = 0;
+                self.load_remote_results(RemoteListing::Popular);
+                self.select_browse_entry(0);
+            }
+            BrowseView::Local if !self.browse_local_query.trim().is_empty() => {
+                self.browse_local_query.clear();
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+            }
             BrowseView::Local | BrowseView::RemoteResults => {
                 self.browse_view = BrowseView::Sources;
                 self.browse_selection = 0;
@@ -3015,6 +3028,8 @@ impl AppState {
                             || extension.sources.iter().any(|source| {
                                 source.name.to_lowercase().contains(term)
                                     || source.lang.to_lowercase().contains(term)
+                                    || source.id.to_lowercase().contains(term)
+                                    || source.base_url.to_lowercase().contains(term)
                             })
                     })
             })
@@ -7758,6 +7773,36 @@ impl AppState {
         self.browse_selection = 0;
         self.select_browse_entry(0);
         self.status = Some("Press M to match this manga against enabled sources.".to_owned());
+    }
+
+    /// Open Migrate for the selected source result when it is already saved.
+    pub fn migrate_selected_result(&mut self) {
+        let manga = match self.browse_view {
+            BrowseView::RemoteResults => self.visible_remote_result(self.browse_selection).cloned(),
+            BrowseView::GlobalResults => self
+                .remote
+                .global_groups
+                .get(self.remote.global_group)
+                .and_then(|group| group.mangas.get(self.remote.global_item))
+                .cloned(),
+            _ => None,
+        };
+        let Some(manga) = manga else {
+            return;
+        };
+        let Some(favorite) = self
+            .config
+            .remote_library
+            .iter()
+            .find(|favorite| favorite.source_id == manga.source_id && favorite.url == manga.url)
+            .cloned()
+        else {
+            self.remote.status = Some("Save this manga before migrating.".to_owned());
+            self.remote.error = false;
+            return;
+        };
+        self.begin_migration(favorite);
+        self.status = Some("Press M to migrate this manga to another source.".to_owned());
     }
 
     /// Open Migrate for the duplicate selected in the duplicate dialog.
@@ -13261,6 +13306,8 @@ mod tests {
             sources: vec![ExtensionSource {
                 name: "Asura Scans".to_owned(),
                 lang: "en".to_owned(),
+                id: String::new(),
+                base_url: String::new(),
             }],
             repo_url: "https://example.org/index.min.json".to_owned(),
             available_version: Some("1.1".to_owned()),
@@ -14041,6 +14088,8 @@ mod tests {
             sources: vec![ExtensionSource {
                 name: "Comick".to_owned(),
                 lang: "en".to_owned(),
+                id: String::new(),
+                base_url: String::new(),
             }],
             repo_url: "https://repo/index.min.json".to_owned(),
             available_version: Some("1.0".to_owned()),
@@ -14166,6 +14215,8 @@ mod tests {
             sources: vec![ExtensionSource {
                 name: name.to_owned(),
                 lang: lang.to_owned(),
+                id: String::new(),
+                base_url: String::new(),
             }],
             repo_url: "https://repo/index.min.json".to_owned(),
             available_version: Some("1.0".to_owned()),
@@ -14203,6 +14254,8 @@ mod tests {
             sources: vec![ExtensionSource {
                 name: name.to_owned(),
                 lang: "en".to_owned(),
+                id: String::new(),
+                base_url: String::new(),
             }],
             repo_url: "https://repo/index.min.json".to_owned(),
             available_version: Some("1.0".to_owned()),
@@ -14213,6 +14266,62 @@ mod tests {
         assert_eq!(app.filtered_extension_count(), 1);
         app.extension_query = "alpha, missing".to_owned();
         assert_eq!(app.filtered_extension_count(), 0);
+
+        app.remote.extensions[0].sources[0].id = "source-42".to_owned();
+        app.remote.extensions[0].sources[0].base_url = "https://alpha.example".to_owned();
+        app.extension_query = "source-42".to_owned();
+        assert_eq!(app.filtered_extension_count(), 1);
+        app.extension_query = "alpha.example".to_owned();
+        assert_eq!(app.filtered_extension_count(), 1);
+    }
+
+    #[test]
+    fn browse_back_clears_result_queries_before_leaving_the_source() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::RemoteResults;
+        app.remote.query = "berserk".to_owned();
+        app.remote.listing = RemoteListing::Search;
+
+        app.browse_parent();
+
+        assert_eq!(app.browse_view, BrowseView::RemoteResults);
+        assert!(app.remote.query.is_empty());
+        assert_eq!(app.remote.listing, RemoteListing::Popular);
+
+        app.browse_parent();
+        assert_eq!(app.browse_view, BrowseView::Sources);
+    }
+
+    #[test]
+    fn saved_source_results_can_start_migration() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::RemoteResults;
+        app.remote.results = vec![RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        }];
+        app.config.remote_library = vec![RemoteFavorite {
+            source_id: "1".to_owned(),
+            url: "/manga/alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+            categories: Vec::new(),
+        }];
+        app.migrate_selected_result();
+        assert_eq!(app.browse_view, BrowseView::Migrate);
+        assert_eq!(app.migrate.favorites.len(), 1);
     }
 
     #[test]
@@ -14349,10 +14458,14 @@ mod tests {
                     ExtensionSource {
                         name: "MangaDex".to_owned(),
                         lang: "en".to_owned(),
+                        id: String::new(),
+                        base_url: String::new(),
                     },
                     ExtensionSource {
                         name: "MangaDex".to_owned(),
                         lang: "ja".to_owned(),
+                        id: String::new(),
+                        base_url: String::new(),
                     },
                 ],
                 repo_url: "repo".to_owned(),

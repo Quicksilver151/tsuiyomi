@@ -55,10 +55,18 @@ index 54c1a1f..aea14e1 100644
  
  @Serializable
 diff --git a/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt b/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt
-index 7de4e81..16f2ef6 100644
+index 7de4e81..18d0267 100644
 --- a/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt
 +++ b/server/src/main/kotlin/miwayomi/api/ExtensionRoutes.kt
-@@ -26,6 +26,9 @@ import miwayomi.extension.ExtensionManager
+@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.network.NetworkHelper
+ import eu.kanade.tachiyomi.network.SqliteStore
+ import eu.kanade.tachiyomi.network.StoredExtension
+ import eu.kanade.tachiyomi.source.MangaSource
++import eu.kanade.tachiyomi.source.online.HttpSource
+ import io.ktor.http.HttpStatusCode
+ import io.ktor.server.application.Application
+ import io.ktor.server.application.call
+@@ -26,6 +27,9 @@ import miwayomi.extension.ExtensionManager
  import uy.kohesive.injekt.Injekt
  import uy.kohesive.injekt.api.get
  import java.io.File
@@ -68,7 +76,21 @@ index 7de4e81..16f2ef6 100644
  
  /**
   * Persists the currently loaded extensions in the SQLite registry and prunes
-@@ -71,6 +74,13 @@ data class RepoEntryDto(
+@@ -59,7 +63,12 @@ fun syncExtensionRegistry(extensionManager: ExtensionManager) {
+ }
+ 
+ @Serializable
+-data class RepoSourceDto(val name: String, val lang: String)
++data class RepoSourceDto(
++    val name: String,
++    val lang: String,
++    val id: String = "",
++    val baseUrl: String = "",
++)
+ 
+ @Serializable
+ data class RepoEntryDto(
+@@ -71,6 +80,13 @@ data class RepoEntryDto(
      val version: String,
      val installed: Boolean,
      val sources: List<RepoSourceDto> = emptyList(),
@@ -82,7 +104,7 @@ index 7de4e81..16f2ef6 100644
  )
  
  @Serializable
-@@ -106,6 +116,34 @@ data class InstallResultDto(
+@@ -106,6 +122,34 @@ data class InstallResultDto(
      val error: String? = null,
  )
  
@@ -117,7 +139,7 @@ index 7de4e81..16f2ef6 100644
  @Serializable
  data class UninstallRequestDto(
      val pkg: String,
-@@ -119,11 +157,187 @@ data class UninstallResultDto(
+@@ -119,11 +163,187 @@ data class UninstallResultDto(
      val error: String? = null,
  )
  
@@ -305,7 +327,7 @@ index 7de4e81..16f2ef6 100644
  
      routing {
          get("/api/v1/extensions/repo") {
-@@ -140,12 +354,19 @@ fun Application.registerExtensionApi() {
+@@ -140,12 +360,19 @@ fun Application.registerExtensionApi() {
              val bytes = response.body.bytes()
              response.close()
  
@@ -326,7 +348,7 @@ index 7de4e81..16f2ef6 100644
                      }
                  } else {
  
-@@ -154,13 +375,16 @@ fun Application.registerExtensionApi() {
+@@ -154,13 +381,16 @@ fun Application.registerExtensionApi() {
                          val o = el.jsonObject
                          val apk = o["apk"]?.jsonPrimitive?.contentOrNull.orEmpty()
                          val pkg = o["pkg"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -344,7 +366,7 @@ index 7de4e81..16f2ef6 100644
                              installed = apk.isNotEmpty() &&
                                  (installedPkgs.contains(pkg) || (!apk.startsWith("http") && File(extensionsDir, apk).exists())),
                              sources = (o["sources"]?.jsonArray ?: emptyList()).mapNotNull { s ->
-@@ -170,6 +394,10 @@ fun Application.registerExtensionApi() {
+@@ -170,6 +400,10 @@ fun Application.registerExtensionApi() {
                                      lang = so["lang"]?.jsonPrimitive?.contentOrNull ?: "",
                                  )
                              },
@@ -355,7 +377,7 @@ index 7de4e81..16f2ef6 100644
                          )
                      }
                  }
-@@ -206,20 +434,49 @@ fun Application.registerExtensionApi() {
+@@ -206,20 +440,54 @@ fun Application.registerExtensionApi() {
                      nsfw = ext.meta.isNsfw,
                      apk = ext.apk.name,
                      version = ext.meta.versionName,
@@ -366,7 +388,12 @@ index 7de4e81..16f2ef6 100644
 -                            is MangaSource -> s.name
 -                            is AnimeSource -> s.name
 +                        when (s) {
-+                            is MangaSource -> RepoSourceDto(s.name, s.lang)
++                            is MangaSource -> RepoSourceDto(
++                                s.name,
++                                s.lang,
++                                s.id.toString(),
++                                (s as? HttpSource)?.baseUrl.orEmpty(),
++                            )
 +                            is AnimeSource -> RepoSourceDto(s.name, s.lang)
                              else -> null
 -                        } ?: return@mapNotNull null
@@ -410,7 +437,7 @@ index 7de4e81..16f2ef6 100644
          // User-added repository URLs, persisted in the database so they don't
          // have to be re-entered every time (no default repo is loaded).
          get("/api/v1/extensions/repos") {
-@@ -235,97 +492,36 @@ fun Application.registerExtensionApi() {
+@@ -235,97 +503,36 @@ fun Application.registerExtensionApi() {
  
          post("/api/v1/extensions/install") {
              val req = call.receive<InstallRequestDto>()
