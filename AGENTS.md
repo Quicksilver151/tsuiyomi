@@ -207,7 +207,8 @@ Rules:
   not implemented: the host cannot verify extension signatures, so there is no trust
   action. Migrate lists saved manga by source, multi-selects favorites, matches
   titles against enabled sources with regular/deep queries, previews targets, skips a
-  preview (`s`), and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories. `/` on Sources
+  preview (`s`), and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
+  `t` selects and persists the enabled target sources; ordering is still fixed. `/` on Sources
   runs a background global search over enabled pinned
   sources with per-source progress; empty and failed sources are rows, `h` toggles
   only-with-results, and `A` switches between pinned and all enabled sources. `o` opens
@@ -320,8 +321,9 @@ Rules:
   `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
-  `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `remote_library`,
-  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
+  `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
+  `remote_library`, `downloads_path`, and `hidden_series`, and preserves unknown keys from
+  existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

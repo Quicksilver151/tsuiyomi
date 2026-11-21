@@ -146,6 +146,9 @@ pub struct Config {
     pub browse_hide_saved: bool,
     /// Show extensions whose source marks them NSFW.
     pub show_nsfw_extensions: bool,
+    /// Sources used for migration matching, keyed by `pkg|name|lang`. Empty
+    /// means every enabled source.
+    pub migration_sources: Vec<String>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// Local series removed from the library but kept on disk, relative to the
@@ -202,6 +205,7 @@ impl Default for Config {
             source_display_mode: SourceDisplayMode::default(),
             browse_hide_saved: false,
             show_nsfw_extensions: true,
+            migration_sources: Vec::new(),
             remote_library: Vec::new(),
             hidden_series: Vec::new(),
             chapter_defaults: ChapterSettings::default(),

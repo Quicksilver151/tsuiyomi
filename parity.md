@@ -281,7 +281,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Transfer | Reading duration | Yes | ✅ | ✅ | Replace mode. |
 | Entry | Story-level Migrate | Yes | ✅ | ✅ | `M` on story. |
 | Entry | Duplicate-dialog Migrate | Yes | ✅ | ✅ | `M` in duplicate dialog. |
-| Config | Migration source configuration/order | Yes | ❌ | ❌ | |
+| Config | Migration source configuration/order | Yes | 🟡 | 🟡 | Target sources are selectable/persisted; ordering pending. |
 | Matching | Prioritize by chapters / hide options | Yes | ❌ | ❌ | |
 | Apply | Manual search override / skip | Yes | 🟡 | 🟡 | Per-item skip implemented; manual target search pending. |
 | Apply | Batch progress / cancel | Yes | 🟡 | 🟡 | Matching runs in the background with a status; applying is synchronous and cancellation drops the result. |

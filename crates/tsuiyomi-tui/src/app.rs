@@ -838,6 +838,12 @@ pub struct TagPicker {
     pub selected: usize,
 }
 
+#[derive(Debug, Default)]
+pub struct MigrationSourcePicker {
+    pub selected: usize,
+    pub chosen: HashSet<String>,
+}
+
 pub struct HistoryDeleteDialog {
     pub keys: Vec<String>,
     pub series_keys: Vec<String>,
@@ -1074,6 +1080,7 @@ pub struct AppState {
     pub category_picker: Option<CategoryPicker>,
     pub save_categories: Option<SaveCategories>,
     pub tag_picker: Option<TagPicker>,
+    pub migration_source_picker: Option<MigrationSourcePicker>,
     pub cover_overlay: bool,
     pub status: Option<String>,
 }
@@ -1207,6 +1214,7 @@ impl AppState {
             category_picker: None,
             save_categories: None,
             tag_picker: None,
+            migration_source_picker: None,
             cover_overlay: false,
             status,
         }
@@ -1842,6 +1850,120 @@ impl AppState {
         favorites
     }
 
+    /// Enabled sources selected for migration. Empty configuration means all enabled.
+    pub fn migration_targets(&self) -> Vec<RemoteSource> {
+        let chosen: HashSet<String> = self.config.migration_sources.iter().cloned().collect();
+        self.remote
+            .sources
+            .iter()
+            .filter(|source| self.source_enabled(source))
+            .filter(|source| {
+                chosen.is_empty() || chosen.iter().any(|key| pin_key_matches(key, source))
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub fn open_migration_sources(&mut self) {
+        if self.tab != 3 || self.browse_view != BrowseView::Migrate {
+            return;
+        }
+        let chosen = self.config.migration_sources.iter().cloned().collect();
+        self.migration_source_picker = Some(MigrationSourcePicker {
+            selected: 0,
+            chosen,
+        });
+    }
+
+    pub fn migration_sources_previous(&mut self) {
+        if let Some(picker) = self.migration_source_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn migration_sources_next(&mut self) {
+        let count = self
+            .remote
+            .sources
+            .iter()
+            .filter(|source| self.source_enabled(source))
+            .count();
+        if let Some(picker) = self.migration_source_picker.as_mut() {
+            if count > 0 {
+                picker.selected = (picker.selected + 1).min(count - 1);
+            }
+        }
+    }
+
+    pub fn migration_source_selected(&self, source: &RemoteSource) -> bool {
+        self.migration_source_picker
+            .as_ref()
+            .is_some_and(|picker| picker.chosen.iter().any(|key| pin_key_matches(key, source)))
+    }
+
+    pub fn migration_sources_toggle(&mut self) {
+        let Some(source) = self
+            .remote
+            .sources
+            .iter()
+            .filter(|source| self.source_enabled(source))
+            .nth(
+                self.migration_source_picker
+                    .as_ref()
+                    .map_or(0, |picker| picker.selected),
+            )
+            .cloned()
+        else {
+            return;
+        };
+        let Some(picker) = self.migration_source_picker.as_mut() else {
+            return;
+        };
+        let key = source_pin_key(&source);
+        if !picker.chosen.remove(&key) {
+            picker.chosen.insert(key);
+        }
+    }
+
+    pub fn migration_sources_all(&mut self, all: bool) {
+        let keys: HashSet<String> = if all {
+            self.remote
+                .sources
+                .iter()
+                .filter(|source| self.source_enabled(source))
+                .map(source_pin_key)
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        if let Some(picker) = self.migration_source_picker.as_mut() {
+            picker.chosen = keys;
+        }
+    }
+
+    pub fn cancel_migration_sources(&mut self) {
+        self.migration_source_picker = None;
+    }
+
+    pub fn apply_migration_sources(&mut self) {
+        let Some(picker) = self.migration_source_picker.take() else {
+            return;
+        };
+        let mut chosen: Vec<String> = picker.chosen.into_iter().collect();
+        chosen.sort();
+        self.config.migration_sources = chosen;
+        self.persist_settings();
+        self.remote.status = Some(if self.config.migration_sources.is_empty() {
+            "Migration uses all enabled sources".to_owned()
+        } else {
+            format!(
+                "Migration uses {} sources",
+                self.config.migration_sources.len()
+            )
+        });
+        self.remote.error = false;
+    }
+
     pub fn migrate_start_matching(&mut self) {
         if self.migrate.matching {
             self.remote.status = Some("Matching is already running…".to_owned());
@@ -1866,13 +1988,7 @@ impl AppState {
         let Some(client) = self.host_client.clone() else {
             return;
         };
-        let targets: Vec<RemoteSource> = self
-            .remote
-            .sources
-            .iter()
-            .filter(|source| self.source_enabled(source))
-            .cloned()
-            .collect();
+        let targets = self.migration_targets();
         if targets.is_empty() {
             self.remote.status = Some("No enabled target sources.".to_owned());
             self.remote.error = false;
@@ -15312,6 +15428,16 @@ mod tests {
         let local = std::path::PathBuf::from("/tmp/library/Chapter 1");
         app.record_progress(&local, 1, 5);
         assert!(app.progress.entry(&local).is_some());
+    }
+
+    #[test]
+    fn migration_target_sources_can_be_restricted() {
+        let mut app = remote_app();
+        assert_eq!(app.migration_targets().len(), 3);
+        app.config.migration_sources = vec!["pkg.a|Alpha|en".to_owned()];
+        let targets = app.migration_targets();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].name, "Alpha");
     }
 
     #[test]

@@ -232,6 +232,22 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.migration_source_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.migration_sources_previous(),
+                Action::Next => app.migration_sources_next(),
+                Action::Select => app.migration_sources_toggle(),
+                Action::Open | Action::Confirm => app.apply_migration_sources(),
+                Action::AddStore => app.migration_sources_all(true),
+                Action::NextChapter => app.migration_sources_all(false),
+                Action::Back => app.cancel_migration_sources(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.tag_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -856,6 +872,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Stores => {
                 if app.story_screen_active() {
                     app.open_tag_picker();
+                } else if app.tab == 3 && app.browse_view == BrowseView::Migrate {
+                    app.open_migration_sources();
                 } else if app.tab == 3 {
                     if app.browse_view == BrowseView::Stores {
                         app.open_extensions();

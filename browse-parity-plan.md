@@ -921,9 +921,9 @@ explicitly marked as a deliberate deviation.
 - [ ] Select favorites.
 - [ ] Multi-select and selection UI.
 - [ ] Open target/current details.
-- [ ] Migration source selection: all/none/enabled/pinned.
+- [x] Migration source selection: all/none/enabled (pinned ordering still pending).
 - [ ] Source reordering.
-- [ ] Persisted source selection/order.
+- [x] Persisted source selection; ordering pending.
 - [ ] Regular matching.
 - [ ] Deep matching.
 - [ ] Similarity threshold.
