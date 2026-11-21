@@ -188,6 +188,22 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.chapter_settings_modal.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.chapter_settings_previous(),
+                Action::Next => app.chapter_settings_next(),
+                Action::PreviousPage => app.chapter_settings_adjust(-1),
+                Action::NextPage | Action::Open | Action::Confirm | Action::Select => {
+                    app.chapter_settings_adjust(1)
+                }
+                Action::Back => app.close_chapter_settings(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.uninstall_confirm.is_some() {
             match action {
                 Action::Confirm => app.confirm_uninstall_extension(),
@@ -354,7 +370,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::PreviousScreen => app.previous_screen(),
                 Action::NextScreen => app.next_screen(),
                 Action::PreviousChapter => app.previous_chapter(),
-                Action::NextChapter => app.next_chapter(),
+                Action::NextChapter => {
+                    if app.story_screen_active() {
+                        app.continue_reading();
+                    } else {
+                        app.next_chapter();
+                    }
+                }
                 Action::ToggleReaderMode => app.toggle_reader_mode(),
                 Action::ZoomIn => app.zoom_in(),
                 Action::ZoomOut => app.zoom_out(),
@@ -542,7 +564,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Search => {
-                if app.tab == 2 {
+                if app.story_screen_active() {
+                    app.chapter_settings_adjust_sort(1);
+                } else if app.tab == 2 {
                     app.history_search_start();
                 } else if app.tab == 3 {
                     match app.browse_view {
@@ -621,7 +645,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::DisplayMode => {
-                if app.tab == 3 {
+                if app.story_screen_active() {
+                    app.cycle_chapter_display();
+                } else if app.tab == 3 {
                     match app.browse_view {
                         BrowseView::Local => app.toggle_local_order(),
                         BrowseView::RemoteResults => app.cycle_source_display_mode(),
@@ -686,14 +712,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::AddStore => {
-                if app.tab == 3
-                    && matches!(app.browse_view, BrowseView::Extensions | BrowseView::Stores)
-                {
-                    app.open_text_input(
-                        app::TextAction::AddExtensionStore,
-                        "Extension store URL",
-                        "",
-                    );
+                if app.story_screen_active() {
+                    app.select_all_story_chapters();
+                } else {
+                    if app.tab == 3
+                        && matches!(app.browse_view, BrowseView::Extensions | BrowseView::Stores)
+                    {
+                        app.open_text_input(
+                            app::TextAction::AddExtensionStore,
+                            "Extension store URL",
+                            "",
+                        );
+                    }
                 }
             }
             Action::DeleteStore => {
@@ -713,13 +743,22 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::UpdateExtension => {
-                if app.tab == 3 && app.browse_view == BrowseView::Extensions {
+                if app.story_screen_active() {
+                    app.mark_selected_read(false);
+                } else if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.update_selected_extension();
                 }
             }
             Action::UpdateAllExtensions => {
-                if app.tab == 3 && app.browse_view == BrowseView::Extensions {
+                if app.story_screen_active() {
+                    app.mark_previous_read();
+                } else if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.update_all_extensions();
+                }
+            }
+            Action::InvertSelection => {
+                if app.story_screen_active() {
+                    app.invert_story_selection();
                 }
             }
             Action::Migrate => {
@@ -780,8 +819,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.select_tab(0);
                 }
             }
-            Action::ToggleFullscreen => app.toggle_fullscreen(),
-            Action::ToggleReaderMode => app.toggle_reader_mode(),
+            Action::ToggleFullscreen => {
+                if app.story_screen_active() {
+                    app.open_chapter_settings();
+                } else {
+                    app.toggle_fullscreen();
+                }
+            }
+            Action::ToggleReaderMode => {
+                if app.story_screen_active() {
+                    app.mark_selected_read(true);
+                } else {
+                    app.toggle_reader_mode();
+                }
+            }
             Action::ZoomIn => {
                 if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content

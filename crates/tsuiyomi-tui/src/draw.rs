@@ -15,16 +15,18 @@ use ratatui_image::{
 };
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    date_key_for_unix, downloads_dir, remote_cover_path, today_key, BookmarkStore, Chapter,
-    HistoryEntry, LibrarySort, ProgressStore, ReadingMode, RemoteChapter, RemoteManga,
-    RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreferenceKind, Theme,
+    date_key_for_unix, downloads_dir, read_state, remote_cover_path, today_key, BookmarkStore,
+    Chapter, ChapterDisplay, ChapterSettings, HistoryEntry, LibrarySort, ProgressStore, ReadState,
+    ReadingMode, RemoteChapter, RemoteManga, RemoteSource, Series, SourceDisplayMode, SourceFilter,
+    SourcePreferenceKind, Theme,
 };
 
 use crate::{
     app::{
-        AppState, BrowseTab, BrowseView, ExtensionRow, FilterRow, HistorySection, LibraryView,
-        MoreFocus, MoreRow, MoreSection, PickerKind, PickerState, ReaderMode, SelectionScope,
-        SettingId, SettingsPage, SourceFilterRow, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
+        AppState, BrowseTab, BrowseView, ChapterSettingRow, ExtensionRow, FilterRow,
+        HistorySection, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind, PickerState,
+        ReaderMode, SelectionScope, SettingId, SettingsPage, SourceFilterRow, SourceRow,
+        MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout, grid_columns, grid_margin, grid_row_offset, grid_tile_rect, grid_tile_width,
@@ -83,6 +85,105 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_history_delete(frame, app);
     draw_history_clear_confirm(frame, app);
     draw_text_input(frame, app);
+    draw_chapter_settings(frame, app);
+}
+
+fn draw_chapter_settings(frame: &mut Frame, app: &AppState) {
+    let Some(modal) = app.chapter_settings_modal.as_ref() else {
+        return;
+    };
+    let settings = app.chapter_settings();
+    let scanlators = app.chapter_scanlators();
+    let rows = app.chapter_setting_rows();
+    if rows.is_empty() {
+        return;
+    }
+    let area = frame.area();
+    let width = 66.min(area.width).max(24);
+    let height = (rows.len() as u16 + 4).min(area.height);
+    if width < 20 || height < 4 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Chapter settings ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "←→ change · Space toggle · Esc close ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let selected = index == modal.selected;
+            let (label, value) = match row {
+                ChapterSettingRow::Downloaded => (
+                    "Downloaded".to_owned(),
+                    settings.downloaded.label("downloaded"),
+                ),
+                ChapterSettingRow::Unread => ("Unread".to_owned(), settings.unread.label("unread")),
+                ChapterSettingRow::Bookmarked => (
+                    "Bookmarked".to_owned(),
+                    settings.bookmarked.label("bookmarked"),
+                ),
+                ChapterSettingRow::Sort => ("Sort".to_owned(), settings.sort.label().to_owned()),
+                ChapterSettingRow::Direction => (
+                    "Direction".to_owned(),
+                    if settings.descending {
+                        "descending"
+                    } else {
+                        "ascending"
+                    }
+                    .to_owned(),
+                ),
+                ChapterSettingRow::Display => {
+                    ("Display".to_owned(), settings.display.label().to_owned())
+                }
+                ChapterSettingRow::Reset => ("Reset to defaults".to_owned(), String::new()),
+                ChapterSettingRow::Scanlator(index) => {
+                    let name = scanlators.get(*index).cloned().unwrap_or_default();
+                    let excluded = settings.excluded_scanlators.contains(&name);
+                    (
+                        format!("{} {name}", if excluded { "[ ]" } else { "[x]" }),
+                        if excluded { "hidden" } else { "shown" }.to_owned(),
+                    )
+                }
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    label,
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+                Span::styled(format!("  {value}"), Style::default().fg(c_overlay1())),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(modal.selected.min(rows.len().saturating_sub(1))));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
 fn draw_text_input(frame: &mut Frame, app: &AppState) {
@@ -748,8 +849,11 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
-                ("[ ]", "tabs"),
-                ("e", "extensions"),
+                ("n", "continue"),
+                ("f", "settings"),
+                ("m/u", "read"),
+                ("a/I", "select"),
+                ("b", "bookmark"),
                 ("Esc", "back"),
             ],
             BrowseView::RemoteResults => vec![
@@ -772,10 +876,12 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
+                ("n", "continue"),
+                ("f", "settings"),
+                ("m/u", "read"),
+                ("a/I", "select"),
                 ("F", "library"),
                 ("r", "refresh"),
-                ("[ ]", "tabs"),
-                ("e", "extensions"),
                 ("Esc", "back"),
             ],
             BrowseView::GlobalResults => vec![
@@ -910,6 +1016,11 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("q", "quit"),
                 ("↑↓", "chapter"),
                 ("↵", "read"),
+                ("n", "continue"),
+                ("f", "settings"),
+                ("m/u", "read"),
+                ("a/I", "select"),
+                ("b", "bookmark"),
                 ("Esc", "back"),
             ],
         }
@@ -1017,19 +1128,29 @@ fn draw_library_chapters(
         draw_browse_empty(frame, list_area, "Series not found. Rescan the library.");
         return;
     };
-    let items = local_chapter_items(
-        &series.chapters,
-        &app.progress,
-        &app.bookmarks,
-        app.selected_keys(SelectionScope::LocalChapters),
+    let settings = app.chapter_settings();
+    let indices = app.story_chapter_indices();
+    let row_state = ChapterRowState {
+        settings: &settings,
+        progress: &app.progress,
+        bookmarks: &app.bookmarks,
+        selected: app.selected_keys(SelectionScope::LocalChapters),
+    };
+    let items = local_chapter_items(&series.chapters, &indices, &row_state);
+    let position = app.story_chapter_position();
+    let summary = story_chapter_summary(
+        &settings,
+        indices.len(),
+        app.story_chapter_total(),
+        app.story_missing_chapters(),
     );
     draw_story_chapters(
         frame,
         list_area,
         &series.title,
         items,
-        series.chapters.len(),
-        app.chapter_index,
+        position,
+        &summary,
         &mut app.chapter_list_state,
     );
 
@@ -1065,22 +1186,35 @@ fn draw_library_remote_detail(
         .source_name
         .clone()
         .or_else(|| source_display_name(app, &manga.source_id));
+    let settings = app.chapter_settings();
+    let indices = app.story_chapter_indices();
+    let row_state = ChapterRowState {
+        settings: &settings,
+        progress: &app.progress,
+        bookmarks: &app.bookmarks,
+        selected: app.selected_keys(SelectionScope::RemoteChapters),
+    };
     let items = remote_chapter_items(
-        &manga.source_id,
-        &manga.url,
+        &manga,
         &chapters,
-        &app.progress,
-        &app.bookmarks,
         &app.library_remote.downloaded,
-        app.selected_keys(SelectionScope::RemoteChapters),
+        &indices,
+        &row_state,
+    );
+    let position = app.story_chapter_position();
+    let summary = story_chapter_summary(
+        &settings,
+        indices.len(),
+        app.story_chapter_total(),
+        app.story_missing_chapters(),
     );
     draw_story_chapters(
         frame,
         list_area,
         &manga.title,
         items,
-        chapters.len(),
-        app.library_remote.chapter_index,
+        position,
+        &summary,
         &mut app.library_remote.list_state,
     );
 
@@ -2990,22 +3124,35 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
     };
     let chapters = app.remote.chapters.clone();
     let source = source_display_name(app, &manga.source_id);
+    let settings = app.chapter_settings();
+    let indices = app.story_chapter_indices();
+    let row_state = ChapterRowState {
+        settings: &settings,
+        progress: &app.progress,
+        bookmarks: &app.bookmarks,
+        selected: app.selected_keys(SelectionScope::RemoteChapters),
+    };
     let items = remote_chapter_items(
-        &manga.source_id,
-        &manga.url,
+        &manga,
         &chapters,
-        &app.progress,
-        &app.bookmarks,
         &app.remote.downloaded,
-        app.selected_keys(SelectionScope::RemoteChapters),
+        &indices,
+        &row_state,
+    );
+    let position = app.story_chapter_position();
+    let summary = story_chapter_summary(
+        &settings,
+        indices.len(),
+        app.story_chapter_total(),
+        app.story_missing_chapters(),
     );
     draw_story_chapters(
         frame,
         layout.list,
         &manga.title,
         items,
-        chapters.len(),
-        app.browse_selection,
+        position,
+        &summary,
         &mut app.browse_list_state,
     );
 
@@ -3412,19 +3559,29 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
         draw_browse_empty(frame, layout.list, "Series not found. Rescan the library.");
         return;
     };
-    let items = local_chapter_items(
-        &series.chapters,
-        &app.progress,
-        &app.bookmarks,
-        app.selected_keys(SelectionScope::LocalChapters),
+    let settings = app.chapter_settings();
+    let indices = app.story_chapter_indices();
+    let row_state = ChapterRowState {
+        settings: &settings,
+        progress: &app.progress,
+        bookmarks: &app.bookmarks,
+        selected: app.selected_keys(SelectionScope::LocalChapters),
+    };
+    let items = local_chapter_items(&series.chapters, &indices, &row_state);
+    let position = app.story_chapter_position();
+    let summary = story_chapter_summary(
+        &settings,
+        indices.len(),
+        app.story_chapter_total(),
+        app.story_missing_chapters(),
     );
     draw_story_chapters(
         frame,
         layout.list,
         &series.title,
         items,
-        series.chapters.len(),
-        app.browse_local_chapter,
+        position,
+        &summary,
         &mut app.browse_local_list_state,
     );
     let cover_path = series.cover.clone();
@@ -3627,10 +3784,11 @@ fn draw_story_chapters(
     area: Rect,
     title: &str,
     items: Vec<ListItem<'static>>,
-    count: usize,
     selected: usize,
+    summary: &str,
     list_state: &mut ListState,
 ) {
+    let count = items.len();
     if count == 0 {
         list_state.select(None);
     } else {
@@ -3645,6 +3803,7 @@ fn draw_story_chapters(
                     Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(format!("{count} "), Style::default().fg(c_overlay0())),
+                Span::styled(format!("· {summary} "), Style::default().fg(c_overlay1())),
             ]),
             c_accent(),
         ))
@@ -3658,6 +3817,23 @@ fn draw_story_chapters(
         .highlight_symbol("› ");
 
     frame.render_stateful_widget(list, area, list_state);
+}
+
+fn story_chapter_summary(
+    settings: &ChapterSettings,
+    visible: usize,
+    total: usize,
+    missing: usize,
+) -> String {
+    let mut parts = Vec::new();
+    if visible != total {
+        parts.push(format!("{visible} of {total} shown"));
+    }
+    if missing > 0 {
+        parts.push(format!("{missing} missing"));
+    }
+    parts.push(settings.summary());
+    parts.join(" · ")
 }
 
 fn chapter_marker_spans(bookmarked: bool, downloaded: Option<bool>) -> Vec<Span<'static>> {
@@ -3674,27 +3850,91 @@ fn chapter_marker_spans(bookmarked: bool, downloaded: Option<bool>) -> Vec<Span<
     vec![bookmark, download]
 }
 
+fn read_marker(read: ReadState) -> Span<'static> {
+    match read {
+        ReadState::Unread => Span::styled("● ", Style::default().fg(c_accent())),
+        ReadState::InProgress => Span::styled("◐ ", Style::default().fg(c_teal())),
+        ReadState::Read => Span::styled("○ ", Style::default().fg(c_overlay0())),
+    }
+}
+
+fn chapter_title_style(read: ReadState) -> Style {
+    match read {
+        ReadState::Read => Style::default().fg(c_overlay1()),
+        ReadState::InProgress | ReadState::Unread => Style::default().fg(c_text()),
+    }
+}
+
+fn chapter_label(
+    settings: &ChapterSettings,
+    title: &str,
+    number: Option<f32>,
+) -> (String, Option<String>) {
+    match settings.display {
+        ChapterDisplay::Title => (title.to_owned(), Some(chapter_number(number))),
+        ChapterDisplay::Number => match number {
+            Some(number) => (format!("Chapter {}", chapter_number(Some(number))), None),
+            None => (title.to_owned(), None),
+        },
+    }
+}
+
+struct ChapterRowState<'a> {
+    settings: &'a ChapterSettings,
+    progress: &'a ProgressStore,
+    bookmarks: &'a BookmarkStore,
+    selected: Option<&'a HashSet<String>>,
+}
+
 fn local_chapter_items(
     chapters: &[Chapter],
-    progress: &ProgressStore,
-    bookmarks: &BookmarkStore,
-    selected: Option<&HashSet<String>>,
+    indices: &[usize],
+    state: &ChapterRowState<'_>,
 ) -> Vec<ListItem<'static>> {
-    chapters
+    let ChapterRowState {
+        settings,
+        progress,
+        bookmarks,
+        selected,
+    } = *state;
+    indices
         .iter()
+        .filter_map(|index| chapters.get(*index))
         .map(|chapter| {
+            let entry = progress.entry(&chapter.path);
+            let read = read_state(entry.map(|entry| (entry.page, entry.pages)));
             let mut spans = chapter_marker_spans(bookmarks.is_bookmarked(&chapter.path), None);
+            spans.push(read_marker(read));
             if selected
                 .is_some_and(|keys| keys.contains(&format!("chapter:{}", chapter.path.display())))
             {
                 spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
             }
-            spans.push(Span::raw(chapter.title.clone()));
-            spans.push(Span::styled(
-                format!("  {}", chapter_number(chapter.number)),
-                Style::default().fg(c_overlay0()),
-            ));
-            if let Some(entry) = progress.entry(&chapter.path) {
+            let (label, suffix) = chapter_label(settings, &chapter.title, chapter.number);
+            spans.push(Span::styled(label, chapter_title_style(read)));
+            if let Some(suffix) = suffix {
+                spans.push(Span::styled(
+                    format!("  {suffix}"),
+                    Style::default().fg(c_overlay0()),
+                ));
+            }
+            if let Some(scanlator) = chapter
+                .scanlator
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                spans.push(Span::styled(
+                    format!("  {scanlator}"),
+                    Style::default().fg(c_overlay1()),
+                ));
+            }
+            if let Some(date) = chapter.date {
+                spans.push(Span::styled(
+                    format!("  {:04}-{:02}-{:02}", date.year, date.month, date.day),
+                    Style::default().fg(c_overlay0()),
+                ));
+            }
+            if let Some(entry) = entry.filter(|_| read == ReadState::InProgress) {
                 spans.push(Span::styled(
                     format!("  {}/{}", entry.page + 1, entry.pages),
                     Style::default().fg(c_teal()),
@@ -3706,28 +3946,45 @@ fn local_chapter_items(
 }
 
 fn remote_chapter_items(
-    source_id: &str,
-    manga_url: &str,
+    manga: &RemoteManga,
     chapters: &[RemoteChapter],
-    progress: &ProgressStore,
-    bookmarks: &BookmarkStore,
     downloaded: &[bool],
-    selected: Option<&HashSet<String>>,
+    indices: &[usize],
+    state: &ChapterRowState<'_>,
 ) -> Vec<ListItem<'static>> {
-    chapters
+    let ChapterRowState {
+        settings,
+        progress,
+        bookmarks,
+        selected,
+    } = *state;
+    let source_id = &manga.source_id;
+    let manga_url = &manga.url;
+    indices
         .iter()
-        .enumerate()
+        .filter_map(|index| chapters.get(*index).map(|chapter| (*index, chapter)))
         .map(|(index, chapter)| {
             let key = remote_progress_key(source_id, manga_url, &chapter.url);
+            let entry = progress.entry(&key);
+            let read = read_state(entry.map(|entry| (entry.page, entry.pages)));
             let mut spans = chapter_marker_spans(
                 bookmarks.is_bookmarked(&key),
                 Some(downloaded.get(index).copied().unwrap_or(false)),
             );
+            spans.push(read_marker(read));
             let selection_key = format!("rchap:{source_id}\n{manga_url}\n{}", chapter.url);
             if selected.is_some_and(|keys| keys.contains(&selection_key)) {
                 spans.push(Span::styled("✓ ", Style::default().fg(c_accent())));
             }
-            spans.push(Span::raw(chapter.name.clone()));
+            let number = (chapter.chapter_number >= 0.0).then_some(chapter.chapter_number);
+            let (label, suffix) = chapter_label(settings, &chapter.name, number);
+            spans.push(Span::styled(label, chapter_title_style(read)));
+            if let Some(suffix) = suffix {
+                spans.push(Span::styled(
+                    format!("  {suffix}"),
+                    Style::default().fg(c_overlay0()),
+                ));
+            }
             if let Some(scanlator) = chapter
                 .scanlator
                 .as_deref()
@@ -3738,7 +3995,15 @@ fn remote_chapter_items(
                     Style::default().fg(c_overlay1()),
                 ));
             }
-            if let Some(entry) = progress.entry(&key) {
+            if chapter.upload_date > 0 {
+                if let Some(date) = DateTime::from_timestamp(chapter.upload_date, 0) {
+                    spans.push(Span::styled(
+                        format!("  {}", date.format("%Y-%m-%d")),
+                        Style::default().fg(c_overlay0()),
+                    ));
+                }
+            }
+            if let Some(entry) = entry.filter(|_| read == ReadState::InProgress) {
                 spans.push(Span::styled(
                     format!("  {}/{}", entry.page + 1, entry.pages),
                     Style::default().fg(c_teal()),

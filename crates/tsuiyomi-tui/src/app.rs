@@ -17,15 +17,16 @@ use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
     downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
-    legacy_remote_cover_path, load_cached_story, merge_extensions, normalized_title,
-    page_dimensions, progress_prefix, read_cover, read_page, remote_cover_path, save_cached_story,
-    save_config, scan_library, series_dir_name, source_dir_name, story_cache_path, today_key,
-    BookmarkStore, CachedStory, Chapter, ChapterKind, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, Library, LibrarySort, LocalSourceOrder,
-    Page, PageSource, ProgressStore, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, SourceDisplayMode,
-    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
-    Theme,
+    legacy_remote_cover_path, load_cached_story, merge_extensions, missing_chapter_count,
+    normalized_title, page_dimensions, progress_prefix, read_cover, read_page, read_state,
+    remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
+    source_dir_name, story_cache_path, today_key, visible_chapters, BookmarkStore, CachedStory,
+    Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, Config,
+    ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, Library,
+    LibrarySort, LocalSourceOrder, Page, PageSource, ProgressStore, ReadState, ReadingMode,
+    ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteSeries,
+    RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    SourcePreferenceValue, SourcePreferences, Theme, TriState,
 };
 
 use crate::{
@@ -669,6 +670,25 @@ pub struct MigrateState {
     pub list_state: ListState,
 }
 
+/// Rows in the chapter settings modal. Scanlator rows follow the fixed settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChapterSettingRow {
+    Downloaded,
+    Unread,
+    Bookmarked,
+    Sort,
+    Direction,
+    Display,
+    Reset,
+    Scanlator(usize),
+}
+
+#[derive(Debug, Default)]
+pub struct ChapterSettingsModal {
+    pub selected: usize,
+    pub list_state: ListState,
+}
+
 pub struct HistoryDeleteDialog {
     pub keys: Vec<String>,
     pub series_keys: Vec<String>,
@@ -776,6 +796,7 @@ pub struct AppState {
     pub history_delete: Option<HistoryDeleteDialog>,
     pub history_clear_confirm: bool,
     pub migrate: MigrateState,
+    pub chapter_settings_modal: Option<ChapterSettingsModal>,
     history_dirty: bool,
     progress_dirty: bool,
     progress_changed_at: Option<Instant>,
@@ -890,6 +911,7 @@ impl AppState {
             history_delete: None,
             history_clear_confirm: false,
             migrate: MigrateState::default(),
+            chapter_settings_modal: None,
             history_dirty: false,
             progress_dirty: false,
             progress_changed_at: None,
@@ -1036,6 +1058,14 @@ impl AppState {
     }
 
     pub fn browse_previous(&mut self) {
+        if matches!(
+            self.browse_view,
+            BrowseView::Chapters | BrowseView::RemoteDetails
+        ) {
+            let position = self.story_chapter_position();
+            self.select_story_position(position.saturating_sub(1));
+            return;
+        }
         let step = match self.browse_view {
             BrowseView::Local => self.browse_columns.max(1),
             BrowseView::RemoteResults
@@ -1050,6 +1080,17 @@ impl AppState {
     }
 
     pub fn browse_next(&mut self) {
+        if matches!(
+            self.browse_view,
+            BrowseView::Chapters | BrowseView::RemoteDetails
+        ) {
+            let position = self.story_chapter_position();
+            let count = self.story_chapter_indices().len();
+            if count > 0 {
+                self.select_story_position((position + 1).min(count - 1));
+            }
+            return;
+        }
         let count = self.browse_item_count();
         if count > 0 {
             let step = match self.browse_view {
@@ -1254,9 +1295,9 @@ impl AppState {
                 .map_or(0, |state| state.preferences.prefs.len()),
             BrowseView::Filters => self.filter_item_count(),
             BrowseView::Local => self.browse_local_indices().len(),
-            BrowseView::Chapters => self.browse_local_chapter_count(),
+            BrowseView::Chapters => self.story_chapter_indices().len(),
             BrowseView::RemoteResults => self.visible_remote_count(),
-            BrowseView::RemoteDetails => self.remote.chapters.len(),
+            BrowseView::RemoteDetails => self.story_chapter_indices().len(),
             BrowseView::Extensions => self.filtered_extension_count(),
             BrowseView::ExtensionDetails => self.extension_detail_rows().len(),
             BrowseView::Stores => self.remote.repos.len(),
@@ -4770,6 +4811,17 @@ impl AppState {
     }
 
     pub fn select_browse_index(&mut self, index: usize) {
+        if matches!(
+            self.browse_view,
+            BrowseView::Chapters | BrowseView::RemoteDetails
+        ) {
+            let indices = self.story_chapter_indices();
+            if let Some(source) = indices.get(index).copied() {
+                self.set_story_chapter_cursor(source);
+                self.sync_story_list_state();
+            }
+            return;
+        }
         if index < self.browse_item_count() {
             self.browse_selection = index;
             self.select_browse_entry(index);
@@ -4777,6 +4829,22 @@ impl AppState {
     }
 
     fn clamp_browse_selection(&mut self) {
+        if matches!(
+            self.browse_view,
+            BrowseView::Chapters | BrowseView::RemoteDetails
+        ) {
+            let indices = self.story_chapter_indices();
+            if indices.is_empty() {
+                self.sync_story_list_state();
+            } else {
+                let cursor = self.story_chapter_cursor().unwrap_or(0);
+                if !indices.contains(&cursor) {
+                    self.set_story_chapter_cursor(indices[0]);
+                }
+                self.sync_story_list_state();
+            }
+            return;
+        }
         let count = self.browse_item_count();
         if count == 0 {
             self.browse_selection = 0;
@@ -4791,8 +4859,14 @@ impl AppState {
         let count = self.browse_item_count();
         if self.browse_view == BrowseView::Chapters {
             self.browse_local_chapter = index;
+            let position = self.story_chapter_position();
             self.browse_local_list_state
-                .select((count > 0).then_some(index));
+                .select((count > 0).then_some(position.min(count.saturating_sub(1))));
+        } else if self.browse_view == BrowseView::RemoteDetails {
+            self.browse_selection = index;
+            let position = self.story_chapter_position();
+            self.browse_list_state
+                .select((count > 0).then_some(position.min(count.saturating_sub(1))));
         } else if self.browse_view == BrowseView::SourceFilters {
             self.source_filter_list_state
                 .select((count > 0).then_some(index));
@@ -5771,6 +5845,643 @@ impl AppState {
             .map_or(0, |series| series.chapters.len())
     }
 
+    /// Whether the shared story screen is currently visible.
+    pub fn story_screen_active(&self) -> bool {
+        self.reader.is_none()
+            && ((self.tab == 0
+                && matches!(
+                    self.view,
+                    LibraryView::Chapters | LibraryView::RemoteDetails
+                ))
+                || (self.tab == 3
+                    && matches!(
+                        self.browse_view,
+                        BrowseView::Chapters | BrowseView::RemoteDetails
+                    )))
+    }
+
+    /// Stable key for per-story chapter settings, matching history's series key.
+    pub fn current_story_key(&self) -> Option<String> {
+        if self.tab == 0 {
+            return match self.view {
+                LibraryView::Chapters => self
+                    .selected_series()
+                    .map(|series| format!("local:{}", series.path.display())),
+                LibraryView::RemoteDetails => self
+                    .library_remote
+                    .manga
+                    .as_ref()
+                    .map(|manga| remote_story_key(&manga.source_id, &manga.url)),
+                LibraryView::Series => None,
+            };
+        }
+        if self.tab == 3 {
+            return match self.browse_view {
+                BrowseView::Chapters => self
+                    .selected_browse_local_series()
+                    .map(|series| format!("local:{}", series.path.display())),
+                BrowseView::RemoteDetails => self
+                    .remote
+                    .manga
+                    .as_ref()
+                    .map(|manga| remote_story_key(&manga.source_id, &manga.url)),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// Settings for the open story, falling back to the global defaults.
+    pub fn chapter_settings(&self) -> ChapterSettings {
+        self.current_story_key()
+            .and_then(|key| self.config.chapter_settings.get(&key).cloned())
+            .unwrap_or_else(|| self.config.chapter_defaults.clone())
+    }
+
+    fn update_chapter_settings(&mut self, update: impl FnOnce(&mut ChapterSettings)) {
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let mut settings = self.chapter_settings();
+        update(&mut settings);
+        self.config.chapter_settings.insert(key, settings);
+        self.persist_settings();
+    }
+
+    /// Scanlators present in the open story, for the settings modal.
+    pub fn chapter_scanlators(&self) -> Vec<String> {
+        let mut scanlators = std::collections::BTreeSet::new();
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            if let Some(series) = self.selected_series() {
+                for chapter in &series.chapters {
+                    if let Some(scanlator) = chapter.scanlator.as_deref() {
+                        if !scanlator.is_empty() {
+                            scanlators.insert(scanlator.to_owned());
+                        }
+                    }
+                }
+            }
+        } else if let Some(chapters) = self.story_remote_chapters() {
+            for chapter in chapters {
+                if let Some(scanlator) = chapter.scanlator.as_deref() {
+                    if !scanlator.is_empty() {
+                        scanlators.insert(scanlator.to_owned());
+                    }
+                }
+            }
+        }
+        scanlators.into_iter().collect()
+    }
+
+    pub fn chapter_setting_rows(&self) -> Vec<ChapterSettingRow> {
+        let mut rows = vec![
+            ChapterSettingRow::Downloaded,
+            ChapterSettingRow::Unread,
+            ChapterSettingRow::Bookmarked,
+            ChapterSettingRow::Sort,
+            ChapterSettingRow::Direction,
+            ChapterSettingRow::Display,
+            ChapterSettingRow::Reset,
+        ];
+        rows.extend((0..self.chapter_scanlators().len()).map(ChapterSettingRow::Scanlator));
+        rows
+    }
+
+    /// Source indices after applying the story's filters and sort.
+    pub fn story_chapter_indices(&self) -> Vec<usize> {
+        let settings = self.chapter_settings();
+        if self.tab == 0 {
+            match self.view {
+                LibraryView::Chapters => {
+                    let Some(series) = self.selected_series() else {
+                        return Vec::new();
+                    };
+                    let metas = local_chapter_metas(series, &self.progress, &self.bookmarks);
+                    return visible_chapters(&metas, &settings);
+                }
+                LibraryView::RemoteDetails => {
+                    let Some(manga) = self.library_remote.manga.as_ref() else {
+                        return Vec::new();
+                    };
+                    let metas = remote_chapter_metas(
+                        &manga.source_id,
+                        &manga.url,
+                        &self.library_remote.chapters,
+                        &self.library_remote.downloaded,
+                        &self.progress,
+                        &self.bookmarks,
+                    );
+                    return visible_chapters(&metas, &settings);
+                }
+                LibraryView::Series => return Vec::new(),
+            }
+        }
+        if self.tab == 3 {
+            match self.browse_view {
+                BrowseView::Chapters => {
+                    let Some(series) = self.selected_browse_local_series() else {
+                        return Vec::new();
+                    };
+                    let metas = local_chapter_metas(series, &self.progress, &self.bookmarks);
+                    return visible_chapters(&metas, &settings);
+                }
+                BrowseView::RemoteDetails => {
+                    let Some(manga) = self.remote.manga.as_ref() else {
+                        return Vec::new();
+                    };
+                    let metas = remote_chapter_metas(
+                        &manga.source_id,
+                        &manga.url,
+                        &self.remote.chapters,
+                        &self.remote.downloaded,
+                        &self.progress,
+                        &self.bookmarks,
+                    );
+                    return visible_chapters(&metas, &settings);
+                }
+                _ => return Vec::new(),
+            }
+        }
+        Vec::new()
+    }
+
+    fn story_remote_chapters(&self) -> Option<&[RemoteChapter]> {
+        if self.tab == 0 && self.view == LibraryView::RemoteDetails {
+            return Some(&self.library_remote.chapters);
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::RemoteDetails {
+            return Some(&self.remote.chapters);
+        }
+        None
+    }
+
+    /// Raw source index of the chapter cursor.
+    pub fn story_chapter_cursor(&self) -> Option<usize> {
+        if self.tab == 0 {
+            return match self.view {
+                LibraryView::Chapters => Some(self.chapter_index),
+                LibraryView::RemoteDetails => Some(self.library_remote.chapter_index),
+                LibraryView::Series => None,
+            };
+        }
+        if self.tab == 3 {
+            return match self.browse_view {
+                BrowseView::Chapters => Some(self.browse_local_chapter),
+                BrowseView::RemoteDetails => Some(self.browse_selection),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    fn set_story_chapter_cursor(&mut self, index: usize) {
+        if self.tab == 0 {
+            match self.view {
+                LibraryView::Chapters => self.chapter_index = index,
+                LibraryView::RemoteDetails => self.library_remote.chapter_index = index,
+                LibraryView::Series => {}
+            }
+        } else if self.tab == 3 {
+            match self.browse_view {
+                BrowseView::Chapters => self.browse_local_chapter = index,
+                BrowseView::RemoteDetails => self.browse_selection = index,
+                _ => {}
+            }
+        }
+    }
+
+    /// Position of the cursor in the filtered chapter list.
+    pub fn story_chapter_position(&self) -> usize {
+        let indices = self.story_chapter_indices();
+        let cursor = self.story_chapter_cursor().unwrap_or(0);
+        indices
+            .iter()
+            .position(|index| *index == cursor)
+            .unwrap_or(0)
+    }
+
+    /// Move the cursor to a position in the filtered chapter list.
+    pub fn select_story_position(&mut self, position: usize) {
+        let indices = self.story_chapter_indices();
+        if let Some(index) = indices.get(position).copied() {
+            self.set_story_chapter_cursor(index);
+            self.status = None;
+        }
+        self.sync_story_list_state();
+    }
+
+    fn sync_story_list_state(&mut self) {
+        let position = self.story_chapter_position();
+        let count = self.story_chapter_indices().len();
+        let selected = (count > 0).then_some(position.min(count.saturating_sub(1)));
+        if self.tab == 0 {
+            match self.view {
+                LibraryView::Chapters => self.chapter_list_state.select(selected),
+                LibraryView::RemoteDetails => self.library_remote.list_state.select(selected),
+                LibraryView::Series => {}
+            }
+        } else if self.tab == 3 {
+            match self.browse_view {
+                BrowseView::Chapters => self.browse_local_list_state.select(selected),
+                BrowseView::RemoteDetails => self.browse_list_state.select(selected),
+                _ => {}
+            }
+        }
+    }
+
+    pub fn story_chapter_total(&self) -> usize {
+        if self.tab == 0 {
+            return match self.view {
+                LibraryView::Chapters => self.chapter_count(),
+                LibraryView::RemoteDetails => self.library_remote.chapters.len(),
+                LibraryView::Series => 0,
+            };
+        }
+        if self.tab == 3 {
+            return match self.browse_view {
+                BrowseView::Chapters => self.story_chapter_indices().len(),
+                BrowseView::RemoteDetails => self.story_chapter_indices().len(),
+                _ => 0,
+            };
+        }
+        0
+    }
+
+    pub fn story_missing_chapters(&self) -> usize {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            if let Some(series) = self.selected_series() {
+                return missing_chapter_count(series.chapters.iter().map(|chapter| chapter.number));
+            }
+        }
+        if let Some(chapters) = self.story_remote_chapters() {
+            return missing_chapter_count(
+                chapters.iter().map(|chapter| {
+                    (chapter.chapter_number >= 0.0).then_some(chapter.chapter_number)
+                }),
+            );
+        }
+        0
+    }
+
+    /// Raw source indices selected by the cursor or the multi-selection.
+    fn story_selected_indices(&self) -> Vec<usize> {
+        let local_scope = (self.tab == 0 && self.view == LibraryView::Chapters)
+            || (self.tab == 3 && self.browse_view == BrowseView::Chapters);
+        let scope = if local_scope {
+            SelectionScope::LocalChapters
+        } else {
+            SelectionScope::RemoteChapters
+        };
+        if let Some(keys) = self.selected_keys(scope) {
+            let mut indices = Vec::new();
+            if local_scope {
+                let chapters = if self.tab == 0 {
+                    self.selected_series()
+                        .map(|series| series.chapters.as_slice())
+                        .unwrap_or_default()
+                } else {
+                    self.selected_browse_local_series()
+                        .map(|series| series.chapters.as_slice())
+                        .unwrap_or_default()
+                };
+                for (index, chapter) in chapters.iter().enumerate() {
+                    if keys.contains(&format!("chapter:{}", chapter.path.display())) {
+                        indices.push(index);
+                    }
+                }
+            } else if let (Some(manga), Some(chapters)) =
+                (self.remote_story_manga(), self.story_remote_chapters())
+            {
+                for (index, chapter) in chapters.iter().enumerate() {
+                    if keys.contains(&format!(
+                        "rchap:{}\n{}\n{}",
+                        manga.source_id, manga.url, chapter.url
+                    )) {
+                        indices.push(index);
+                    }
+                }
+            }
+            if !indices.is_empty() {
+                return indices;
+            }
+        }
+        self.story_chapter_cursor().into_iter().collect()
+    }
+
+    fn remote_story_manga(&self) -> Option<&RemoteManga> {
+        if self.tab == 0 && self.view == LibraryView::RemoteDetails {
+            return self.library_remote.manga.as_ref();
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::RemoteDetails {
+            return self.remote.manga.as_ref();
+        }
+        None
+    }
+
+    /// Mark selected chapters read or unread. Read state lives in progress, so this
+    /// updates the same store the reader writes and history/stat views observe.
+    pub fn mark_selected_read(&mut self, read: bool) {
+        let indices = self.story_selected_indices();
+        if indices.is_empty() {
+            return;
+        }
+        for index in &indices {
+            self.mark_story_chapter_read(*index, read);
+        }
+        let _ = self.progress.save();
+        self.multi_select = None;
+        self.sync_story_list_state();
+        self.status = Some(format!(
+            "Marked {} chapter{} {}",
+            indices.len(),
+            if indices.len() == 1 { "" } else { "s" },
+            if read { "read" } else { "unread" }
+        ));
+    }
+
+    /// Mark every chapter after the cursor in display order as read.
+    pub fn mark_previous_read(&mut self) {
+        let indices = self.story_chapter_indices();
+        let position = self.story_chapter_position();
+        let selected: Vec<usize> = indices
+            .iter()
+            .skip(position.saturating_add(1))
+            .copied()
+            .collect();
+        if selected.is_empty() {
+            self.status = Some("No previous chapters to mark.".to_owned());
+            return;
+        }
+        for index in &selected {
+            self.mark_story_chapter_read(*index, true);
+        }
+        let _ = self.progress.save();
+        self.sync_story_list_state();
+        self.status = Some(format!("Marked {} previous chapters read", selected.len()));
+    }
+
+    /// Open the in-progress chapter, else the first unread chapter, in display order.
+    pub fn continue_reading(&mut self) {
+        let indices = self.story_chapter_indices();
+        if indices.is_empty() {
+            self.status = Some("This story has no chapters.".to_owned());
+            return;
+        }
+        let target = indices
+            .iter()
+            .copied()
+            .find(|index| self.story_chapter_read_state(*index) == ReadState::InProgress)
+            .or_else(|| {
+                indices
+                    .iter()
+                    .copied()
+                    .find(|index| self.story_chapter_read_state(*index) == ReadState::Unread)
+            })
+            .unwrap_or(indices[0]);
+        self.set_story_chapter_cursor(target);
+        self.sync_story_list_state();
+        if self.tab == 0 {
+            match self.view {
+                LibraryView::Chapters => self.open_chapter(),
+                LibraryView::RemoteDetails => self.open_library_remote_chapter(target),
+                LibraryView::Series => {}
+            }
+        } else if self.tab == 3 {
+            match self.browse_view {
+                BrowseView::Chapters => self.open_browse_local_chapter(target),
+                BrowseView::RemoteDetails => self.open_remote_chapter(target),
+                _ => {}
+            }
+        }
+    }
+
+    fn story_chapter_read_state(&self, source_index: usize) -> ReadState {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            if let Some(chapter) = self
+                .selected_series()
+                .and_then(|series| series.chapters.get(source_index))
+            {
+                return read_state(
+                    self.progress
+                        .entry(&chapter.path)
+                        .map(|entry| (entry.page, entry.pages)),
+                );
+            }
+            return ReadState::Unread;
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            if let Some(chapter) = self
+                .selected_browse_local_series()
+                .and_then(|series| series.chapters.get(source_index))
+            {
+                return read_state(
+                    self.progress
+                        .entry(&chapter.path)
+                        .map(|entry| (entry.page, entry.pages)),
+                );
+            }
+            return ReadState::Unread;
+        }
+        let Some(manga) = self.remote_story_manga() else {
+            return ReadState::Unread;
+        };
+        let Some(chapter_url) = self
+            .story_remote_chapters()
+            .and_then(|chapters| chapters.get(source_index))
+            .map(|chapter| chapter.url.as_str())
+        else {
+            return ReadState::Unread;
+        };
+        let key = remote_progress_key(&manga.source_id, &manga.url, chapter_url);
+        read_state(
+            self.progress
+                .entry(&key)
+                .map(|entry| (entry.page, entry.pages)),
+        )
+    }
+
+    fn mark_story_chapter_read(&mut self, source_index: usize, read: bool) {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            let chapter = self
+                .selected_series()
+                .and_then(|series| series.chapters.get(source_index))
+                .cloned();
+            if let Some(chapter) = chapter {
+                self.set_local_chapter_read(&chapter, read);
+            }
+            return;
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            let chapter = self
+                .selected_browse_local_series()
+                .and_then(|series| series.chapters.get(source_index))
+                .cloned();
+            if let Some(chapter) = chapter {
+                self.set_local_chapter_read(&chapter, read);
+            }
+            return;
+        }
+        let Some((source_id, manga_url)) = self
+            .remote_story_manga()
+            .map(|manga| (manga.source_id.clone(), manga.url.clone()))
+        else {
+            return;
+        };
+        let Some(chapter_url) = self
+            .story_remote_chapters()
+            .and_then(|chapters| chapters.get(source_index))
+            .map(|chapter| chapter.url.clone())
+        else {
+            return;
+        };
+        let key = remote_progress_key(&source_id, &manga_url, &chapter_url);
+        if read {
+            let pages = self
+                .progress
+                .entry(&key)
+                .map(|entry| entry.pages)
+                .filter(|pages| *pages > 0)
+                .unwrap_or(1);
+            self.progress.update(&key, pages.saturating_sub(1), pages);
+        } else {
+            self.progress.remove(&key);
+        }
+    }
+
+    fn set_local_chapter_read(&mut self, chapter: &Chapter, read: bool) {
+        if read {
+            let pages = chapter_pages(chapter)
+                .ok()
+                .map(|pages| pages.len())
+                .filter(|pages| *pages > 0)
+                .unwrap_or(1);
+            self.progress
+                .update(&chapter.path, pages.saturating_sub(1), pages);
+        } else {
+            self.progress.remove(&chapter.path);
+        }
+    }
+
+    pub fn chapter_settings_adjust_sort(&mut self, delta: i32) {
+        self.update_chapter_settings(|settings| {
+            settings.sort = if delta < 0 {
+                match settings.sort {
+                    ChapterSort::Source => ChapterSort::Alphabet,
+                    ChapterSort::Number => ChapterSort::Source,
+                    ChapterSort::UploadDate => ChapterSort::Number,
+                    ChapterSort::Alphabet => ChapterSort::UploadDate,
+                }
+            } else {
+                settings.sort.next()
+            };
+        });
+        self.clamp_story_cursor();
+    }
+
+    pub fn cycle_chapter_display(&mut self) {
+        self.update_chapter_settings(|settings| settings.display = settings.display.next());
+    }
+
+    pub fn open_chapter_settings(&mut self) {
+        self.chapter_settings_modal = Some(ChapterSettingsModal::default());
+    }
+
+    pub fn close_chapter_settings(&mut self) {
+        self.chapter_settings_modal = None;
+    }
+
+    pub fn chapter_settings_previous(&mut self) {
+        if let Some(modal) = self.chapter_settings_modal.as_mut() {
+            modal.selected = modal.selected.saturating_sub(1);
+            modal.list_state.select(Some(modal.selected));
+        }
+    }
+
+    pub fn chapter_settings_next(&mut self) {
+        let rows = self.chapter_setting_rows().len();
+        if let Some(modal) = self.chapter_settings_modal.as_mut() {
+            if rows > 0 {
+                modal.selected = (modal.selected + 1).min(rows - 1);
+                modal.list_state.select(Some(modal.selected));
+            }
+        }
+    }
+
+    pub fn chapter_settings_adjust(&mut self, delta: i32) {
+        let Some(modal) = self.chapter_settings_modal.as_ref() else {
+            return;
+        };
+        let rows = self.chapter_setting_rows();
+        let Some(row) = rows.get(modal.selected).copied() else {
+            return;
+        };
+        let scanlators = self.chapter_scanlators();
+        match row {
+            ChapterSettingRow::Downloaded => self.update_chapter_settings(|settings| {
+                settings.downloaded = cycle_tri_state(settings.downloaded, delta);
+            }),
+            ChapterSettingRow::Unread => self.update_chapter_settings(|settings| {
+                settings.unread = cycle_tri_state(settings.unread, delta);
+            }),
+            ChapterSettingRow::Bookmarked => self.update_chapter_settings(|settings| {
+                settings.bookmarked = cycle_tri_state(settings.bookmarked, delta);
+            }),
+            ChapterSettingRow::Sort => self.update_chapter_settings(|settings| {
+                settings.sort = if delta < 0 {
+                    match settings.sort {
+                        ChapterSort::Source => ChapterSort::Alphabet,
+                        ChapterSort::Number => ChapterSort::Source,
+                        ChapterSort::UploadDate => ChapterSort::Number,
+                        ChapterSort::Alphabet => ChapterSort::UploadDate,
+                    }
+                } else {
+                    settings.sort.next()
+                };
+            }),
+            ChapterSettingRow::Direction => self.update_chapter_settings(|settings| {
+                settings.descending = !settings.descending;
+            }),
+            ChapterSettingRow::Display => self.update_chapter_settings(|settings| {
+                settings.display = if delta < 0 {
+                    match settings.display {
+                        ChapterDisplay::Title => ChapterDisplay::Number,
+                        ChapterDisplay::Number => ChapterDisplay::Title,
+                    }
+                } else {
+                    settings.display.next()
+                };
+            }),
+            ChapterSettingRow::Reset => {
+                let defaults = self.config.chapter_defaults.clone();
+                self.update_chapter_settings(|settings| *settings = defaults);
+            }
+            ChapterSettingRow::Scanlator(index) => {
+                let Some(scanlator) = scanlators.get(index).cloned() else {
+                    return;
+                };
+                self.update_chapter_settings(|settings| {
+                    if !settings.excluded_scanlators.remove(&scanlator) {
+                        settings.excluded_scanlators.insert(scanlator);
+                    }
+                });
+            }
+        }
+        self.clamp_story_cursor();
+    }
+
+    fn clamp_story_cursor(&mut self) {
+        let indices = self.story_chapter_indices();
+        if indices.is_empty() {
+            self.sync_story_list_state();
+            return;
+        }
+        let cursor = self.story_chapter_cursor().unwrap_or(0);
+        if !indices.contains(&cursor) {
+            self.set_story_chapter_cursor(indices[0]);
+        }
+        self.sync_story_list_state();
+    }
+
     /// Enter chapters, open a chapter, or turn the page.
     pub fn open(&mut self) {
         self.multi_select = None;
@@ -5889,17 +6600,9 @@ impl AppState {
                 self.selected = self.selected.saturating_sub(self.library_columns.max(1));
                 self.status = None;
             }
-            LibraryView::Chapters => {
-                self.chapter_index = self.chapter_index.saturating_sub(1);
-                self.status = None;
-            }
-            LibraryView::RemoteDetails => {
-                self.library_remote.chapter_index =
-                    self.library_remote.chapter_index.saturating_sub(1);
-                self.library_remote
-                    .list_state
-                    .select(Some(self.library_remote.chapter_index));
-                self.status = None;
+            LibraryView::Chapters | LibraryView::RemoteDetails => {
+                let position = self.story_chapter_position();
+                self.select_story_position(position.saturating_sub(1));
             }
         }
     }
@@ -5924,20 +6627,11 @@ impl AppState {
                     self.status = None;
                 }
             }
-            LibraryView::Chapters => {
-                if let Some(last) = self.chapter_count().checked_sub(1) {
-                    self.chapter_index = (self.chapter_index + 1).min(last);
-                    self.status = None;
-                }
-            }
-            LibraryView::RemoteDetails => {
-                if let Some(last) = self.library_remote_chapter_count().checked_sub(1) {
-                    self.library_remote.chapter_index =
-                        (self.library_remote.chapter_index + 1).min(last);
-                    self.library_remote
-                        .list_state
-                        .select(Some(self.library_remote.chapter_index));
-                    self.status = None;
+            LibraryView::Chapters | LibraryView::RemoteDetails => {
+                let position = self.story_chapter_position();
+                let count = self.story_chapter_indices().len();
+                if count > 0 {
+                    self.select_story_position((position + 1).min(count - 1));
                 }
             }
         }
@@ -6474,6 +7168,79 @@ impl AppState {
                 });
             }
         }
+    }
+
+    pub fn select_all_story_chapters(&mut self) {
+        let Some((scope, keys)) = self.story_selection_keys() else {
+            return;
+        };
+        if keys.is_empty() {
+            self.multi_select = None;
+            return;
+        }
+        let count = keys.len();
+        self.multi_select = Some(MultiSelect {
+            scope,
+            keys: keys.into_iter().collect(),
+        });
+        self.status = Some(format!("Selected {count} chapters"));
+    }
+
+    pub fn invert_story_selection(&mut self) {
+        let Some((scope, keys)) = self.story_selection_keys() else {
+            return;
+        };
+        let all: HashSet<String> = keys.into_iter().collect();
+        let existing: HashSet<String> = self
+            .multi_select
+            .as_ref()
+            .filter(|selection| selection.scope == scope)
+            .map(|selection| selection.keys.clone())
+            .unwrap_or_default();
+        let inverted: HashSet<String> = all.difference(&existing).cloned().collect();
+        if inverted.is_empty() {
+            self.multi_select = None;
+            self.status = Some("Selection cleared".to_owned());
+        } else {
+            let count = inverted.len();
+            self.multi_select = Some(MultiSelect {
+                scope,
+                keys: inverted,
+            });
+            self.status = Some(format!("Selected {count} chapters"));
+        }
+    }
+
+    fn story_selection_keys(&self) -> Option<(SelectionScope, Vec<String>)> {
+        let indices = self.story_chapter_indices();
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            let series = self.selected_series()?;
+            let keys = indices
+                .iter()
+                .filter_map(|index| series.chapters.get(*index))
+                .map(Self::local_chapter_selection_key)
+                .collect();
+            return Some((SelectionScope::LocalChapters, keys));
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            let series = self.selected_browse_local_series()?;
+            let keys = indices
+                .iter()
+                .filter_map(|index| series.chapters.get(*index))
+                .map(Self::local_chapter_selection_key)
+                .collect();
+            return Some((SelectionScope::LocalChapters, keys));
+        }
+        let manga = self.remote_story_manga()?;
+        let chapters = self.story_remote_chapters()?;
+        let keys = indices
+            .iter()
+            .filter_map(|index| chapters.get(*index))
+            .map(|chapter| {
+                Self::remote_chapter_selection_key(&manga.source_id, &manga.url, &chapter.url)
+            })
+            .collect();
+        Some((SelectionScope::RemoteChapters, keys))
     }
 
     pub fn clear_multi_select(&mut self) {
@@ -7807,14 +8574,10 @@ impl AppState {
                 self.selected = index;
                 self.status = None;
             }
-            LibraryView::Chapters if index < self.chapter_count() => {
-                self.chapter_index = index;
-                self.status = None;
-            }
-            LibraryView::RemoteDetails if index < self.library_remote_chapter_count() => {
-                self.library_remote.chapter_index = index;
-                self.library_remote.list_state.select(Some(index));
-                self.status = None;
+            LibraryView::Chapters | LibraryView::RemoteDetails
+                if index < self.story_chapter_indices().len() =>
+            {
+                self.select_story_position(index);
             }
             _ => {}
         }
@@ -9363,6 +10126,75 @@ fn remote_story_key(source_id: &str, url: &str) -> String {
     format!("{source_id}\n{url}")
 }
 
+fn local_chapter_metas<'a>(
+    series: &'a Series,
+    progress: &ProgressStore,
+    bookmarks: &BookmarkStore,
+) -> Vec<ChapterMeta<'a>> {
+    series
+        .chapters
+        .iter()
+        .map(|chapter| {
+            let read = read_state(
+                progress
+                    .entry(&chapter.path)
+                    .map(|entry| (entry.page, entry.pages)),
+            );
+            let upload_date = chapter.date.map(|date| {
+                i64::from(date.year) * 10_000 + i64::from(date.month) * 100 + i64::from(date.day)
+            });
+            ChapterMeta {
+                title: &chapter.title,
+                number: chapter.number,
+                upload_date,
+                scanlator: chapter.scanlator.as_deref(),
+                downloaded: true,
+                bookmarked: bookmarks.is_bookmarked(&chapter.path),
+                read,
+            }
+        })
+        .collect()
+}
+
+fn remote_chapter_metas<'a>(
+    source_id: &str,
+    manga_url: &str,
+    chapters: &'a [RemoteChapter],
+    downloaded: &[bool],
+    progress: &ProgressStore,
+    bookmarks: &BookmarkStore,
+) -> Vec<ChapterMeta<'a>> {
+    chapters
+        .iter()
+        .enumerate()
+        .map(|(index, chapter)| {
+            let key = remote_progress_key(source_id, manga_url, &chapter.url);
+            let read = read_state(progress.entry(&key).map(|entry| (entry.page, entry.pages)));
+            ChapterMeta {
+                title: &chapter.name,
+                number: (chapter.chapter_number >= 0.0).then_some(chapter.chapter_number),
+                upload_date: (chapter.upload_date > 0).then_some(chapter.upload_date),
+                scanlator: chapter.scanlator.as_deref(),
+                downloaded: downloaded.get(index).copied().unwrap_or(false),
+                bookmarked: bookmarks.is_bookmarked(&key),
+                read,
+            }
+        })
+        .collect()
+}
+
+fn cycle_tri_state(state: TriState, delta: i32) -> TriState {
+    if delta < 0 {
+        match state {
+            TriState::Ignore => TriState::Exclude,
+            TriState::Include => TriState::Ignore,
+            TriState::Exclude => TriState::Include,
+        }
+    } else {
+        state.cycle()
+    }
+}
+
 fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
@@ -9663,6 +10495,88 @@ mod tests {
 
         app.back();
         assert_eq!(app.view, LibraryView::Series);
+    }
+
+    #[test]
+    fn story_filters_sort_and_selection_follow_visible_chapters() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.open();
+        app.progress.update(Path::new("Chapter 1"), 0, 1);
+
+        let key = "local:Berserk".to_owned();
+        app.config.chapter_settings.insert(
+            key.clone(),
+            ChapterSettings {
+                unread: TriState::Include,
+                sort: ChapterSort::Number,
+                descending: true,
+                ..ChapterSettings::default()
+            },
+        );
+        let indices = app.story_chapter_indices();
+        assert_eq!(indices, vec![1]);
+        assert_eq!(app.story_missing_chapters(), 0);
+
+        app.chapter_index = 0;
+        app.select_story_position(0);
+        assert_eq!(app.chapter_index, 1);
+
+        app.select_all_story_chapters();
+        assert_eq!(
+            app.multi_select.as_ref().map(|state| state.keys.len()),
+            Some(1)
+        );
+        app.invert_story_selection();
+        assert!(app.multi_select.is_none());
+
+        app.invert_story_selection();
+        assert_eq!(
+            app.multi_select.as_ref().map(|state| state.keys.len()),
+            Some(1)
+        );
+
+        app.config.chapter_settings.remove(&key);
+    }
+
+    #[test]
+    fn story_mark_read_updates_progress_and_read_state() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.open();
+
+        app.mark_selected_read(true);
+        let entry = app
+            .progress
+            .entry(Path::new("Chapter 1"))
+            .expect("read progress");
+        assert_eq!(entry.page + 1, entry.pages);
+        assert_eq!(app.story_chapter_read_state(0), ReadState::Read);
+
+        app.mark_selected_read(false);
+        assert!(app.progress.entry(Path::new("Chapter 1")).is_none());
+        assert_eq!(app.story_chapter_read_state(0), ReadState::Unread);
+
+        app.mark_previous_read();
+        assert!(app.progress.entry(Path::new("Chapter 2")).is_some());
+    }
+
+    #[test]
+    fn continue_reading_prefers_in_progress_then_unread() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.open();
+        app.progress.update(Path::new("Chapter 1"), 0, 10);
+        app.progress.update(Path::new("Chapter 2"), 0, 10);
+
+        app.continue_reading();
+        assert_eq!(app.chapter_index, 0);
+
+        app.progress.remove(Path::new("Chapter 1"));
+        app.progress.remove(Path::new("Chapter 2"));
+        app.chapter_index = 1;
+        app.continue_reading();
+        assert_eq!(app.chapter_index, 0);
     }
 
     #[test]

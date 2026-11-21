@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, env, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::host::RemoteFavorite;
+use crate::{chapter_view::ChapterSettings, host::RemoteFavorite};
 
 /// Reader/viewer modes, mirroring Mihon's `ReadingMode` enum.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +134,12 @@ pub struct Config {
     /// Local series removed from the library but kept on disk, relative to the
     /// library root. Mihon only drops its database entry; files stay.
     pub hidden_series: Vec<PathBuf>,
+    /// Chapter filters, sorting, and display used by new stories. Per-series
+    /// overrides live in `chapter_settings`.
+    pub chapter_defaults: ChapterSettings,
+    /// Per-series chapter settings, keyed by the history series key
+    /// (`local:<path>` or `remote:<source>\n<url>`).
+    pub chapter_settings: BTreeMap<String, ChapterSettings>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
     /// Pages prepared before the viewport.
@@ -174,6 +180,8 @@ impl Default for Config {
             browse_hide_saved: false,
             remote_library: Vec::new(),
             hidden_series: Vec::new(),
+            chapter_defaults: ChapterSettings::default(),
+            chapter_settings: BTreeMap::new(),
             reader_zoom: 100,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,
@@ -301,6 +309,42 @@ browse_hide_saved = true
         assert!(serialized.contains("global_search_only_results = true"));
         assert!(serialized.contains("source_display_mode = \"list\""));
         assert!(serialized.contains("browse_hide_saved = true"));
+    }
+
+    #[test]
+    fn chapter_settings_roundtrip_per_series_and_defaults() {
+        use crate::chapter_view::{ChapterDisplay, ChapterSort, TriState};
+
+        let config: Config = toml::from_str(
+            r#"
+[chapter_defaults]
+unread = "include"
+sort = "number"
+descending = true
+display = "number"
+
+[chapter_settings."local:/tmp/manga/Alpha"]
+bookmarked = "include"
+sort = "alphabet"
+excluded_scanlators = ["Team A"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.chapter_defaults.unread, TriState::Include);
+        assert_eq!(config.chapter_defaults.sort, ChapterSort::Number);
+        assert!(config.chapter_defaults.descending);
+        assert_eq!(config.chapter_defaults.display, ChapterDisplay::Number);
+        let series = config
+            .chapter_settings
+            .get("local:/tmp/manga/Alpha")
+            .expect("series settings");
+        assert_eq!(series.bookmarked, TriState::Include);
+        assert_eq!(series.sort, ChapterSort::Alphabet);
+        assert!(series.excluded_scanlators.contains("Team A"));
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("[chapter_defaults]"));
+        assert!(serialized.contains("[chapter_settings."));
     }
 
     #[test]
