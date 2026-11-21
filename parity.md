@@ -77,6 +77,7 @@ Legend:
 | Sources | Pin source | Yes | ✅ | ✅ | `P`. |
 | Sources | Enable/disable languages and sources | Yes | ✅ | ✅ | Management screen with `o`. |
 | Sources | Source preferences | Yes | ✅ | ✅ | Switch, text, list; multi-select waits on host arrays. |
+| Sources | Open source home page | Yes | ✅ | ✅ | `g`; resolved from installed extension source metadata. |
 | Sources | Source filters | Yes | ✅ | ✅ | Checkbox, tri-state, text, select, sort, groups. |
 | Sources | Search / latest / filters | Yes | ✅ | ✅ | |
 | Results | Comfortable / compact / list layouts | Yes | ✅ | ✅ | `v`, persisted. |

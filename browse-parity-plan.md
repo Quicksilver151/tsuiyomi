@@ -818,7 +818,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Disabled languages excluded from available extensions.
 - [ ] Latest shortcut only when supported.
 - [ ] Open source preferences when configurable.
-- [ ] Open source home page in browser.
+- [x] Open source home page in browser (`g`, installed extension metadata).
 - [ ] Loading, empty, host-starting, and error states.
 - [ ] Global search action and Browse-tab reselect.
 - [ ] Local source title search.

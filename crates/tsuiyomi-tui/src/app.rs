@@ -4007,6 +4007,66 @@ impl AppState {
         }
     }
 
+    /// Base URL for the selected source, resolved from loaded extension metadata.
+    pub fn selected_source_base_url(&self) -> Option<String> {
+        let source_id = if self.browse_view == BrowseView::ExtensionDetails {
+            self.extension_details
+                .as_ref()
+                .and_then(|state| state.sources.get(self.browse_selection))
+                .map(|source| source.id.clone())
+        } else {
+            self.selected_source_ref().and_then(|source| match source {
+                SourceRef::Local => None,
+                SourceRef::Remote(index) => self
+                    .remote
+                    .sources
+                    .get(index)
+                    .map(|source| source.id.clone()),
+            })
+        }?;
+        self.remote
+            .extensions
+            .iter()
+            .flat_map(|extension| extension.sources.iter())
+            .find(|source| source.id == source_id && !source.base_url.is_empty())
+            .map(|source| source.base_url.clone())
+    }
+
+    pub fn open_selected_source_home(&mut self) {
+        if self.browse_view == BrowseView::Sources
+            && matches!(self.selected_source_ref(), Some(SourceRef::Local))
+        {
+            let path = self.library.root.display().to_string();
+            match open_external_target(&path) {
+                Ok(()) => {
+                    self.remote.status = Some(format!("Opened {path}"));
+                    self.remote.error = false;
+                }
+                Err(error) => {
+                    self.remote.status = Some(format!("Could not open {path}: {error}"));
+                    self.remote.error = true;
+                }
+            }
+            return;
+        }
+        let Some(url) = self.selected_source_base_url() else {
+            self.remote.status =
+                Some("Source URL is unavailable; open the extension details instead.".to_owned());
+            self.remote.error = true;
+            return;
+        };
+        match open_external_target(&url) {
+            Ok(()) => {
+                self.remote.status = Some(format!("Opened {url}"));
+                self.remote.error = false;
+            }
+            Err(error) => {
+                self.remote.status = Some(format!("Could not open {url}: {error}"));
+                self.remote.error = true;
+            }
+        }
+    }
+
     pub fn copy_store_url(&mut self) {
         let Some(store) = self.selected_store().cloned() else {
             return;
@@ -11634,6 +11694,18 @@ fn migrate_legacy_cover(path: &Path, source_id: &str, manga_url: &str) -> bool {
     true
 }
 
+fn open_external_target(target: &str) -> std::io::Result<()> {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(target)
+        .spawn()
+        .map(|_| ())
+}
+
 fn write_osc52_clipboard(text: &str) -> std::io::Result<()> {
     use std::io::Write;
 
@@ -14273,6 +14345,49 @@ mod tests {
         assert_eq!(app.filtered_extension_count(), 1);
         app.extension_query = "alpha.example".to_owned();
         assert_eq!(app.filtered_extension_count(), 1);
+    }
+
+    #[test]
+    fn source_base_urls_come_from_extension_metadata() {
+        let mut app = remote_app();
+        let mut extension = ExtensionInfo {
+            name: "Alpha".to_owned(),
+            pkg: "pkg.alpha".to_owned(),
+            lang: "en".to_owned(),
+            version: "1.0".to_owned(),
+            apk: "alpha.apk".to_owned(),
+            installed: true,
+            nsfw: false,
+            source_count: 1,
+            sources: vec![ExtensionSource {
+                name: "Alpha".to_owned(),
+                lang: "en".to_owned(),
+                id: "1".to_owned(),
+                base_url: "https://alpha.example".to_owned(),
+            }],
+            repo_url: "https://repo/index.min.json".to_owned(),
+            available_version: Some("1.0".to_owned()),
+        };
+        extension.sources[0].id = "1".to_owned();
+        app.remote.extensions = vec![extension.clone()];
+        app.extension_details = Some(ExtensionDetailsState {
+            extension,
+            sources: vec![RemoteSource {
+                id: "1".to_owned(),
+                name: "Alpha".to_owned(),
+                lang: "en".to_owned(),
+                pkg: Some("pkg.alpha".to_owned()),
+                supports_latest: true,
+            }],
+            list_state: ListState::default(),
+        });
+        app.browse_view = BrowseView::ExtensionDetails;
+        app.browse_selection = 0;
+
+        assert_eq!(
+            app.selected_source_base_url().as_deref(),
+            Some("https://alpha.example")
+        );
     }
 
     #[test]

@@ -184,7 +184,8 @@ Rules:
   title; Esc at a tab root returns to Library. Sources are grouped by last used, pinned,
   and language. They can be pinned (persisted in `pinned_sources`), and `o` opens a source
   management screen for enabling or disabling languages and individual sources (persisted
-  in `enabled_languages` and `disabled_sources`). Remote result pages append with `n`
+  in `enabled_languages` and `disabled_sources`). `g` opens the selected source's home
+  page from installed extension metadata. Remote result pages append with `n`
   (or the next remote page action) while `has_next_page` is true. The Extensions tab has an
   inline search bar, detects installed-vs-repository version differences, shows the pending
   update count in the tab title, groups updates/installed/available by language, and offers

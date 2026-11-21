@@ -980,6 +980,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.edit_custom_cover();
                 }
             }
+            Action::OpenSourceHome => {
+                if app.tab == 3
+                    && matches!(
+                        app.browse_view,
+                        BrowseView::Sources | BrowseView::ExtensionDetails
+                    )
+                {
+                    app.open_selected_source_home();
+                }
+            }
             Action::Redraw | Action::Char(_) | Action::Backspace => {}
             Action::Click { column, row } => {
                 let (width, height) = crossterm::terminal::size()?;
