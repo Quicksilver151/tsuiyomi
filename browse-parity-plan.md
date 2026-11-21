@@ -865,7 +865,7 @@ explicitly marked as a deliberate deviation.
 - [x] Persisted scope.
 - [x] Only-with-results toggle.
 - [x] Persisted only-with-results.
-- [ ] Per-source loading row.
+- [x] Per-source loading row.
 - [ ] Per-source success row.
 - [ ] Per-source empty row when unfiltered.
 - [x] Per-source error row and retry.

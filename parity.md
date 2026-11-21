@@ -90,6 +90,7 @@ Legend:
 | Results | Category choice when saving | Yes | ✅ | ✅ | Default preselected. |
 | Global search | Pinned/all scope | Yes | ✅ | ✅ | `A`, persisted. |
 | Global search | Progressive per-source results | Yes | ✅ | ✅ | Background worker. |
+| Global search | Per-source loading rows | Yes | ✅ | ✅ | Pending groups show `searching…`. |
 | Global search | Empty/error source rows | Yes | ✅ | ✅ | `h` only-with-results. |
 | Global search | Retry / cancel previous search | Yes | ✅ | ✅ | `r`; generation drops stale results. |
 | Global search | Open group’s source with query | Yes | ✅ | ✅ | `o`. |

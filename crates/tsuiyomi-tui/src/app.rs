@@ -164,6 +164,7 @@ pub struct GlobalGroup {
     pub source: RemoteSource,
     pub mangas: Vec<RemoteManga>,
     pub error: Option<String>,
+    pub loading: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -3773,7 +3774,15 @@ impl AppState {
         let generation = self.remote.global_generation.wrapping_add(1);
         self.remote.global_generation = generation;
         self.remote.global_query = query.to_owned();
-        self.remote.global_groups.clear();
+        self.remote.global_groups = sources
+            .iter()
+            .map(|source| GlobalGroup {
+                source: source.clone(),
+                mangas: Vec::new(),
+                error: None,
+                loading: true,
+            })
+            .collect();
         self.remote.global_failures.clear();
         self.remote.global_total = sources.len();
         self.remote.global_finished = 0;
@@ -3817,14 +3826,29 @@ impl AppState {
                 source,
                 mangas,
             } if generation == self.remote.global_generation => {
-                if !mangas.is_empty() || !self.config.global_search_only_results {
+                if let Some(group) = self
+                    .remote
+                    .global_groups
+                    .iter_mut()
+                    .find(|group| group.source.id == source.id)
+                {
+                    group.mangas = mangas;
+                    group.error = None;
+                    group.loading = false;
+                } else if !mangas.is_empty() || !self.config.global_search_only_results {
                     self.remote.global_groups.push(GlobalGroup {
                         source,
                         mangas,
                         error: None,
+                        loading: false,
                     });
-                    self.sort_global_groups();
                 }
+                if self.config.global_search_only_results {
+                    self.remote
+                        .global_groups
+                        .retain(|group| group.loading || !group.mangas.is_empty());
+                }
+                self.sort_global_groups();
                 self.remote.global_finished += 1;
                 self.update_global_search_status();
                 true
@@ -3834,14 +3858,29 @@ impl AppState {
                 source,
                 message,
             } if generation == self.remote.global_generation => {
-                if !self.config.global_search_only_results {
+                if let Some(group) = self
+                    .remote
+                    .global_groups
+                    .iter_mut()
+                    .find(|group| group.source.id == source.id)
+                {
+                    group.mangas.clear();
+                    group.error = Some(message.clone());
+                    group.loading = false;
+                } else if !self.config.global_search_only_results {
                     self.remote.global_groups.push(GlobalGroup {
                         source: source.clone(),
                         mangas: Vec::new(),
                         error: Some(message.clone()),
+                        loading: false,
                     });
-                    self.sort_global_groups();
                 }
+                if self.config.global_search_only_results {
+                    self.remote
+                        .global_groups
+                        .retain(|group| group.loading || group.error.is_none());
+                }
+                self.sort_global_groups();
                 self.remote
                     .global_failures
                     .push(GlobalFailure { source, message });
@@ -3856,6 +3895,9 @@ impl AppState {
                 if generation == self.remote.global_generation =>
             {
                 self.remote.global_loading = false;
+                for group in &mut self.remote.global_groups {
+                    group.loading = false;
+                }
                 self.update_global_search_status();
                 true
             }
@@ -14460,6 +14502,7 @@ mod tests {
                 })
                 .collect(),
             error: None,
+            loading: false,
         };
         app.remote.global_groups = vec![group(0, 0), group(1, 1), group(2, 1)];
         app.sort_global_groups();
@@ -14491,6 +14534,7 @@ mod tests {
                 memo: None,
             }],
             error: None,
+            loading: false,
         }];
         app.remote.global_group = 0;
         app.remote.global_item = 0;
@@ -14758,11 +14802,13 @@ mod tests {
                 source: app.remote.sources[0].clone(),
                 mangas: vec![manga("Alpha"), manga("Beta")],
                 error: None,
+                loading: false,
             },
             GlobalGroup {
                 source: app.remote.sources[1].clone(),
                 mangas: vec![manga("Gamma")],
                 error: None,
+                loading: false,
             },
         ];
 

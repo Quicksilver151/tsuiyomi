@@ -2417,6 +2417,8 @@ fn draw_global_results(frame: &mut Frame, area: Rect, app: &mut AppState) {
             ),
             if let Some(error) = &group.error {
                 Span::styled(format!("  error · {error}"), Style::default().fg(c_peach()))
+            } else if group.loading {
+                Span::styled("  searching…", Style::default().fg(c_yellow()))
             } else {
                 Span::styled(
                     format!("  {} results", group.mangas.len()),
@@ -5591,6 +5593,7 @@ mod tests {
             },
             mangas: Vec::new(),
             error: Some("timeout".to_owned()),
+            loading: false,
         }];
 
         let text = render(&mut app, 100, 30);
