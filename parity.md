@@ -68,7 +68,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Categories | Mihon database categories | Yes | 🟡 | 🟡 | `categories.json` in the library root; unlisted series use `Default`. |
 | Metadata writes | Mihon-readable metadata export | Yes | ❌ | ❌ | No `ComicInfo.xml`/`details.json` writing. |
 | Backups | Import `.tachibk` / `.proto.gz` | Yes | 🟡 | 🟡 | Remote favorites/categories/notes/progress/bookmarks/history; local-source entries and some metadata are skipped. |
-| Backups | Export Mihon-restorable backups | Yes | 🟡 | 🟡 | Remote library/categories/chapter state/history written; local-source entries omitted and Mihon restore is not yet round-trip verified. |
+| Backups | Export Mihon-restorable backups | Yes | 🟡 | 🟡 | Local and remote library/categories/chapter state/history written; Mihon restore is not yet round-trip verified. |
 
 ## 2. Library
 <!-- parity-score --> *Completion: **78.1%** · 12 ✅ · 1 🟡 · 3 ❌*

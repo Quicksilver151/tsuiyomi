@@ -6344,8 +6344,14 @@ impl AppState {
             self.status = Some("Enter an export path.".to_owned());
             return;
         }
-        if self.config.remote_library.is_empty() {
-            self.status = Some("No saved remote manga to export.".to_owned());
+        if self.config.remote_library.is_empty()
+            && !self
+                .library
+                .series
+                .iter()
+                .any(|series| series.remote.is_none())
+        {
+            self.status = Some("No library manga to export.".to_owned());
             return;
         }
         let mut path = PathBuf::from(value);
@@ -6467,6 +6473,104 @@ impl AppState {
                     .as_ref()
                     .map(|manga| manga.genre.clone())
                     .unwrap_or_default(),
+                thumbnail_url: None,
+                chapters,
+                category_ids: categories_for_manga,
+                favorite: true,
+                notes: self
+                    .config
+                    .story_notes
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_default(),
+                history,
+            });
+        }
+
+        for series in self
+            .library
+            .series
+            .iter()
+            .filter(|series| series.remote.is_none())
+        {
+            let source_id = 0i64;
+            sources.entry(source_id).or_insert(BackupSource {
+                name: "Local source".to_owned(),
+                source_id,
+            });
+            let key = format!("local:{}", series.path.display());
+            let mut history_by_chapter: BTreeMap<String, Vec<BackupHistory>> = BTreeMap::new();
+            for (_, entry) in self.history.recent() {
+                if entry.series_key() != key {
+                    continue;
+                }
+                let Some(local) = &entry.local else {
+                    continue;
+                };
+                let url = local
+                    .chapter_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&entry.chapter_title)
+                    .to_owned();
+                history_by_chapter
+                    .entry(url.clone())
+                    .or_default()
+                    .push(BackupHistory {
+                        url,
+                        last_read: entry.last_read.saturating_mul(1000) as i64,
+                        read_duration: entry.read_duration_secs as i64,
+                    });
+                history_count += 1;
+            }
+            let mut chapters = Vec::new();
+            for chapter in &series.chapters {
+                let entry = self.progress.entry(&chapter.path);
+                let read = entry.is_some_and(|entry| entry.page + 1 >= entry.pages);
+                let last_page = entry.map(|entry| entry.page as i64).unwrap_or(0);
+                let bookmark = self.bookmarks.is_bookmarked(&chapter.path);
+                if entry.is_some() || bookmark {
+                    chapter_count += 1;
+                }
+                let url = chapter
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&chapter.title)
+                    .to_owned();
+                chapters.push(BackupChapter {
+                    url,
+                    name: chapter.title.clone(),
+                    scanlator: chapter.scanlator.clone(),
+                    read,
+                    bookmark,
+                    last_page_read: last_page,
+                    date_upload: 0,
+                    chapter_number: chapter.number.unwrap_or(0.0),
+                });
+            }
+            let history = chapters
+                .iter()
+                .flat_map(|chapter| history_by_chapter.remove(&chapter.url).unwrap_or_default())
+                .collect();
+            let categories_for_manga: Vec<i64> = series
+                .categories
+                .iter()
+                .filter_map(|name| category_ids.get(name).copied())
+                .collect();
+            mangas.push(BackupManga {
+                source_id,
+                url: series
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&series.title)
+                    .to_owned(),
+                title: series.title.clone(),
+                author: series.author.clone(),
+                artist: series.artist.clone(),
+                description: (!series.description.is_empty()).then(|| series.description.clone()),
+                genre: series.tags.clone(),
                 thumbnail_url: None,
                 chapters,
                 category_ids: categories_for_manga,
@@ -15469,6 +15573,27 @@ mod tests {
         app.cancel_downloads();
         assert!(cancel.load(Ordering::Relaxed));
         assert!(app.download_queue.cancelling);
+    }
+
+    #[test]
+    fn backup_export_includes_local_series_and_state() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = AppState::new(library(), None);
+        app.progress.update(Path::new("Chapter 1"), 0, 1);
+        app.bookmarks.set(Path::new("Chapter 2"), true);
+        let path = root.path().join("backup.tachibk");
+
+        app.export_backup(&path.display().to_string());
+
+        let backup = parse_mihon_backup(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(backup.mangas.iter().any(|manga| {
+            manga.source_id == 0
+                && manga.title == "Berserk"
+                && manga.favorite
+                && manga.chapters.iter().any(|chapter| chapter.read)
+                && manga.chapters.iter().any(|chapter| chapter.bookmark)
+        }));
+        assert!(backup.sources.iter().any(|source| source.source_id == 0));
     }
 
     #[test]
