@@ -38,6 +38,7 @@ use crate::{
     cover_worker::{CoverRequest, CoverWorker},
     download_worker::{DownloadRequest, DownloadWorker},
     favorites_worker::{FavoritesRequest, FavoritesWorker},
+    filters_worker::{FiltersRequest, FiltersWorker},
     host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
     palette,
@@ -947,6 +948,8 @@ pub struct AppState {
     source_generation: u64,
     pub(crate) favorites_worker: Option<FavoritesWorker>,
     favorites_generation: u64,
+    pub(crate) filters_worker: Option<FiltersWorker>,
+    filters_generation: u64,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1075,6 +1078,8 @@ impl AppState {
             source_generation: 0,
             favorites_worker: None,
             favorites_generation: 0,
+            filters_worker: None,
+            filters_generation: 0,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -1335,7 +1340,7 @@ impl AppState {
                     self.remote.filters.clear();
                     self.remote.default_filters.clear();
                     self.remote.filters_loaded = false;
-                    self.load_remote_filters();
+                    self.load_remote_filters_async();
                     self.load_remote_results(RemoteListing::Popular);
                     self.browse_view = BrowseView::RemoteResults;
                     self.browse_selection = 0;
@@ -2632,6 +2637,56 @@ impl AppState {
 
     /// Fetch the selected source's filter tree. Failures leave the list empty so an old
     /// host or a broken extension cannot block browsing.
+    /// Preload source filters without blocking the source/results transition.
+    pub fn load_remote_filters_async(&mut self) {
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let Some(source) = self.remote.source.clone() else {
+            return;
+        };
+        self.filters_generation = self.filters_generation.wrapping_add(1);
+        if let Some(worker) = self.filters_worker.as_ref() {
+            worker.request(FiltersRequest {
+                generation: self.filters_generation,
+                source_id: source.id,
+                client,
+            });
+            return;
+        }
+        self.load_remote_filters();
+    }
+
+    /// Apply completed background filter loads. Returns whether the UI changed.
+    pub fn poll_filters_worker(&mut self) -> bool {
+        let Some(event) = self
+            .filters_worker
+            .as_ref()
+            .and_then(FiltersWorker::try_result)
+        else {
+            return false;
+        };
+        if event.generation != self.filters_generation
+            || self.remote.source.as_ref().map(|source| source.id.as_str())
+                != Some(event.source_id.as_str())
+        {
+            return false;
+        }
+        match event.result {
+            Ok(filters) => {
+                self.remote.default_filters = filters.clone();
+                self.remote.filters = filters;
+                self.remote.filters_loaded = true;
+            }
+            Err(_) => {
+                self.remote.default_filters.clear();
+                self.remote.filters.clear();
+                self.remote.filters_loaded = false;
+            }
+        }
+        true
+    }
+
     pub fn load_remote_filters(&mut self) {
         let Some(client) = self.host_client.clone() else {
             return;
@@ -5984,6 +6039,10 @@ impl AppState {
 
     pub(crate) fn set_favorites_worker(&mut self, worker: FavoritesWorker) {
         self.favorites_worker = Some(worker);
+    }
+
+    pub(crate) fn set_filters_worker(&mut self, worker: FiltersWorker) {
+        self.filters_worker = Some(worker);
     }
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
