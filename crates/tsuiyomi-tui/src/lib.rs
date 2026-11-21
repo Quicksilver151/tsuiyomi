@@ -202,6 +202,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         if app.poll_cover_lookups() {
             needs_draw = true;
         }
+        if app.migrate.applying && !app.quit_confirm {
+            app.migrate_apply_step();
+            needs_draw = true;
+        }
         if needs_draw {
             let started = Instant::now();
             terminal.draw(|frame| draw(frame, app))?;
@@ -243,6 +247,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             match action {
                 Action::Open | Action::Confirm => app.confirm_downloads_delete(),
                 Action::Back => app.cancel_downloads_delete(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.migrate.applying {
+            match action {
+                Action::Back => app.cancel_migration_apply(),
+                Action::Quit => app.quit_confirm = true,
                 _ => {}
             }
             needs_draw = true;
@@ -1044,6 +1058,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::InstallExtension => {
                 if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.install_selected_extension();
+                } else if app.tab == 0 && app.view == LibraryView::Series {
+                    app.open_import_series();
                 }
             }
             Action::UninstallExtension => {

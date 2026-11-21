@@ -49,4 +49,7 @@ pub enum CoreError {
 
     #[error("invalid backup: {message}")]
     Backup { message: String },
+
+    #[error("cannot import {path}: {message}")]
+    Import { path: PathBuf, message: String },
 }

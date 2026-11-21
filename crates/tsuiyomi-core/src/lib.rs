@@ -19,6 +19,7 @@ pub mod extensions;
 pub mod filters;
 pub mod history;
 pub mod host;
+pub mod import;
 pub mod library;
 pub mod migration;
 pub mod pages;
@@ -58,6 +59,7 @@ pub use host::{
     InstallJob, InstallOutcome, NotLoadedExtension, RemoteChapter, RemoteFavorite, RemoteManga,
     RemoteMangaPage, RemoteReadState, RemoteSource,
 };
+pub use import::import_series;
 pub use library::{
     ensure_series_cover, load_category_entries, read_cover, save_category_entries, scan_library,
     CategoryEntry, Chapter, ChapterKind, Library, RemoteSeries, ScanError, Series,

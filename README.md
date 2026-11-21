@@ -116,8 +116,9 @@ even if the source later omits its URL. Details responses never overwrite a work
 thumbnail with an empty one. Details, description, and chapters are cached per story in
 `$XDG_DATA_HOME/tsuiyomi/stories`, so reopening a saved story after a restart is
 immediate; the first open fetches it, and `r` refreshes it. `[`/`]` switch categories,
-`r` rescans, `R` refetches missing covers for saved source manga, and `b` bookmarks the
-selected chapter. The initial scan and later rescans run on a background worker with a
+`i` imports a series folder by path (copied into the library; an existing name gets a
+numeric suffix), `r` rescans, `R` refetches missing covers for saved source manga, and `b`
+bookmarks the selected chapter. The initial scan and later rescans run on a background worker with a
 status message, so the TUI opens immediately and the Library fills in. Missing
 library covers are also retried automatically when the Library tab is shown; missing source covers are regenerated or fetched in the background. `x` or `Delete` opens the remove
 dialog for the selected series: remove it from the library and, for saved source manga,
@@ -167,7 +168,9 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   `s` skips the selected preview, and `Enter`/`o` searches for a different target,
   `M` migrates included entries (removing the old favorite), or `C` copies them. Progress,
   bookmarks, history, categories, and reading time move with the matched chapters, and
-  replace also moves downloaded chapters to the target source and series folder.
+  replace also moves downloaded chapters to the target source and series folder. Apply
+  shows a progress status and processes one manga per tick; `Esc` cancels between items
+  while keeping the migrations that already completed.
 - **Global search** — `o` opens the selected source with the query filled in, `r`
   retries the search, `F` saves results, and `h` hides empty/failed sources.
 - **Stores** — `a` adds a URL, `d` removes it, `C` copies it, `o` opens it in the system

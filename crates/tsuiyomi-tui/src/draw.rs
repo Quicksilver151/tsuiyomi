@@ -1453,6 +1453,9 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                     ("M", "match"),
                     ("Esc", "back"),
                 ],
+                crate::app::MigrateScreen::Matches if app.migrate.applying => {
+                    vec![("q", "quit"), ("Esc", "cancel")]
+                }
                 crate::app::MigrateScreen::Matches => vec![
                     ("q", "quit"),
                     ("↑↓", "match"),
@@ -1576,6 +1579,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("↑↓←→", "move"),
                 ("↵", "open"),
                 ("/", "search"),
+                ("i", "import"),
                 ("r", "rescan"),
                 ("c", "config"),
                 ("R", "covers"),

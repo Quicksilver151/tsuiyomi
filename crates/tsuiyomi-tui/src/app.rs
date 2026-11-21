@@ -19,20 +19,21 @@ use ratatui_image::{
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
-    downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
-    legacy_remote_cover_path, load_cached_story, merge_extensions, missing_chapter_count,
-    move_series_downloads, normalized_title, page_dimensions, parse_mihon_backup, progress_prefix,
-    read_cover, read_page, read_state, remote_cover_path, save_cached_story, save_config,
-    scan_library, series_dir_name, source_dir_name, story_cache_path, title_similarity, today_key,
-    visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
-    BackupHistory, BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay,
-    ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo,
-    GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library,
-    LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page,
-    PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, Series,
-    SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
-    SourcePreferences, Theme, TriState, UpdateEntry, UpdateStore,
+    downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, import_series,
+    is_downloaded, legacy_remote_cover_path, load_cached_story, merge_extensions,
+    missing_chapter_count, move_series_downloads, normalized_title, page_dimensions,
+    parse_mihon_backup, progress_prefix, read_cover, read_page, read_state, remote_cover_path,
+    save_cached_story, save_config, scan_library, series_dir_name, source_dir_name,
+    story_cache_path, title_similarity, today_key, visible_chapters, write_comic_info,
+    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
+    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
+    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
+    HostClient, HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch,
+    MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode,
+    ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState,
+    RemoteSeries, RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreference,
+    SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme, TriState, UpdateEntry,
+    UpdateStore,
 };
 
 use crate::{
@@ -312,6 +313,7 @@ pub enum TextAction {
     RenameCategory,
     ImportBackup,
     ExportBackup,
+    ImportSeries,
     MigrationSearch,
     StoryNotes,
     SetCustomCover,
@@ -737,10 +739,19 @@ pub enum MigrateScreen {
 pub struct MigrateState {
     pub screen: MigrateScreen,
     pub matching: bool,
+    pub applying: bool,
     pub source_id: Option<String>,
     pub favorites: Vec<RemoteFavorite>,
     pub matches: Vec<MigrationMatch>,
     pub list_state: ListState,
+    apply_replace: bool,
+    apply_queue: Vec<usize>,
+    apply_position: usize,
+    apply_done: usize,
+    apply_failed: usize,
+    apply_downloads_moved: usize,
+    apply_downloads_failed: usize,
+    apply_categories: Vec<(String, String, Vec<String>)>,
 }
 
 /// Rows in the chapter settings modal. Scanlator rows follow the fixed settings.
@@ -2399,89 +2410,170 @@ impl AppState {
     }
 
     pub fn migrate_apply(&mut self, replace: bool) {
-        if self.migrate.matching || self.migrate.screen != MigrateScreen::Matches {
+        if self.migrate.matching
+            || self.migrate.applying
+            || self.migrate.screen != MigrateScreen::Matches
+        {
+            return;
+        }
+        let queue: Vec<usize> = self
+            .migrate
+            .matches
+            .iter()
+            .enumerate()
+            .filter(|(_, matched)| matched.target.is_some() && !matched.skipped)
+            .map(|(index, _)| index)
+            .collect();
+        if queue.is_empty() {
+            self.remote.status = Some("No matched manga to migrate.".to_owned());
+            self.remote.error = true;
             return;
         }
         if self.host_client.is_none() && !self.ensure_host() {
             return;
         }
-        let Some(client) = self.host_client.clone() else {
+        if self.host_client.is_none() {
+            return;
+        }
+
+        self.migrate.applying = true;
+        self.migrate.apply_replace = replace;
+        self.migrate.apply_queue = queue;
+        self.migrate.apply_position = 0;
+        self.migrate.apply_done = 0;
+        self.migrate.apply_failed = 0;
+        self.migrate.apply_downloads_moved = 0;
+        self.migrate.apply_downloads_failed = 0;
+        self.migrate.apply_categories.clear();
+        self.remote.error = false;
+        self.update_migration_apply_status();
+        // Do the first item now so the status changes as soon as the key is pressed.
+        self.migrate_apply_step();
+    }
+
+    /// Process one matched manga per event-loop tick. This keeps progress visible and
+    /// lets Esc cancel between items instead of freezing until every host call finishes.
+    pub fn migrate_apply_step(&mut self) {
+        if !self.migrate.applying {
+            return;
+        }
+        if self.migrate.apply_position >= self.migrate.apply_queue.len() {
+            self.finish_migration_apply(false);
+            return;
+        }
+
+        let index = self.migrate.apply_queue[self.migrate.apply_position];
+        self.migrate.apply_position += 1;
+        let Some(matched) = self.migrate.matches.get(index).cloned() else {
+            self.migrate.apply_failed += 1;
+            self.update_migration_apply_status();
             return;
         };
-        let matches = self
-            .migrate
-            .matches
+        let Some(target) = matched.target.clone() else {
+            self.migrate.apply_failed += 1;
+            self.update_migration_apply_status();
+            return;
+        };
+        let Some(target_source) = matched.target_source.clone() else {
+            self.migrate.apply_failed += 1;
+            self.update_migration_apply_status();
+            return;
+        };
+        let Some(client) = self.host_client.clone() else {
+            self.migrate.apply_failed += 1;
+            self.update_migration_apply_status();
+            return;
+        };
+
+        let old_categories = self
+            .config
+            .remote_library
             .iter()
-            .filter(|matched| matched.target.is_some() && !matched.skipped)
-            .cloned()
-            .collect::<Vec<_>>();
-        if matches.is_empty() {
-            self.remote.status = Some("No matched manga to migrate.".to_owned());
+            .find(|favorite| {
+                favorite.source_id == matched.old.source_id && favorite.url == matched.old.url
+            })
+            .map(|favorite| favorite.categories.clone())
+            .unwrap_or_default();
+        if !self.is_favorite(&target.source_id, &target.url) {
+            match client.add_favorite(&target) {
+                Ok(()) => self.migrate.apply_categories.push((
+                    target.source_id.clone(),
+                    target.url.clone(),
+                    old_categories,
+                )),
+                Err(_) => {
+                    self.migrate.apply_failed += 1;
+                    self.update_migration_apply_status();
+                    return;
+                }
+            }
+        }
+
+        self.copy_migration_reading_state(&matched, self.migrate.apply_replace);
+        if self.migrate.apply_replace {
+            if let Some(root) = downloads_dir(&self.config) {
+                let old_source = self
+                    .remote_source_display_name(&matched.old.source_id)
+                    .unwrap_or_else(|| matched.old.source_id.clone());
+                match move_series_downloads(
+                    &root,
+                    &old_source,
+                    &matched.old.title,
+                    &target_source.display_name(),
+                    &target.title,
+                ) {
+                    Ok(true) => self.migrate.apply_downloads_moved += 1,
+                    Ok(false) => {}
+                    Err(_) => self.migrate.apply_downloads_failed += 1,
+                }
+            }
+            let _ = client.remove_favorite(&matched.old.source_id, &matched.old.url);
+        }
+        self.migrate.apply_done += 1;
+        self.update_migration_apply_status();
+    }
+
+    fn update_migration_apply_status(&mut self) {
+        let done = self.migrate.apply_done;
+        let total = self.migrate.apply_queue.len();
+        let mut status = format!(
+            "{} {done}/{total} manga…",
+            if self.migrate.apply_replace {
+                "Migrating"
+            } else {
+                "Copying"
+            }
+        );
+        if self.migrate.apply_failed > 0 {
+            status.push_str(&format!(" · {} failed", self.migrate.apply_failed));
+        }
+        self.remote.status = Some(status);
+    }
+
+    /// Stop before the next item. Completed items stay migrated and are persisted.
+    pub fn cancel_migration_apply(&mut self) {
+        if self.migrate.applying {
+            self.finish_migration_apply(true);
+        }
+    }
+
+    fn finish_migration_apply(&mut self, cancelled: bool) {
+        if !self.migrate.applying {
             return;
         }
-
-        let mut migrated = 0usize;
-        let mut failed = 0usize;
-        let mut downloads_moved = 0usize;
-        let mut downloads_failed = 0usize;
-        let mut categories_to_apply: Vec<(String, String, Vec<String>)> = Vec::new();
-        for matched in &matches {
-            let Some(target) = &matched.target else {
-                continue;
-            };
-            let Some(target_source) = &matched.target_source else {
-                continue;
-            };
-            let old_categories = self
-                .config
-                .remote_library
-                .iter()
-                .find(|favorite| {
-                    favorite.source_id == matched.old.source_id && favorite.url == matched.old.url
-                })
-                .map(|favorite| favorite.categories.clone())
-                .unwrap_or_default();
-            if !self.is_favorite(&target.source_id, &target.url) {
-                match client.add_favorite(target) {
-                    Ok(()) => {
-                        categories_to_apply.push((
-                            target.source_id.clone(),
-                            target.url.clone(),
-                            old_categories.clone(),
-                        ));
-                    }
-                    Err(_) => {
-                        failed += 1;
-                        continue;
-                    }
-                }
-            }
-            let _ = target_source;
-            self.copy_migration_reading_state(matched, replace);
-            if replace {
-                if let Some(root) = downloads_dir(&self.config) {
-                    let old_source = self
-                        .remote_source_display_name(&matched.old.source_id)
-                        .unwrap_or_else(|| matched.old.source_id.clone());
-                    match move_series_downloads(
-                        &root,
-                        &old_source,
-                        &matched.old.title,
-                        &target_source.display_name(),
-                        &target.title,
-                    ) {
-                        Ok(true) => downloads_moved += 1,
-                        Ok(false) => {}
-                        Err(_) => downloads_failed += 1,
-                    }
-                }
-                let _ = client.remove_favorite(&matched.old.source_id, &matched.old.url);
-            }
-            migrated += 1;
-        }
+        let replace = self.migrate.apply_replace;
+        let done = self.migrate.apply_done;
+        let failed = self.migrate.apply_failed;
+        let total = self.migrate.apply_queue.len();
+        let downloads_moved = self.migrate.apply_downloads_moved;
+        let downloads_failed = self.migrate.apply_downloads_failed;
+        let categories = std::mem::take(&mut self.migrate.apply_categories);
+        self.migrate.applying = false;
+        self.migrate.apply_queue.clear();
+        self.migrate.apply_position = 0;
 
         self.load_favorites();
-        for (source_id, url, categories) in categories_to_apply {
+        for (source_id, url, categories) in categories {
             if categories.is_empty() {
                 continue;
             }
@@ -2506,15 +2598,18 @@ impl AppState {
         self.migrate.matches.clear();
         self.browse_selection = 0;
         self.select_browse_entry(0);
-        let mut status = format!(
-            "{} {migrated} manga{}",
-            if replace { "Migrated" } else { "Copied" },
-            if failed == 0 {
-                String::new()
-            } else {
-                format!(" · {failed} failed")
-            }
-        );
+
+        let mut status = if cancelled {
+            format!("Migration cancelled · {done}/{total} manga")
+        } else {
+            format!(
+                "{} {done} manga",
+                if replace { "Migrated" } else { "Copied" }
+            )
+        };
+        if failed > 0 {
+            status.push_str(&format!(" · {failed} failed"));
+        }
         if downloads_moved > 0 {
             status.push_str(&format!(" · {downloads_moved} download sets moved"));
         }
@@ -2522,7 +2617,7 @@ impl AppState {
             status.push_str(&format!(" · {downloads_failed} download moves failed"));
         }
         self.remote.status = Some(status);
-        self.remote.error = failed > 0 || migrated == 0;
+        self.remote.error = !cancelled && (failed > 0 || done == 0);
     }
 
     fn copy_migration_reading_state(&mut self, matched: &MigrationMatch, replace: bool) {
@@ -5572,6 +5667,7 @@ impl AppState {
             TextAction::RenameCategory => self.rename_category(&input.value),
             TextAction::ImportBackup => self.import_backup(&input.value),
             TextAction::ExportBackup => self.export_backup(&input.value),
+            TextAction::ImportSeries => self.import_series_folder(&input.value),
             TextAction::MigrationSearch => self.run_migration_search(&input.value),
             TextAction::StoryNotes => self.save_story_notes(&input.value),
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
@@ -6661,6 +6757,33 @@ impl AppState {
                 self.status = Some(format!("Could not export backup: {error}"));
                 self.remote.error = true;
             }
+        }
+    }
+
+    /// Ask for a folder to copy into the library, the TUI equivalent of Mihon's
+    /// local-source import picker.
+    pub fn open_import_series(&mut self) {
+        if self.tab == 0 && self.view == LibraryView::Series {
+            self.open_text_input(TextAction::ImportSeries, "Import series folder", "");
+        }
+    }
+
+    fn import_series_folder(&mut self, value: &str) {
+        let source = PathBuf::from(value.trim());
+        if source.as_os_str().is_empty() {
+            self.status = Some("Enter the folder to import.".to_owned());
+            return;
+        }
+        match import_series(&source, &self.library.root) {
+            Ok(destination) => {
+                let name = destination
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.refresh_async();
+                self.status = Some(format!("Imported {name}"));
+            }
+            Err(error) => self.status = Some(error.to_string()),
         }
     }
 
@@ -14671,6 +14794,35 @@ mod tests {
     }
 
     #[test]
+    fn imports_a_series_folder_into_the_library() {
+        let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let source = temp.path().join("outside").join("Imported Series");
+        std::fs::create_dir_all(source.join("Chapter 1")).unwrap_or_else(|error| panic!("{error}"));
+        std::fs::write(source.join("Chapter 1").join("001.jpg"), b"page")
+            .unwrap_or_else(|error| panic!("{error}"));
+        let library_root = temp.path().join("local");
+        std::fs::create_dir_all(&library_root).unwrap_or_else(|error| panic!("{error}"));
+
+        let mut app = AppState::new(library(), None);
+        app.library.root = library_root.clone();
+        app.tab = 0;
+        app.view = LibraryView::Series;
+
+        app.import_series_folder(&source.to_string_lossy());
+
+        assert!(library_root
+            .join("Imported Series")
+            .join("Chapter 1")
+            .join("001.jpg")
+            .is_file());
+        assert!(app
+            .library
+            .series
+            .iter()
+            .any(|series| series.title == "Imported Series"));
+    }
+
+    #[test]
     fn updates_track_new_chapters_and_dismiss() {
         let mut app = AppState::new(library(), None);
         app.updates
@@ -16879,6 +17031,23 @@ mod tests {
         let input = app.text_input.as_ref().expect("search input");
         assert_eq!(input.action, TextAction::MigrationSearch);
         assert_eq!(input.value, "Old Title");
+    }
+
+    #[test]
+    fn migrate_apply_reports_when_nothing_is_matched() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Migrate;
+        app.migrate.screen = MigrateScreen::Matches;
+        app.migrate.matches.clear();
+
+        app.migrate_apply(true);
+
+        assert!(!app.migrate.applying);
+        assert_eq!(
+            app.remote.status.as_deref(),
+            Some("No matched manga to migrate.")
+        );
     }
 
     #[test]

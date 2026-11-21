@@ -212,7 +212,9 @@ Rules:
   action. Migrate lists saved manga by source, multi-selects favorites, matches
   titles against enabled sources with regular/deep queries, previews targets, skips a
   preview (`s`), and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
-  Replace also moves downloaded chapters into the target source/series directory.
+  Replace also moves downloaded chapters into the target source/series directory. Apply
+  processes one match per event-loop tick with a progress status; Esc cancels between
+  items and persists the migrations that already completed.
   `t` selects, reorders (`+`/`-`), and persists the enabled target sources. `/` on Sources
   runs a background global search over enabled pinned
   sources with per-source progress; empty and failed sources are rows, `h` toggles
@@ -304,6 +306,9 @@ Rules:
   the host is already running, the first open in a session refreshes the story in the
   background through `story_worker`; `r` reloads synchronously. Chapter download markers
   are cached per story instead of statting every row each frame.
+- `i` on the Library grid imports a series folder through a path-entry dialog. The core
+  `import_series` helper copies it into one direct subdirectory, never overwrites an
+  existing name, skips symbolic links, and removes a partial copy on failure.
 - New local chapters are detected by comparing each scan with the snapshot in
   `$XDG_DATA_HOME/tsuiyomi/updates.json` (`updates.rs`). The first scan only seeds the
   snapshot. The Updates tab lists one entry per new chapter, newest first, for 30 days;

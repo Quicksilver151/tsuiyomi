@@ -10,16 +10,16 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 18 | 4 | 0 | 0 | 90.9% |
-| [Library](#library) | 14 | 1 | 1 | 0 | 90.6% |
+| [Library](#library) | 15 | 1 | 0 | 0 | 96.9% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 40 | 2 | 5 | 0 | 87.2% |
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
-| [Migrate](#migrate) | 18 | 1 | 1 | 0 | 92.5% |
+| [Migrate](#migrate) | 19 | 0 | 1 | 0 | 95.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **188** | **15** | **13** | **2** | **90.5%** |
+| **All categories** | **190** | **14** | **12** | **2** | **91.2%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -75,7 +75,7 @@ table below.
 | Covers | Automatic cover recovery | Yes | ✅ | ✅ | Missing saved covers trigger host refill. |
 | Selection | Multi-select and batch delete | Yes | ✅ | ✅ | Stable keys and command-bar count. |
 | Scan | Background scan | Yes | ✅ | ✅ | Refresh, rescan, and the initial scan run on a worker after the UI opens. |
-| Scan | Import browser / file picker | Yes | ❌ | ❌ | Drop folders into `local/` and rescan. |
+| Scan | Import browser / file picker | Yes | ✅ | ✅ | `i` opens a path dialog and copies a folder into `local/`; name collisions get a suffix. |
 
 ### Browse, sources, and global search
 
@@ -264,7 +264,7 @@ table below.
 | Config | Migration source configuration/order | Yes | ✅ | ✅ | Target sources are selectable, reorderable, and persisted. |
 | Matching | Prioritize by chapters / hide options | Yes | ❌ | ❌ | |
 | Apply | Manual search override / skip | Yes | ✅ | ✅ | `↵`/`o` searches target sources and replaces the match; `s` skips an item. |
-| Apply | Batch progress / cancel | Yes | 🟡 | 🟡 | Matching runs in the background with a status; applying is synchronous and cancellation drops the result. |
+| Apply | Batch progress / cancel | Yes | ✅ | ✅ | Matching runs in the background; apply processes one manga per tick with a progress status, and Esc cancels between items while keeping completed migrations. |
 | Downloads | Move/delete old downloads | Yes | ✅ | ✅ | Replace moves the old series’ downloaded chapters to the target source/series; copy leaves them in place. |
 
 ### Settings, security, and data
@@ -292,7 +292,7 @@ table below.
 |---|---|---|---|
 | WebView source page | Copy URL (`C`) / open absolute URL (`o`) | 🟡 | Relative source URLs cannot be opened externally without a base URL. |
 | Android share sheet | OSC 52 clipboard copy | ✅ | `C` on story. |
-| File picker | Path-entry dialog | ✅ | Custom covers. |
+| File picker | Path-entry dialog | ✅ | Custom covers and series import. |
 | Swipe actions | Keys and download menu | ➖ | Intentional terminal deviation. |
 | Tracker OAuth dialogs | None | ❌ | Separate integration. |
 | Android notifications | TUI status bar/queue markers | ➖ | No background daemon notifications. |
