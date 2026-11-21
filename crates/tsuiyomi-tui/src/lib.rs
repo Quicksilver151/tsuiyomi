@@ -14,6 +14,7 @@ mod host_worker;
 mod input;
 mod layout;
 mod palette;
+mod prefs_worker;
 mod result_worker;
 mod scroll_worker;
 mod search_worker;
@@ -83,6 +84,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_source_worker(crate::source_worker::SourceWorker::spawn());
     app.set_favorites_worker(crate::favorites_worker::FavoritesWorker::spawn());
     app.set_filters_worker(crate::filters_worker::FiltersWorker::spawn());
+    app.set_prefs_worker(crate::prefs_worker::PrefsWorker::spawn());
     app.set_global_search_worker(GlobalSearchWorker::spawn());
     app.set_cover_worker(CoverWorker::spawn());
     app.maybe_recover_covers();
@@ -161,6 +163,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_filters_worker() {
+            needs_draw = true;
+        }
+        if app.poll_prefs_worker() {
             needs_draw = true;
         }
         if app.poll_story_refresh() {

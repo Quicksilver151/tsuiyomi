@@ -1194,7 +1194,7 @@ automatically at the last row.
 - Opening a remote result shows the story screen immediately and loads details plus
   chapters on the story worker, with an error status if the source fails.
 - Source-list and initial favorites loads run on background workers.
-- Source filters preload on a background worker when a source opens.
+- Source filters preload and source preferences load on background workers.
 - Global search starts with a per-source `searching…` row and updates it in place.
 - Saved results are marked and dimmed, store rows show counts, and `g` opens a source's
   home page from installed extension metadata.

@@ -165,8 +165,8 @@ Controls:
 - `Enter` opens the selected source, series detail, chapter, or extension action.
 - Remote sources open with popular results. `s` searches, `l` loads latest updates when
   the source supports them, and `n` appends the next results page. Source lists,
-  favorites, filters, result pages, and remote story details/chapters fetch on
-  background workers with loading status. Moving onto the last visible result also
+  favorites, filters, preferences, result pages, and remote story details/chapters fetch
+  on background workers with loading status. Moving onto the last visible result also
   fetches the next page automatically. `z` opens the source's
   filters when it exposes them: checkbox, tri-state, text, select, sort, and grouped
   filters, with Reset and Apply rows. `v` cycles comfortable grid, compact grid, and

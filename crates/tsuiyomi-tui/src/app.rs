@@ -42,6 +42,7 @@ use crate::{
     host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
     palette,
+    prefs_worker::{PrefsRequest, PrefsWorker},
     result_worker::{ResultListing, ResultRequest, ResultWorker},
     scroll_worker::{BuildRequest, BuildResult, ScrollWorker, SizeRequest, SizeWorker},
     search_worker::{GlobalSearchEvent, GlobalSearchWorker},
@@ -950,6 +951,8 @@ pub struct AppState {
     favorites_generation: u64,
     pub(crate) filters_worker: Option<FiltersWorker>,
     filters_generation: u64,
+    pub(crate) prefs_worker: Option<PrefsWorker>,
+    prefs_generation: u64,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -986,6 +989,7 @@ pub struct AppState {
     pub browse_local_list_state: ListState,
     pub source_filter_list_state: ListState,
     pub source_prefs: Option<SourcePrefsState>,
+    source_prefs_pending: Option<RemoteSource>,
     pub source_pref_picker: Option<SourcePrefPicker>,
     source_pref_edit: Option<String>,
     pub filter_picker: Option<FilterPicker>,
@@ -1080,6 +1084,8 @@ impl AppState {
             favorites_generation: 0,
             filters_worker: None,
             filters_generation: 0,
+            prefs_worker: None,
+            prefs_generation: 0,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -1109,6 +1115,7 @@ impl AppState {
             browse_local_list_state: ListState::default(),
             source_filter_list_state: ListState::default(),
             source_prefs: None,
+            source_prefs_pending: None,
             source_pref_picker: None,
             source_pref_edit: None,
             filter_picker: None,
@@ -2480,38 +2487,80 @@ impl AppState {
         let Some(client) = self.host_client.clone() else {
             return;
         };
+        self.prefs_generation = self.prefs_generation.wrapping_add(1);
+        if let Some(worker) = self.prefs_worker.as_ref() {
+            self.source_prefs = None;
+            self.source_prefs_pending = Some(source.clone());
+            self.browse_view = BrowseView::SourcePrefs;
+            self.browse_selection = 0;
+            self.remote.status = Some(format!("Loading {} preferences…", source.display_name()));
+            self.remote.error = false;
+            worker.request(PrefsRequest {
+                generation: self.prefs_generation,
+                source_id: source.id,
+                client,
+            });
+            return;
+        }
         match client.source_preferences(&source.id) {
-            Ok(preferences) => {
-                if !preferences.configurable {
-                    self.remote.status = Some(format!(
-                        "{} has no source preferences.",
-                        source.display_name()
-                    ));
-                    self.remote.error = false;
-                    return;
-                }
-                if let Some(error) = &preferences.error {
-                    self.set_remote_error(format!(
-                        "{} preferences: {error}",
-                        source.display_name()
-                    ));
-                    return;
-                }
-                let mut list_state = ListState::default();
-                list_state.select((!preferences.prefs.is_empty()).then_some(0));
-                self.source_prefs = Some(SourcePrefsState {
-                    source,
-                    preferences,
-                    list_state,
-                });
-                self.browse_view = BrowseView::SourcePrefs;
-                self.browse_selection = 0;
-                self.remote.status = None;
-                self.remote.error = false;
-                self.select_browse_entry(0);
-            }
+            Ok(preferences) => self.apply_source_preferences(source, preferences),
             Err(error) => self.set_remote_error(error),
         }
+    }
+
+    /// Apply completed background preference loads. Returns whether the UI changed.
+    pub fn poll_prefs_worker(&mut self) -> bool {
+        let Some(event) = self.prefs_worker.as_ref().and_then(PrefsWorker::try_result) else {
+            return false;
+        };
+        if event.generation != self.prefs_generation {
+            return false;
+        }
+        let Some(source) = self.source_prefs_pending.take() else {
+            return false;
+        };
+        if source.id != event.source_id {
+            return false;
+        }
+        match event.result {
+            Ok(preferences) => self.apply_source_preferences(source, preferences),
+            Err(error) => {
+                self.source_prefs = None;
+                self.remote.status = Some(error);
+                self.remote.error = true;
+            }
+        }
+        true
+    }
+
+    fn apply_source_preferences(&mut self, source: RemoteSource, preferences: SourcePreferences) {
+        if !preferences.configurable {
+            self.source_prefs = None;
+            self.remote.status = Some(format!(
+                "{} has no source preferences.",
+                source.display_name()
+            ));
+            self.remote.error = false;
+            self.browse_view = BrowseView::Sources;
+            return;
+        }
+        if let Some(error) = &preferences.error {
+            self.source_prefs = None;
+            self.set_remote_error(format!("{} preferences: {error}", source.display_name()));
+            return;
+        }
+        let mut list_state = ListState::default();
+        list_state.select((!preferences.prefs.is_empty()).then_some(0));
+        self.source_prefs = Some(SourcePrefsState {
+            source,
+            preferences,
+            list_state,
+        });
+        self.browse_view = BrowseView::SourcePrefs;
+        self.browse_selection = 0;
+        self.remote.status = None;
+        self.remote.error = false;
+        self.select_browse_entry(0);
     }
 
     fn selected_source_preference(&self) -> Option<&SourcePreference> {
@@ -6043,6 +6092,10 @@ impl AppState {
 
     pub(crate) fn set_filters_worker(&mut self, worker: FiltersWorker) {
         self.filters_worker = Some(worker);
+    }
+
+    pub(crate) fn set_prefs_worker(&mut self, worker: PrefsWorker) {
+        self.prefs_worker = Some(worker);
     }
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
