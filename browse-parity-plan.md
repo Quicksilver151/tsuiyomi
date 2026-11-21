@@ -845,7 +845,7 @@ explicitly marked as a deliberate deviation.
 - [x] Comfortable grid, compact grid, list modes.
 - [x] Persisted display mode.
 - [x] In-library badge.
-- [ ] Dimmed saved covers.
+- [x] Dimmed saved covers (TUI: ✓ plus dim title/status).
 - [x] Hide saved results setting.
 - [x] Add to library.
 - [x] Remove from library confirmation.

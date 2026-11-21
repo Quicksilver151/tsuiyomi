@@ -3379,7 +3379,8 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 Rect::new(tile.x, tile.y, 1, 1),
             );
         }
-        if app.is_favorite(&source_id, &result.url) {
+        let saved = app.is_favorite(&source_id, &result.url);
+        if saved {
             frame.render_widget(
                 Paragraph::new("✓")
                     .style(Style::default().fg(c_green()).add_modifier(Modifier::BOLD)),
@@ -3417,11 +3418,14 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 ),
             );
         }
-        let title_style = if is_selected {
+        let mut title_style = if is_selected {
             Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(c_text())
         };
+        if saved && !is_selected {
+            title_style = title_style.add_modifier(Modifier::DIM);
+        }
         frame.render_widget(
             Paragraph::new(truncate_text(&result.title, tile.width))
                 .alignment(Alignment::Center)
@@ -3432,7 +3436,11 @@ fn draw_remote_grid(frame: &mut Frame, area: Rect, app: &mut AppState) {
             frame.render_widget(
                 Paragraph::new(result.status.replace('_', " ").to_lowercase())
                     .alignment(Alignment::Center)
-                    .style(Style::default().fg(c_overlay0())),
+                    .style(Style::default().fg(c_overlay0()).add_modifier(if saved {
+                        Modifier::DIM
+                    } else {
+                        Modifier::empty()
+                    })),
                 Rect::new(tile.x, tile.y + cover_height + 1, tile.width, 1),
             );
         }
@@ -3824,9 +3832,25 @@ fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
             } else {
                 ""
             };
+            let count = app
+                .remote
+                .extensions
+                .iter()
+                .filter(|extension| &extension.repo_url == store)
+                .count();
+            let installed = app
+                .remote
+                .extensions
+                .iter()
+                .filter(|extension| &extension.repo_url == store && extension.installed)
+                .count();
             ListItem::new(Line::from(vec![
                 Span::styled(marker, Style::default().fg(c_accent())),
                 Span::styled(store.clone(), Style::default().fg(c_text())),
+                Span::styled(
+                    format!("  {count} extensions · {installed} installed"),
+                    Style::default().fg(c_overlay0()),
+                ),
             ]))
         })
         .collect();

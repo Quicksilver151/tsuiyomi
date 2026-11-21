@@ -3808,9 +3808,7 @@ impl AppState {
                         mangas,
                         error: None,
                     });
-                    self.remote.global_groups.sort_by(|left, right| {
-                        natural_cmp(&left.source.display_name(), &right.source.display_name())
-                    });
+                    self.sort_global_groups();
                 }
                 self.remote.global_finished += 1;
                 self.update_global_search_status();
@@ -3827,9 +3825,7 @@ impl AppState {
                         mangas: Vec::new(),
                         error: Some(message.clone()),
                     });
-                    self.remote.global_groups.sort_by(|left, right| {
-                        natural_cmp(&left.source.display_name(), &right.source.display_name())
-                    });
+                    self.sort_global_groups();
                 }
                 self.remote
                     .global_failures
@@ -3910,6 +3906,14 @@ impl AppState {
             }
         }
         changed
+    }
+
+    /// Pinned sources first, normal results next, empty/error groups last.
+    fn sort_global_groups(&mut self) {
+        let pinned = self.config.pinned_sources.clone();
+        self.remote
+            .global_groups
+            .sort_by(|left, right| global_group_cmp(left, right, &pinned));
     }
 
     pub fn global_next_group(&mut self) {
@@ -11617,6 +11621,25 @@ fn base64_encode(bytes: &[u8]) -> String {
     output
 }
 
+fn global_group_cmp(
+    left: &GlobalGroup,
+    right: &GlobalGroup,
+    pinned: &[String],
+) -> std::cmp::Ordering {
+    let rank = |group: &GlobalGroup| {
+        if group.error.is_some() || group.mangas.is_empty() {
+            2
+        } else if pinned.iter().any(|key| pin_key_matches(key, &group.source)) {
+            0
+        } else {
+            1
+        }
+    };
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| natural_cmp(&left.source.display_name(), &right.source.display_name()))
+}
+
 fn remote_story_key(source_id: &str, url: &str) -> String {
     format!("{source_id}\n{url}")
 }
@@ -14190,6 +14213,39 @@ mod tests {
         assert_eq!(app.filtered_extension_count(), 1);
         app.extension_query = "alpha, missing".to_owned();
         assert_eq!(app.filtered_extension_count(), 0);
+    }
+
+    #[test]
+    fn global_groups_sort_pinned_first_and_empty_last() {
+        let mut app = remote_app();
+        app.config.pinned_sources = vec!["pkg.b|Beta|en".to_owned()];
+        let group = |index: usize, mangas: usize| GlobalGroup {
+            source: app.remote.sources[index].clone(),
+            mangas: (0..mangas)
+                .map(|position| RemoteManga {
+                    source_id: app.remote.sources[index].id.clone(),
+                    url: format!("/manga/{position}"),
+                    title: format!("Manga {position}"),
+                    author: None,
+                    artist: None,
+                    description: None,
+                    genre: Vec::new(),
+                    status: "unknown".to_owned(),
+                    thumbnail_url: None,
+                    memo: None,
+                })
+                .collect(),
+            error: None,
+        };
+        app.remote.global_groups = vec![group(0, 0), group(1, 1), group(2, 1)];
+        app.sort_global_groups();
+        let names: Vec<&str> = app
+            .remote
+            .global_groups
+            .iter()
+            .map(|group| group.source.name.as_str())
+            .collect();
+        assert_eq!(names, ["Beta", "Gamma", "Alpha"]);
     }
 
     #[test]

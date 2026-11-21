@@ -82,6 +82,7 @@ Legend:
 | Results | Comfortable / compact / list layouts | Yes | ✅ | ✅ | `v`, persisted. |
 | Results | In-library markers | Yes | ✅ | ✅ | Saved results marked. |
 | Results | Hide saved results | Yes | ✅ | ✅ | `h`, persisted. |
+| Results | Dim/mark saved results | Yes | ✅ | ✅ | `✓` plus dimmed title/status in terminals. |
 | Results | Pagination | Yes | ✅ | ✅ | `n` plus automatic load at the last result. |
 | Results | Save / remove with confirmation | Yes | ✅ | ✅ | Multi-select supported. |
 | Results | Duplicate detection | Yes | ✅ | ✅ | Add anyway, open existing, Migrate. |
@@ -92,10 +93,10 @@ Legend:
 | Global search | Retry / cancel previous search | Yes | ✅ | ✅ | `r`; generation drops stale results. |
 | Global search | Open group’s source with query | Yes | ✅ | ✅ | `o`. |
 | Global search | Open selected result | Yes | ✅ | ✅ | `Enter`. |
-| Global search | Group ordering | Yes | 🟡 | 🟡 | Results are grouped by source; strict Mihon ordering rules are not fully replicated. |
+| Global search | Group ordering | Yes | ✅ | ✅ | Pinned first, normal next, empty/error last, then name. |
 | Stores | Add / remove repository | Yes | ✅ | ✅ | |
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
-| Stores | Store name / website / counts | Yes | ❌ | ❌ | Host exposes URL-only stores. |
+| Stores | Store name / website / counts | Yes | 🟡 | 🟡 | Rows show URL, extension count, and installed count; no website metadata. |
 | Networking | Background Browse calls | Yes | ❌ | ❌ | Source/results/details/chapters still block the UI. |
 | Search | Extension source URL/id search terms | Yes | ❌ | ❌ | Names, packages, languages, source names only. |
 | Search | Debounced extension search | Yes | ❌ | ❌ | Local filtering is immediate. |
