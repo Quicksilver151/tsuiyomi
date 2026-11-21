@@ -384,6 +384,8 @@ categories:
 - **Appearance** — theme, accent, fullscreen, thumbnail size.
 - **Library** — library path, rescan, sort order, default category.
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
+- **Downloads** — configurable download folder, with the active queue shown in story
+  headers.
 - **Advanced** — optional FlareSolverr URL, used by the bundled host for Cloudflare
   challenges. Changing it restarts a running host.
 - **Downloads** — shows the download folder; `D` downloads the selected remote

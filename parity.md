@@ -267,7 +267,7 @@ Legend:
 | Advanced | FlareSolverr URL | Yes | ✅ | ✅ | Validated, persisted, host restart. |
 | Security | Global Incognito | Yes | ✅ | ✅ | |
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
-| Downloads | Download settings/management page | Yes | ❌ | ❌ | Placeholder. |
+| Downloads | Download settings/management page | Yes | 🟡 | 🟡 | Configurable downloads folder; no per-series download list/queue screen yet. |
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
 | Data | Backup import/export | Yes | ❌ | ❌ | |
 | Data | Storage statistics/cleanup | Yes | ❌ | ❌ | |

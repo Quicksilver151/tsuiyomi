@@ -5077,6 +5077,12 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 .clone()
                 .unwrap_or_else(|| "not set".to_owned()),
         ),
+        SettingId::DownloadsPath => (
+            "Downloads folder".to_owned(),
+            downloads_dir(&app.config)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "not set".to_owned()),
+        ),
         SettingId::FlareSolverr => (
             "FlareSolverr URL".to_owned(),
             app.config

@@ -304,6 +304,7 @@ pub enum TextAction {
     AddExtensionStore,
     SetHostUrl,
     SetFlareSolverr,
+    SetDownloadsPath,
     StoryNotes,
     SetCustomCover,
 }
@@ -456,6 +457,7 @@ pub enum SettingId {
     HostUrl,
     ShowNsfw,
     FlareSolverr,
+    DownloadsPath,
 }
 
 /// Settings pages mirroring Mihon's `SettingsMainScreen` entries.
@@ -517,9 +519,10 @@ const READER_ROWS: [MoreRow; 7] = [
     MoreRow::Setting(SettingId::CacheMargin),
 ];
 
-const DOWNLOADS_ROWS: [MoreRow; 3] = [
-    MoreRow::Divider("Status"),
-    MoreRow::Note("Download management is not implemented."),
+const DOWNLOADS_ROWS: [MoreRow; 4] = [
+    MoreRow::Divider("Storage"),
+    MoreRow::Setting(SettingId::DownloadsPath),
+    MoreRow::Note("TSUIYOMI_DOWNLOADS overrides this for one session."),
     MoreRow::Note("Local library chapters are read directly from disk."),
 ];
 
@@ -583,7 +586,7 @@ impl SettingsPage {
             Self::Appearance => "Theme · accent · display",
             Self::Library => "Path · sort · categories",
             Self::Reader => "Mode · zoom · prefetch",
-            Self::Downloads => "Not implemented",
+            Self::Downloads => "Folder · queue",
             Self::Tracking => "Local library only",
             Self::Browse => "Local source",
             Self::Data => "Storage · backups",
@@ -5133,6 +5136,7 @@ impl AppState {
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
             TextAction::SetHostUrl => self.set_host_url(&input.value),
             TextAction::SetFlareSolverr => self.set_flaresolverr_url(&input.value),
+            TextAction::SetDownloadsPath => self.set_downloads_path(&input.value),
             TextAction::StoryNotes => self.save_story_notes(&input.value),
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
         }
@@ -5954,6 +5958,23 @@ impl AppState {
         self.host_process = None;
         self.host_client = None;
         self.start_bundled_host();
+    }
+
+    fn set_downloads_path(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            self.config.downloads_path = None;
+            self.status = Some("Downloads use the default folder".to_owned());
+        } else {
+            let path = PathBuf::from(value);
+            if std::fs::create_dir_all(&path).is_err() {
+                self.status = Some(format!("Cannot create {}", path.display()));
+                return;
+            }
+            self.config.downloads_path = Some(path.clone());
+            self.status = Some(format!("Downloads folder: {}", path.display()));
+        }
+        self.persist_settings();
     }
 
     fn set_flaresolverr_url(&mut self, value: &str) {
@@ -10208,6 +10229,12 @@ impl AppState {
                 let current = self.config.flaresolverr_url.clone().unwrap_or_default();
                 self.open_text_input(TextAction::SetFlareSolverr, "FlareSolverr URL", &current);
             }
+            SettingId::DownloadsPath => {
+                let current = downloads_dir(&self.config)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default();
+                self.open_text_input(TextAction::SetDownloadsPath, "Downloads folder", &current);
+            }
             SettingId::ReadingMode | SettingId::LibrarySort | SettingId::DefaultCategory => {
                 self.adjust_setting(1)
             }
@@ -10605,7 +10632,8 @@ impl AppState {
             SettingId::LibraryPath
             | SettingId::RescanLibrary
             | SettingId::HostUrl
-            | SettingId::FlareSolverr => return,
+            | SettingId::FlareSolverr
+            | SettingId::DownloadsPath => return,
         }
 
         self.persist_settings();
@@ -14350,6 +14378,17 @@ mod tests {
         app.cancel_downloads();
         assert!(cancel.load(Ordering::Relaxed));
         assert!(app.download_queue.cancelling);
+    }
+
+    #[test]
+    fn downloads_folder_setting_persists_and_clears() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = AppState::default();
+        app.set_downloads_path(&root.path().join("downloads").display().to_string());
+        assert!(app.config.downloads_path.is_some());
+        assert!(root.path().join("downloads").is_dir());
+        app.set_downloads_path("");
+        assert!(app.config.downloads_path.is_none());
     }
 
     #[test]
