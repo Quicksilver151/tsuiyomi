@@ -57,7 +57,7 @@ Legend:
 | Categories | Edit categories from story | Yes | ✅ | ✅ | Saved source manga. Local categories remain `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
 | Sorting | Other Mihon sort fields | Yes | ❌ | ❌ | Last-read, unread count, date added, etc. |
-| Search | Library title filter | Yes | ❌ | ❌ | Browse Local has search; Library grid does not. |
+| Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
 | Updates | Updates tab | Yes | ❌ | ❌ | Tab is a placeholder. |
 | Removal | Remove local series, keep files | Yes | ✅ | ✅ | Path stored in `hidden_series`. |
 | Removal | Remove saved source manga + downloads | Yes | ✅ | ✅ | Delete dialog with optional downloads. |

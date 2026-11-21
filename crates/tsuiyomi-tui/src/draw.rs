@@ -1356,6 +1356,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("q", "quit"),
                 ("↑↓←→", "move"),
                 ("↵", "open"),
+                ("/", "search"),
                 ("r", "rescan"),
                 ("c", "config"),
                 ("R", "covers"),
@@ -1537,10 +1538,24 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
     match app.view {
         LibraryView::Series => {
             draw_categories(frame, layout.categories, app);
+            let mut grid_area = library_grid_area(area);
+            if app.library_filter_active() && grid_area.height > 1 {
+                draw_library_search(
+                    frame,
+                    Rect::new(grid_area.x, grid_area.y, grid_area.width, 1),
+                    app,
+                );
+                grid_area = Rect::new(
+                    grid_area.x,
+                    grid_area.y + 1,
+                    grid_area.width,
+                    grid_area.height - 1,
+                );
+            }
             let indices = app.visible_indices();
             let (columns, offset) = draw_series_grid(
                 frame,
-                library_grid_area(area),
+                grid_area,
                 app,
                 &indices,
                 app.selected,
@@ -1559,6 +1574,25 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
             draw_library_remote_detail(frame, layout.list, layout.details, app);
         }
     }
+}
+
+fn draw_library_search(frame: &mut Frame, area: Rect, app: &AppState) {
+    let style = if app.library_search {
+        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+    } else if app.library_query.trim().is_empty() {
+        Style::default().fg(c_overlay0())
+    } else {
+        Style::default().fg(c_text())
+    };
+    let text = if app.library_search {
+        format!(" Search library: {}▏", app.library_query)
+    } else {
+        format!(
+            " Search library: {}  (/ edits, Esc clears)",
+            app.library_query
+        )
+    };
+    frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
 fn draw_library_chapters(
@@ -1685,8 +1719,13 @@ fn draw_series_grid(
     let tile_height = cover_height + TILE_TEXT_HEIGHT;
     let selected = selected.min(indices.len().saturating_sub(1));
     if indices.is_empty() {
+        let message = if app.library_query.trim().is_empty() {
+            "No series found."
+        } else {
+            "No series match the library search."
+        };
         frame.render_widget(
-            Paragraph::new("No series found.")
+            Paragraph::new(message)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(c_overlay1())),
             Rect::new(area.x, area.y, area.width, area.height.min(1)),

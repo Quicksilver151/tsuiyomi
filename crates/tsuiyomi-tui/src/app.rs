@@ -907,6 +907,8 @@ pub struct AppState {
     remote_chapter_cache: HashMap<String, (RemoteManga, Vec<RemoteChapter>)>,
     pub category_index: usize,
     pub selected: usize,
+    pub library_query: String,
+    pub library_search: bool,
     pub chapter_index: usize,
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
@@ -1045,6 +1047,8 @@ impl AppState {
             remote_chapter_cache: HashMap::new(),
             category_index: 0,
             selected: 0,
+            library_query: String::new(),
+            library_search: false,
             chapter_index: 0,
             chapter_list_state: ListState::default(),
             reader: None,
@@ -5048,7 +5052,11 @@ impl AppState {
 
     /// True while a modal should receive printable keys instead of shortcuts.
     pub fn text_mode(&self) -> bool {
-        self.picker.is_some() || self.text_input.is_some() || self.extension_search
+        self.picker.is_some()
+            || self.text_input.is_some()
+            || self.extension_search
+            || self.history_search
+            || self.library_search
     }
 
     pub fn open_text_input(&mut self, action: TextAction, title: &str, value: &str) {
@@ -7385,12 +7393,14 @@ impl AppState {
     /// Indices into `library.series` for the current category, in display order.
     pub fn visible_indices(&self) -> Vec<usize> {
         let category = self.category_name();
+        let query = self.library_query.trim().to_lowercase();
         let mut indices: Vec<usize> = self
             .library
             .series
             .iter()
             .enumerate()
             .filter(|(_, series)| in_category(series, category))
+            .filter(|(_, series)| query.is_empty() || series.title.to_lowercase().contains(&query))
             .map(|(index, _)| index)
             .collect();
 
@@ -7410,6 +7420,37 @@ impl AppState {
             }),
         }
         indices
+    }
+
+    pub fn library_filter_active(&self) -> bool {
+        self.library_search || !self.library_query.trim().is_empty()
+    }
+
+    pub fn library_search_start(&mut self) {
+        if self.tab == 0 && self.view == LibraryView::Series {
+            self.library_search = true;
+        }
+    }
+
+    pub fn library_search_stop(&mut self, clear: bool) {
+        self.library_search = false;
+        if clear {
+            self.library_query.clear();
+            self.selected = 0;
+            self.library_grid_offset = 0;
+        }
+    }
+
+    pub fn library_search_push(&mut self, character: char) {
+        self.library_query.push(character);
+        self.selected = 0;
+        self.library_grid_offset = 0;
+    }
+
+    pub fn library_search_pop(&mut self) {
+        self.library_query.pop();
+        self.selected = 0;
+        self.library_grid_offset = 0;
     }
 
     pub fn visible_count(&self) -> usize {
@@ -12626,6 +12667,26 @@ mod tests {
 
         assert_eq!(app.reader_chapter_index(), 1);
         assert_eq!(app.reader_chapter_count(), 2);
+    }
+
+    #[test]
+    fn library_search_filters_titles() {
+        let mut app = AppState::new(library(), None);
+        app.library_search_start();
+        for character in "ber".chars() {
+            app.library_search_push(character);
+        }
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(
+            app.selected_series().map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+        app.library_search_pop();
+        assert_eq!(app.visible_count(), 1);
+        app.library_search_stop(true);
+        assert!(app.library_query.is_empty());
+        assert!(!app.library_search);
+        assert_eq!(app.visible_count(), 2);
     }
 
     #[test]

@@ -433,6 +433,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.library_search {
+            match action {
+                Action::Back => app.library_search_stop(true),
+                Action::Open => app.library_search_stop(false),
+                Action::Char(character) => app.library_search_push(character),
+                Action::Backspace => app.library_search_pop(),
+                Action::Previous => app.previous(),
+                Action::Next => app.next(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.history_search {
             match action {
                 Action::Back => app.history_search_stop(true),
@@ -672,6 +686,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Search => {
                 if app.story_screen_active() {
                     app.chapter_settings_adjust_sort(1);
+                } else if app.tab == 0 && app.view == LibraryView::Series {
+                    app.library_search_start();
                 } else if app.tab == 2 {
                     app.history_search_start();
                 } else if app.tab == 3 {
@@ -1086,7 +1102,15 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
     }
 
     if app.view == LibraryView::Series {
-        let grid_area = library_grid_area(layout.content);
+        let mut grid_area = library_grid_area(layout.content);
+        if app.library_filter_active() && grid_area.height > 1 {
+            grid_area = Rect::new(
+                grid_area.x,
+                grid_area.y + 1,
+                grid_area.width,
+                grid_area.height - 1,
+            );
+        }
         if let Some(index) = grid_index_at(
             grid_area,
             app.library_columns.max(1),
