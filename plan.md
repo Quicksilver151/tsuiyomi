@@ -183,7 +183,10 @@ History parity and reading-time stats plan: `history-parity-plan.md`.
 - [x] History parity: latest-per-series rows, covers, title search, date headers,
       permanent delete with progress clearing, multi-select, clear-all, next-chapter
       resume, and History/Stats mini-tabs with reading-time analytics.
-- [ ] Migrate.
+- [x] Migrate MVP: saved-manga source list, favorites, title/deep matching, preview,
+      migrate/copy with progress/bookmarks/history/categories transfer, and old-favorite
+      removal on replace. Manual search, per-item skip, source configuration, and
+      progress dialogs remain.
 
 ## Phase 5 — Later
 

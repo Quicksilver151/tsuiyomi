@@ -661,6 +661,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     match app.browse_view {
                         BrowseView::Sources => app.open_source_prefs(),
                         BrowseView::ExtensionDetails => app.open_source_prefs_for_selected(),
+                        BrowseView::Migrate
+                            if app.migrate.screen == app::MigrateScreen::Matches =>
+                        {
+                            app.migrate_apply(false)
+                        }
                         _ => {}
                     }
                 }
@@ -715,6 +720,15 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::UpdateAllExtensions => {
                 if app.tab == 3 && app.browse_view == BrowseView::Extensions {
                     app.update_all_extensions();
+                }
+            }
+            Action::Migrate => {
+                if app.tab == 3 && app.browse_view == BrowseView::Migrate {
+                    match app.migrate.screen {
+                        app::MigrateScreen::Favorites => app.migrate_start_matching(),
+                        app::MigrateScreen::Matches => app.migrate_apply(true),
+                        app::MigrateScreen::Sources => {}
+                    }
                 }
             }
             Action::ClearHistory => {
@@ -989,7 +1003,14 @@ fn handle_browse_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 app.select_browse_index(index);
             }
         }
-        BrowseView::GlobalResults | BrowseView::Migrate => {}
+        BrowseView::Migrate => {
+            let list = inside(2);
+            if contains(list, column, row) {
+                let offset = app.migrate.list_state.offset();
+                app.select_browse_index(offset + (row - list.y) as usize);
+            }
+        }
+        BrowseView::GlobalResults => {}
     }
 }
 

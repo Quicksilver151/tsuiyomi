@@ -811,12 +811,29 @@ fn draw_commands(frame: &mut Frame, area: Rect, app: &AppState) {
                 ("[ ]", "tabs"),
                 ("Esc", "back"),
             ],
-            BrowseView::Migrate => vec![
-                ("q", "quit"),
-                ("[ ]", "tabs"),
-                ("e", "extensions"),
-                ("Esc", "back"),
-            ],
+            BrowseView::Migrate => match app.migrate.screen {
+                crate::app::MigrateScreen::Sources => vec![
+                    ("q", "quit"),
+                    ("↑↓", "source"),
+                    ("↵", "open"),
+                    ("[ ]", "tabs"),
+                    ("Esc", "back"),
+                ],
+                crate::app::MigrateScreen::Favorites => vec![
+                    ("q", "quit"),
+                    ("↑↓", "manga"),
+                    ("Space", "select"),
+                    ("M", "match"),
+                    ("Esc", "back"),
+                ],
+                crate::app::MigrateScreen::Matches => vec![
+                    ("q", "quit"),
+                    ("↑↓", "match"),
+                    ("M", "migrate"),
+                    ("C", "copy"),
+                    ("Esc", "back"),
+                ],
+            },
         }
     } else if app.tab == 4 {
         if app.more_focus == MoreFocus::Sections {
@@ -2078,11 +2095,30 @@ fn draw_browse_path(frame: &mut Frame, area: Rect, app: &AppState) {
                 )
             },
         ),
-        BrowseView::Migrate => (
-            "Migrate".to_owned(),
-            "not implemented".to_owned(),
-            String::new(),
-        ),
+        BrowseView::Migrate => {
+            let (label, detail) = match app.migrate.screen {
+                crate::app::MigrateScreen::Sources => {
+                    ("Migrate · sources", "saved manga by source".to_owned())
+                }
+                crate::app::MigrateScreen::Favorites => (
+                    "Migrate · favorites",
+                    app.migrate
+                        .source_id
+                        .as_deref()
+                        .and_then(|id| app.remote.sources.iter().find(|source| source.id == id))
+                        .map(RemoteSource::display_name)
+                        .unwrap_or_else(|| "source".to_owned()),
+                ),
+                crate::app::MigrateScreen::Matches => {
+                    ("Migrate · matches", "M migrate · C copy".to_owned())
+                }
+            };
+            (
+                label.to_owned(),
+                detail,
+                app.migrate_item_count().to_string(),
+            )
+        }
         BrowseView::Stores => (
             "Extension stores".to_owned(),
             browse_host_label(app),
@@ -3225,20 +3261,149 @@ fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
     frame.render_stateful_widget(list, list_area, &mut app.browse_list_state);
 }
 
-fn draw_migrate(frame: &mut Frame, area: Rect, app: &AppState) {
+fn draw_migrate(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let block = panel(browse_tab_title(app), c_accent());
     let inner = block.inner(area);
     frame.render_widget(&block, area);
     let body = browse_body_with_status(frame, inner, app);
-    if body.height == 0 {
+    if body.height < 2 {
         return;
     }
-    frame.render_widget(
-        Paragraph::new("Migrating between sources is not implemented yet.")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(c_overlay1())),
-        Rect::new(body.x, body.y + body.height / 2, body.width, 1),
+    draw_browse_path(frame, Rect::new(body.x, body.y, body.width, 1), app);
+    let list_area = Rect::new(
+        body.x,
+        body.y + 1,
+        body.width,
+        body.height.saturating_sub(1),
     );
+
+    let rows = match app.migrate.screen {
+        crate::app::MigrateScreen::Sources => {
+            let sources = app.migrate_sources();
+            if sources.is_empty() {
+                frame.render_widget(
+                    Paragraph::new("No saved source manga to migrate.")
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_overlay1())),
+                    Rect::new(list_area.x, list_area.y, list_area.width, 1),
+                );
+                app.migrate.list_state.select(None);
+                return;
+            }
+            sources
+                .into_iter()
+                .map(|(source, count)| {
+                    ListItem::new(Line::from(vec![
+                        Span::styled(source.display_name(), Style::default().fg(c_text())),
+                        Span::styled(
+                            format!("  {count} saved"),
+                            Style::default().fg(c_overlay0()),
+                        ),
+                    ]))
+                })
+                .collect::<Vec<_>>()
+        }
+        crate::app::MigrateScreen::Favorites => {
+            if app.migrate.favorites.is_empty() {
+                frame.render_widget(
+                    Paragraph::new("No saved manga in this source.")
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_overlay1())),
+                    Rect::new(list_area.x, list_area.y, list_area.width, 1),
+                );
+                app.migrate.list_state.select(None);
+                return;
+            }
+            app.migrate
+                .favorites
+                .iter()
+                .map(|favorite| {
+                    let marker = if app.is_multi_selected(
+                        SelectionScope::Migrate,
+                        &format!("migrate:{}\n{}", favorite.source_id, favorite.url),
+                    ) {
+                        "✓ "
+                    } else {
+                        "  "
+                    };
+                    let categories = if favorite.categories.is_empty() {
+                        "Default".to_owned()
+                    } else {
+                        favorite.categories.join(", ")
+                    };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(marker, Style::default().fg(c_accent())),
+                        Span::styled(
+                            favorite.title.clone(),
+                            Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(format!("  {categories}"), Style::default().fg(c_overlay0())),
+                    ]))
+                })
+                .collect::<Vec<_>>()
+        }
+        crate::app::MigrateScreen::Matches => {
+            if app.migrate.matches.is_empty() {
+                frame.render_widget(
+                    Paragraph::new("No migration matches yet.")
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(c_overlay1())),
+                    Rect::new(list_area.x, list_area.y, list_area.width, 1),
+                );
+                app.migrate.list_state.select(None);
+                return;
+            }
+            app.migrate
+                .matches
+                .iter()
+                .map(|matched| {
+                    let target = if let Some(target) = &matched.target {
+                        let source = matched
+                            .target_source
+                            .as_ref()
+                            .map(RemoteSource::display_name)
+                            .unwrap_or_default();
+                        format!(
+                            "{} · {source} · {:.0}%",
+                            target.title,
+                            matched.score * 100.0
+                        )
+                    } else {
+                        matched
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| "No match".to_owned())
+                    };
+                    ListItem::new(Line::from(vec![
+                        Span::styled("→ ", Style::default().fg(c_accent())),
+                        Span::styled(matched.old.title.clone(), Style::default().fg(c_text())),
+                        Span::styled("  ", Style::default()),
+                        Span::styled(
+                            target,
+                            Style::default().fg(if matched.target.is_some() {
+                                c_green()
+                            } else {
+                                c_peach()
+                            }),
+                        ),
+                    ]))
+                })
+                .collect::<Vec<_>>()
+        }
+    };
+
+    app.migrate
+        .list_state
+        .select((!rows.is_empty()).then_some(app.browse_selection));
+    let list = List::new(rows)
+        .highlight_style(
+            Style::default()
+                .fg(c_accent())
+                .bg(c_surface0())
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, list_area, &mut app.migrate.list_state);
 }
 
 fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {

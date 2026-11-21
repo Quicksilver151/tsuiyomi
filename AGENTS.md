@@ -187,7 +187,10 @@ Rules:
   update count in the tab title, groups updates/installed/available by language, and offers
   `U` update-all. `o` on Extensions opens extension details with per-source toggles,
   enable/disable-all actions, source preferences, per-extension Incognito, clear-cookies,
-  and uninstall. `/` on Sources runs a background global search over enabled pinned
+  and uninstall. Migrate lists saved manga by source, multi-selects favorites, matches
+  titles against enabled sources with regular/deep queries, previews targets, and
+  migrates (`M`) or copies (`C`) progress/bookmarks/history/categories. `/` on Sources
+  runs a background global search over enabled pinned
   sources with per-source progress; empty and failed sources are rows, `h` toggles
   only-with-results, and `A` switches between pinned and all enabled sources. Results are
   grouped by source.

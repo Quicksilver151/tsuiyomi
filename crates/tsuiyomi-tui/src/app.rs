@@ -15,8 +15,8 @@ use ratatui_image::{
 };
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, downloads_dir,
-    ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
+    best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
+    downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, is_downloaded,
     legacy_remote_cover_path, load_cached_story, merge_extensions, normalized_title,
     page_dimensions, progress_prefix, read_cover, read_page, remote_cover_path, save_cached_story,
     save_config, scan_library, series_dir_name, source_dir_name, story_cache_path, today_key,
@@ -641,6 +641,34 @@ pub enum HistorySection {
     Stats,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MigrateScreen {
+    #[default]
+    Sources,
+    Favorites,
+    Matches,
+}
+
+#[derive(Debug, Clone)]
+pub struct MigrationMatch {
+    pub old: RemoteFavorite,
+    pub old_chapters: Vec<RemoteChapter>,
+    pub target: Option<RemoteManga>,
+    pub target_source: Option<RemoteSource>,
+    pub target_chapters: Vec<RemoteChapter>,
+    pub score: f64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct MigrateState {
+    pub screen: MigrateScreen,
+    pub source_id: Option<String>,
+    pub favorites: Vec<RemoteFavorite>,
+    pub matches: Vec<MigrationMatch>,
+    pub list_state: ListState,
+}
+
 pub struct HistoryDeleteDialog {
     pub keys: Vec<String>,
     pub series_keys: Vec<String>,
@@ -679,6 +707,7 @@ pub enum SelectionScope {
     LocalChapters,
     RemoteChapters,
     History,
+    Migrate,
 }
 
 #[derive(Debug, Clone)]
@@ -746,6 +775,7 @@ pub struct AppState {
     pub history_list_state: ListState,
     pub history_delete: Option<HistoryDeleteDialog>,
     pub history_clear_confirm: bool,
+    pub migrate: MigrateState,
     history_dirty: bool,
     progress_dirty: bool,
     progress_changed_at: Option<Instant>,
@@ -859,6 +889,7 @@ impl AppState {
             history_list_state: ListState::default(),
             history_delete: None,
             history_clear_confirm: false,
+            migrate: MigrateState::default(),
             history_dirty: false,
             progress_dirty: false,
             progress_changed_at: None,
@@ -1136,7 +1167,8 @@ impl AppState {
             BrowseView::RemoteDetails => self.open_remote_chapter(self.browse_selection),
             BrowseView::Extensions => self.install_selected_extension(),
             BrowseView::ExtensionDetails => self.activate_extension_detail_selection(),
-            BrowseView::Stores | BrowseView::GlobalResults | BrowseView::Migrate => {}
+            BrowseView::Migrate => self.migrate_open(),
+            BrowseView::Stores | BrowseView::GlobalResults => {}
         }
     }
 
@@ -1184,9 +1216,10 @@ impl AppState {
                 self.browse_selection = 0;
                 self.select_browse_entry(0);
             }
-            // Esc leaves Browse only from the Sources root. Extensions and Migrate stay.
+            BrowseView::Migrate => self.migrate_back(),
+            // Esc leaves Browse only from the Sources root. Extensions stays.
             BrowseView::Sources => self.select_tab(0),
-            BrowseView::Extensions | BrowseView::Migrate => {}
+            BrowseView::Extensions => {}
         }
     }
 
@@ -1205,7 +1238,8 @@ impl AppState {
             BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
             BrowseView::ExtensionDetails => self.load_extensions(),
             BrowseView::Chapters => self.refresh(),
-            BrowseView::GlobalResults | BrowseView::Migrate => {}
+            BrowseView::Migrate => self.migrate_refresh(),
+            BrowseView::GlobalResults => {}
         }
         self.clamp_browse_selection();
     }
@@ -1226,7 +1260,8 @@ impl AppState {
             BrowseView::Extensions => self.filtered_extension_count(),
             BrowseView::ExtensionDetails => self.extension_detail_rows().len(),
             BrowseView::Stores => self.remote.repos.len(),
-            BrowseView::GlobalResults | BrowseView::Migrate => 0,
+            BrowseView::Migrate => self.migrate_item_count(),
+            BrowseView::GlobalResults => 0,
         }
     }
 
@@ -1395,6 +1430,419 @@ impl AppState {
 
     pub fn selected_store(&self) -> Option<&String> {
         self.remote.repos.get(self.browse_selection)
+    }
+
+    pub fn migrate_sources(&self) -> Vec<(RemoteSource, usize)> {
+        let mut grouped: BTreeMap<String, (RemoteSource, usize)> = BTreeMap::new();
+        for favorite in &self.config.remote_library {
+            let source = self
+                .remote
+                .sources
+                .iter()
+                .find(|source| source.id == favorite.source_id)
+                .cloned()
+                .unwrap_or_else(|| RemoteSource {
+                    id: favorite.source_id.clone(),
+                    name: "Unknown source".to_owned(),
+                    lang: String::new(),
+                    pkg: None,
+                    supports_latest: true,
+                });
+            let entry = grouped
+                .entry(favorite.source_id.clone())
+                .or_insert_with(|| (source, 0));
+            entry.1 += 1;
+        }
+        let mut sources: Vec<_> = grouped.into_values().collect();
+        sources.sort_by(|left, right| natural_cmp(&left.0.display_name(), &right.0.display_name()));
+        sources
+    }
+
+    pub fn migrate_favorites(&self) -> Vec<RemoteFavorite> {
+        let Some(source_id) = self.migrate.source_id.as_deref() else {
+            return Vec::new();
+        };
+        let mut favorites: Vec<_> = self
+            .config
+            .remote_library
+            .iter()
+            .filter(|favorite| favorite.source_id == source_id)
+            .cloned()
+            .collect();
+        favorites.sort_by(|left, right| natural_cmp(&left.title, &right.title));
+        favorites
+    }
+
+    pub(crate) fn migrate_item_count(&self) -> usize {
+        match self.migrate.screen {
+            MigrateScreen::Sources => self.migrate_sources().len(),
+            MigrateScreen::Favorites => self.migrate.favorites.len(),
+            MigrateScreen::Matches => self.migrate.matches.len(),
+        }
+    }
+
+    pub fn migrate_open(&mut self) {
+        match self.migrate.screen {
+            MigrateScreen::Sources => {
+                let Some((source, _)) = self.migrate_sources().get(self.browse_selection).cloned()
+                else {
+                    return;
+                };
+                self.migrate.source_id = Some(source.id);
+                self.migrate.favorites = self.migrate_favorites();
+                self.migrate.screen = MigrateScreen::Favorites;
+                self.browse_selection = 0;
+                self.migrate.list_state = ListState::default();
+                self.select_browse_entry(0);
+            }
+            MigrateScreen::Favorites => self.toggle_multi_select(),
+            MigrateScreen::Matches => {}
+        }
+    }
+
+    pub fn migrate_back(&mut self) {
+        match self.migrate.screen {
+            MigrateScreen::Matches => {
+                self.migrate.screen = MigrateScreen::Favorites;
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+            }
+            MigrateScreen::Favorites => {
+                self.migrate.screen = MigrateScreen::Sources;
+                self.migrate.favorites.clear();
+                self.browse_selection = 0;
+                self.select_browse_entry(0);
+            }
+            MigrateScreen::Sources => {}
+        }
+    }
+
+    pub fn migrate_refresh(&mut self) {
+        self.migrate.favorites = self.migrate_favorites();
+        self.clamp_browse_selection();
+    }
+
+    fn selected_migration_favorites(&self) -> Vec<RemoteFavorite> {
+        let mut favorites = Vec::new();
+        if let Some(keys) = self.selected_keys(SelectionScope::Migrate) {
+            favorites = self
+                .migrate
+                .favorites
+                .iter()
+                .filter(|favorite| {
+                    keys.contains(&format!("migrate:{}\n{}", favorite.source_id, favorite.url))
+                })
+                .cloned()
+                .collect();
+        }
+        if favorites.is_empty() {
+            if let Some(favorite) = self.migrate.favorites.get(self.browse_selection).cloned() {
+                favorites.push(favorite);
+            }
+        }
+        favorites
+    }
+
+    pub fn migrate_start_matching(&mut self) {
+        if self.migrate.screen == MigrateScreen::Sources {
+            self.migrate_open();
+        }
+        if self.migrate.screen != MigrateScreen::Favorites {
+            return;
+        }
+        let favorites = self.selected_migration_favorites();
+        if favorites.is_empty() {
+            self.remote.status = Some("Select at least one manga to migrate.".to_owned());
+            self.remote.error = false;
+            return;
+        }
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let targets: Vec<RemoteSource> = self
+            .remote
+            .sources
+            .iter()
+            .filter(|source| self.source_enabled(source))
+            .cloned()
+            .collect();
+        if targets.is_empty() {
+            self.remote.status = Some("No enabled target sources.".to_owned());
+            self.remote.error = false;
+            return;
+        }
+
+        let mut matches = Vec::new();
+        for favorite in favorites {
+            let old_chapters = load_cached_story(&favorite.source_id, &favorite.url)
+                .map(|story| story.chapters)
+                .or_else(|| {
+                    client
+                        .chapters(&favorite.source_id, &favorite.url, None)
+                        .ok()
+                })
+                .unwrap_or_default();
+            let mut best: Option<(RemoteSource, RemoteManga, f64)> = None;
+            for source in &targets {
+                if source.id == favorite.source_id {
+                    continue;
+                }
+                let mut source_best: Option<(RemoteManga, f64)> = None;
+                let mut queries = vec![favorite.title.clone()];
+                queries.extend(deep_queries(&favorite.title));
+                queries.dedup();
+                for query in queries {
+                    let Ok(page) = client.search(&source.id, &query, 1) else {
+                        continue;
+                    };
+                    let candidates: Vec<(usize, String)> = page
+                        .mangas
+                        .iter()
+                        .enumerate()
+                        .map(|(index, manga)| (index, manga.title.clone()))
+                        .collect();
+                    if let Some((index, score)) = best_match(&favorite.title, candidates) {
+                        let candidate = page.mangas[index].clone();
+                        if source_best.as_ref().is_none_or(|(_, known)| score > *known) {
+                            source_best = Some((candidate, score));
+                        }
+                        if score >= 0.95 {
+                            break;
+                        }
+                    }
+                }
+                if let Some((manga, score)) = source_best {
+                    if best.as_ref().is_none_or(|(_, _, known)| score > *known) {
+                        best = Some((source.clone(), manga, score));
+                    }
+                }
+            }
+
+            let mut matched = MigrationMatch {
+                old: favorite.clone(),
+                old_chapters,
+                target: None,
+                target_source: None,
+                target_chapters: Vec::new(),
+                score: 0.0,
+                error: Some("No match found".to_owned()),
+            };
+            if let Some((source, target, score)) = best {
+                match client.chapters(&source.id, &target.url, target.memo.as_deref()) {
+                    Ok(chapters) if !chapters.is_empty() => {
+                        matched.target = Some(target);
+                        matched.target_source = Some(source);
+                        matched.target_chapters = chapters;
+                        matched.score = score;
+                        matched.error = None;
+                    }
+                    Ok(_) => matched.error = Some("Target has no chapters".to_owned()),
+                    Err(error) => matched.error = Some(error.to_string()),
+                }
+            }
+            matches.push(matched);
+        }
+
+        self.migrate.matches = matches;
+        self.migrate.screen = MigrateScreen::Matches;
+        self.browse_selection = 0;
+        self.migrate.list_state = ListState::default();
+        self.select_browse_entry(0);
+        let found = self
+            .migrate
+            .matches
+            .iter()
+            .filter(|matched| matched.target.is_some())
+            .count();
+        self.remote.status = Some(format!(
+            "Matched {found}/{} selected manga",
+            self.migrate.matches.len()
+        ));
+        self.remote.error = found == 0;
+    }
+
+    pub fn migrate_apply(&mut self, replace: bool) {
+        if self.migrate.screen != MigrateScreen::Matches {
+            return;
+        }
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        let matches = self
+            .migrate
+            .matches
+            .iter()
+            .filter(|matched| matched.target.is_some())
+            .cloned()
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            self.remote.status = Some("No matched manga to migrate.".to_owned());
+            return;
+        }
+
+        let mut migrated = 0usize;
+        let mut failed = 0usize;
+        let mut categories_to_apply: Vec<(String, String, Vec<String>)> = Vec::new();
+        for matched in &matches {
+            let Some(target) = &matched.target else {
+                continue;
+            };
+            let Some(target_source) = &matched.target_source else {
+                continue;
+            };
+            let old_categories = self
+                .config
+                .remote_library
+                .iter()
+                .find(|favorite| {
+                    favorite.source_id == matched.old.source_id && favorite.url == matched.old.url
+                })
+                .map(|favorite| favorite.categories.clone())
+                .unwrap_or_default();
+            if !self.is_favorite(&target.source_id, &target.url) {
+                match client.add_favorite(target) {
+                    Ok(()) => {
+                        categories_to_apply.push((
+                            target.source_id.clone(),
+                            target.url.clone(),
+                            old_categories.clone(),
+                        ));
+                    }
+                    Err(_) => {
+                        failed += 1;
+                        continue;
+                    }
+                }
+            }
+            let _ = target_source;
+            self.copy_migration_reading_state(matched, replace);
+            if replace {
+                let _ = client.remove_favorite(&matched.old.source_id, &matched.old.url);
+            }
+            migrated += 1;
+        }
+
+        self.load_favorites();
+        for (source_id, url, categories) in categories_to_apply {
+            if categories.is_empty() {
+                continue;
+            }
+            if let Some(favorite) = self
+                .config
+                .remote_library
+                .iter_mut()
+                .find(|favorite| favorite.source_id == source_id && favorite.url == url)
+            {
+                favorite.categories = categories;
+            }
+        }
+        self.persist_settings();
+        self.merge_remote_library();
+        let _ = self.history.save();
+        let _ = self.progress.save();
+        let _ = self.bookmarks.save();
+        self.multi_select = None;
+        self.migrate.screen = MigrateScreen::Sources;
+        self.migrate.source_id = None;
+        self.migrate.favorites.clear();
+        self.migrate.matches.clear();
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+        self.remote.status = Some(format!(
+            "{} {migrated} manga{}",
+            if replace { "Migrated" } else { "Copied" },
+            if failed == 0 {
+                String::new()
+            } else {
+                format!(" · {failed} failed")
+            }
+        ));
+        self.remote.error = failed > 0 || migrated == 0;
+    }
+
+    fn copy_migration_reading_state(&mut self, matched: &MigrationMatch, replace: bool) {
+        let Some(target) = &matched.target else {
+            return;
+        };
+        let old_series = format!("remote:{}\n{}", matched.old.source_id, matched.old.url);
+        let old_entries: Vec<(String, HistoryEntry)> = self
+            .history
+            .recent()
+            .into_iter()
+            .filter(|(_, entry)| entry.series_key() == old_series)
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect();
+
+        let target_by_number: BTreeMap<u32, &RemoteChapter> = matched
+            .target_chapters
+            .iter()
+            .filter(|chapter| chapter.chapter_number >= 0.0)
+            .map(|chapter| (chapter.chapter_number.to_bits(), chapter))
+            .collect();
+        let target_by_name: BTreeMap<&str, &RemoteChapter> = matched
+            .target_chapters
+            .iter()
+            .map(|chapter| (chapter.name.as_str(), chapter))
+            .collect();
+
+        for (old_key, entry) in old_entries {
+            let Some(old_remote) = &entry.remote else {
+                continue;
+            };
+            let old_chapter = &old_remote.chapter;
+            let target_chapter = target_by_number
+                .get(&old_chapter.chapter_number.to_bits())
+                .copied()
+                .or_else(|| target_by_name.get(old_chapter.name.as_str()).copied());
+            let Some(target_chapter) = target_chapter else {
+                continue;
+            };
+            let new_key = remote_progress_key(&target.source_id, &target.url, &target_chapter.url);
+            if let Some(progress) = self.progress.entry(Path::new(&old_key)) {
+                self.progress
+                    .update(&new_key, progress.page, progress.pages);
+            }
+            if self.bookmarks.is_bookmarked(Path::new(&old_key)) {
+                self.bookmarks.set(&new_key, true);
+            }
+            let source_name = matched
+                .target_source
+                .as_ref()
+                .map(RemoteSource::display_name)
+                .unwrap_or_else(|| entry.source.clone());
+            let new_entry = HistoryEntry::remote(
+                target.title.clone(),
+                target_chapter.name.clone(),
+                source_name,
+                target.clone(),
+                target_chapter.clone(),
+                entry.page,
+                entry.pages,
+            );
+            let mut new_entry = new_entry;
+            if replace {
+                new_entry.read_duration_secs = entry.read_duration_secs;
+                new_entry.daily_duration_secs = entry.daily_duration_secs.clone();
+            }
+            self.history
+                .record(new_key.to_string_lossy().into_owned(), new_entry);
+        }
+
+        if replace {
+            self.history.remove_series(&old_series);
+            for chapter in &matched.old_chapters {
+                let key =
+                    remote_progress_key(&matched.old.source_id, &matched.old.url, &chapter.url);
+                self.progress.remove(&key);
+                self.bookmarks.set(&key, false);
+            }
+        }
     }
 
     pub fn set_browse_tab(&mut self, tab: BrowseTab) {
@@ -5984,8 +6432,18 @@ impl AppState {
                 let store = self.selected_store()?;
                 Some((SelectionScope::Stores, format!("store:{store}")))
             }
-            BrowseView::Migrate
-            | BrowseView::SourceFilters
+            BrowseView::Migrate => {
+                self.migrate
+                    .favorites
+                    .get(self.browse_selection)
+                    .map(|favorite| {
+                        (
+                            SelectionScope::Migrate,
+                            format!("migrate:{}\n{}", favorite.source_id, favorite.url),
+                        )
+                    })
+            }
+            BrowseView::SourceFilters
             | BrowseView::SourcePrefs
             | BrowseView::Filters
             | BrowseView::ExtensionDetails => None,
@@ -10724,6 +11182,125 @@ mod tests {
         let local = std::path::PathBuf::from("/tmp/library/Chapter 1");
         app.record_progress(&local, 1, 5);
         assert!(app.progress.entry(&local).is_some());
+    }
+
+    #[test]
+    fn migration_sources_and_favorites_follow_saved_library() {
+        let mut app = remote_app();
+        let favorite = |source: &str, title: &str, categories: Vec<&str>| RemoteFavorite {
+            source_id: source.to_owned(),
+            url: format!("/manga/{title}"),
+            title: title.to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+            categories: categories.into_iter().map(str::to_owned).collect(),
+        };
+        app.config.remote_library = vec![
+            favorite("1", "Alpha", vec!["Reading"]),
+            favorite("1", "Beta", vec![]),
+            favorite("2", "Gamma", vec![]),
+        ];
+
+        let sources = app.migrate_sources();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].1, 2);
+        assert_eq!(sources[1].1, 1);
+
+        app.browse_selection = 0;
+        app.migrate_open();
+        assert_eq!(app.migrate.screen, MigrateScreen::Favorites);
+        assert_eq!(app.migrate.favorites.len(), 2);
+        assert_eq!(app.migrate.favorites[0].title, "Alpha");
+    }
+
+    #[test]
+    fn migration_copies_and_moves_reading_state() {
+        let mut app = remote_app();
+        let old_manga = RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/old".to_owned(),
+            title: "Old Title".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        let target_manga = RemoteManga {
+            source_id: "2".to_owned(),
+            url: "/manga/new".to_owned(),
+            title: "New Title".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        let chapter = |url: &str, number: f32| RemoteChapter {
+            url: url.to_owned(),
+            name: format!("Chapter {number}"),
+            chapter_number: number,
+            scanlator: None,
+            upload_date: 0,
+            memo: None,
+        };
+        let old_chapter = chapter("/old/1", 1.0);
+        let target_chapter = chapter("/new/1", 1.0);
+        let old_key = remote_progress_key("1", "/manga/old", "/old/1");
+        let new_key = remote_progress_key("2", "/manga/new", "/new/1");
+        app.history.record(
+            old_key.to_string_lossy().into_owned(),
+            HistoryEntry::remote(
+                "Old Title".to_owned(),
+                "Chapter 1".to_owned(),
+                "Source One".to_owned(),
+                old_manga.clone(),
+                old_chapter.clone(),
+                3,
+                10,
+            ),
+        );
+        app.progress.update(&old_key, 3, 10);
+        app.bookmarks.set(&old_key, true);
+        let matched = MigrationMatch {
+            old: RemoteFavorite {
+                source_id: "1".to_owned(),
+                url: "/manga/old".to_owned(),
+                title: "Old Title".to_owned(),
+                thumbnail_url: None,
+                last_read_url: None,
+                last_read_name: None,
+                categories: vec!["Reading".to_owned()],
+            },
+            old_chapters: vec![old_chapter],
+            target: Some(target_manga.clone()),
+            target_source: Some(app.remote.sources[1].clone()),
+            target_chapters: vec![target_chapter],
+            score: 1.0,
+            error: None,
+        };
+
+        app.copy_migration_reading_state(&matched, true);
+
+        let new_entry = app
+            .history
+            .get(&new_key.to_string_lossy())
+            .expect("new history");
+        assert_eq!(new_entry.page, 3);
+        assert_eq!(new_entry.series_title, "New Title");
+        assert!(app.history.get(&old_key.to_string_lossy()).is_none());
+        assert_eq!(
+            app.progress.entry(&new_key).map(|entry| entry.page),
+            Some(3)
+        );
+        assert!(app.progress.entry(&old_key).is_none());
+        assert!(app.bookmarks.is_bookmarked(&new_key));
+        assert!(!app.bookmarks.is_bookmarked(&old_key));
     }
 
     #[test]

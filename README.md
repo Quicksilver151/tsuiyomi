@@ -140,7 +140,10 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   adds a store URL, and `t` opens the store list. The Extensions tab shows the pending
   update count, and rows show the installed and available versions. All actions apply to
   a multi-selection where relevant.
-- **Migrate** — placeholder; source migration is not implemented.
+- **Migrate** — saved remote manga grouped by source. Open a source, select one or more
+  favorites with `Space`, and press `M` to search enabled sources and preview matches.
+  `M` migrates matched entries (removing the old favorite) or `C` copies them. Progress,
+  bookmarks, history, categories, and reading time move with the matched chapters.
 
 Controls:
 
