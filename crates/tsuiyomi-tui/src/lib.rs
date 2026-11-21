@@ -699,6 +699,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Search => {
                 if app.story_screen_active() {
                     app.chapter_settings_adjust_sort(1);
+                } else if app.tab == 3
+                    && app.browse_view == BrowseView::Migrate
+                    && app.migrate.screen == app::MigrateScreen::Matches
+                {
+                    app.migrate_toggle_skip();
                 } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.library_search_start();
                 } else if app.tab == 2 {

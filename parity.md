@@ -252,7 +252,7 @@ Legend:
 | Entry | Duplicate-dialog Migrate | Yes | ✅ | ✅ | `M` in duplicate dialog. |
 | Config | Migration source configuration/order | Yes | ❌ | ❌ | |
 | Matching | Prioritize by chapters / hide options | Yes | ❌ | ❌ | |
-| Apply | Manual search override / skip | Yes | ❌ | ❌ | |
+| Apply | Manual search override / skip | Yes | 🟡 | 🟡 | Per-item skip implemented; manual target search pending. |
 | Apply | Batch progress / cancel | Yes | 🟡 | 🟡 | Matching runs in the background with a status; applying is synchronous and cancellation drops the result. |
 | Downloads | Move/delete old downloads | Yes | ❌ | ❌ | |
 

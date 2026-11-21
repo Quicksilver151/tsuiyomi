@@ -88,6 +88,7 @@ impl MigrationWorker {
                         target_chapters: Vec::new(),
                         score: 0.0,
                         error: Some("No match found".to_owned()),
+                        skipped: false,
                     };
                     if let Some((source, target, score)) = best {
                         match request.client.chapters(

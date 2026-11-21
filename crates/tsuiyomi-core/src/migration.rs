@@ -21,6 +21,7 @@ pub struct MigrationMatch {
     pub target_chapters: Vec<RemoteChapter>,
     pub score: f64,
     pub error: Option<String>,
+    pub skipped: bool,
 }
 
 /// Normalized Levenshtein similarity in `0.0..=1.0`.

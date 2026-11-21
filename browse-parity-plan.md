@@ -933,7 +933,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Hide unmatched.
 - [ ] Hide without updates.
 - [ ] Manual search override.
-- [ ] Skip.
+- [x] Skip.
 - [ ] Migrate now.
 - [ ] Copy now.
 - [ ] Batch migrate.

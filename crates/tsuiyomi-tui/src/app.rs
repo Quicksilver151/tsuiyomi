@@ -1937,6 +1937,7 @@ impl AppState {
                 target_chapters: Vec::new(),
                 score: 0.0,
                 error: Some("No match found".to_owned()),
+                skipped: false,
             };
             if let Some((source, target, score)) = best {
                 match client.chapters(&source.id, &target.url, target.memo.as_deref()) {
@@ -2004,6 +2005,23 @@ impl AppState {
         true
     }
 
+    pub fn migrate_toggle_skip(&mut self) {
+        if self.migrate.screen != MigrateScreen::Matches {
+            return;
+        }
+        if let Some(matched) = self.migrate.matches.get_mut(self.browse_selection) {
+            matched.skipped = !matched.skipped;
+            let skipped = matched.skipped;
+            let title = matched.old.title.clone();
+            self.remote.status = Some(if skipped {
+                format!("Skipping {title}")
+            } else {
+                format!("Including {title}")
+            });
+            self.remote.error = false;
+        }
+    }
+
     pub fn migrate_apply(&mut self, replace: bool) {
         if self.migrate.matching || self.migrate.screen != MigrateScreen::Matches {
             return;
@@ -2018,7 +2036,7 @@ impl AppState {
             .migrate
             .matches
             .iter()
-            .filter(|matched| matched.target.is_some())
+            .filter(|matched| matched.target.is_some() && !matched.skipped)
             .cloned()
             .collect::<Vec<_>>();
         if matches.is_empty() {
@@ -15342,6 +15360,7 @@ mod tests {
             target_chapters: vec![target_chapter],
             score: 1.0,
             error: None,
+            skipped: false,
         };
 
         app.copy_migration_reading_state(&matched, true);

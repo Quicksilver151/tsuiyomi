@@ -205,8 +205,8 @@ Rules:
   preferences, per-extension Incognito, clear-cookies, and uninstall. Signature trust is
   not implemented: the host cannot verify extension signatures, so there is no trust
   action. Migrate lists saved manga by source, multi-selects favorites, matches
-  titles against enabled sources with regular/deep queries, previews targets, and
-  migrates (`M`) or copies (`C`) progress/bookmarks/history/categories. `/` on Sources
+  titles against enabled sources with regular/deep queries, previews targets, skips a
+  preview (`s`), and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories. `/` on Sources
   runs a background global search over enabled pinned
   sources with per-source progress; empty and failed sources are rows, `h` toggles
   only-with-results, and `A` switches between pinned and all enabled sources. `o` opens
