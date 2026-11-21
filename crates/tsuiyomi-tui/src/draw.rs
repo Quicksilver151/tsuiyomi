@@ -97,6 +97,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_tag_picker(frame, app);
     draw_migration_sources(frame, app);
     draw_migration_search(frame, app);
+    draw_clear_downloads_confirm(frame, app);
 }
 
 fn draw_cover_overlay(frame: &mut Frame, app: &mut AppState) {
@@ -201,6 +202,43 @@ fn draw_download_delete_confirm(frame: &mut Frame, app: &AppState) {
     frame.render_widget(
         Paragraph::new(Text::from(vec![
             Line::from("Delete the selected downloaded chapters from disk?"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Enter / y delete · Esc cancel",
+                Style::default().fg(c_overlay1()),
+            )),
+        ])),
+        inner,
+    );
+}
+
+fn draw_clear_downloads_confirm(frame: &mut Frame, app: &AppState) {
+    if !app.storage_clear_downloads_confirm {
+        return;
+    }
+    let area = frame.area();
+    let width = 62.min(area.width).max(24);
+    let height = 7.min(area.height);
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Clear downloads ",
+            Style::default().fg(c_peach()).add_modifier(Modifier::BOLD),
+        )),
+        c_peach(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![
+            Line::from("Delete every downloaded chapter from disk?"),
+            Line::from("Local library chapters are not affected."),
             Line::from(""),
             Line::from(Span::styled(
                 "Enter / y delete · Esc cancel",
@@ -1437,6 +1475,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("q", "quit"),
                 ("r", "refresh"),
                 ("c", "clear covers"),
+                ("d", "clear downloads"),
                 ("[ ]", "sections"),
                 ("Esc", "back"),
             ]

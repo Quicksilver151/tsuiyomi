@@ -395,7 +395,8 @@ categories:
 - **Downloads** — configurable download folder, with the active queue shown in story
   headers.
 - **Data and storage** — storage counts and library/downloads/host sizes, refreshed
-  with `r`. Imports and exports Mihon `.tachibk` / `.proto.gz` backups. Import restores
+  with `r`; `c` clears cached covers and `d` deletes all downloaded chapters after
+  confirmation. Imports and exports Mihon `.tachibk` / `.proto.gz` backups. Import restores
   remote favorites, categories, notes, chapter state, bookmarks, and history when source
   names match the extension host. Export writes local and remote library entries,
   categories, chapter state, bookmarks, notes, and history.

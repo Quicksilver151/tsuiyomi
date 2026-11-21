@@ -232,6 +232,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.storage_clear_downloads_confirm {
+            match action {
+                Action::Open | Action::Confirm => app.confirm_clear_downloads(),
+                Action::Back => app.cancel_clear_downloads(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.migration_search.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -923,6 +933,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::DeleteStore => {
                 if app.tab == 3 && app.browse_view == BrowseView::Stores {
                     app.remove_selected_store();
+                } else if app.tab == 4 && app.more_section == MoreSection::Storage {
+                    app.open_clear_downloads_confirm();
                 }
             }
             Action::Download => {

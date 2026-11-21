@@ -1018,6 +1018,7 @@ pub struct AppState {
     scan_generation: u64,
     scan_context: Option<ScanContext>,
     pub storage_snapshot: Option<StorageSnapshot>,
+    pub storage_clear_downloads_confirm: bool,
     pending_states: BTreeMap<String, RemoteReadState>,
     host_states_loaded: bool,
     state_dirty: bool,
@@ -1168,6 +1169,7 @@ impl AppState {
             scan_generation: 0,
             scan_context: None,
             storage_snapshot: None,
+            storage_clear_downloads_confirm: false,
             pending_states: BTreeMap::new(),
             host_states_loaded: false,
             state_dirty: false,
@@ -11722,6 +11724,43 @@ impl AppState {
         self.status = Some(format!("Removed {removed} cached covers"));
     }
 
+    pub fn open_clear_downloads_confirm(&mut self) {
+        if !self.storage_clear_downloads_confirm {
+            self.storage_clear_downloads_confirm = true;
+            self.status = Some("Press y/Enter to delete all downloaded chapters.".to_owned());
+        }
+    }
+
+    pub fn cancel_clear_downloads(&mut self) {
+        self.storage_clear_downloads_confirm = false;
+    }
+
+    pub fn confirm_clear_downloads(&mut self) {
+        self.storage_clear_downloads_confirm = false;
+        let Some(root) = downloads_dir(&self.config) else {
+            self.status = Some("Cannot resolve the downloads folder.".to_owned());
+            return;
+        };
+        if !root.exists() {
+            self.status = Some("Downloads folder is already empty.".to_owned());
+            return;
+        }
+        match std::fs::remove_dir_all(&root) {
+            Ok(()) => {
+                let _ = std::fs::create_dir_all(&root);
+                if self.storage_snapshot.is_some() {
+                    self.refresh_storage();
+                }
+                self.status = Some("Deleted all downloaded chapters".to_owned());
+                self.remote.error = false;
+            }
+            Err(error) => {
+                self.status = Some(format!("Could not clear downloads: {error}"));
+                self.remote.error = true;
+            }
+        }
+    }
+
     /// Recompute on-disk storage usage for the Data and storage screen.
     pub fn refresh_storage(&mut self) {
         let library_bytes = directory_size(&self.library.root);
@@ -15782,6 +15821,21 @@ mod tests {
                 && manga.chapters.iter().any(|chapter| chapter.bookmark)
         }));
         assert!(backup.sources.iter().any(|source| source.source_id == 0));
+    }
+
+    #[test]
+    fn storage_cleanup_clears_downloads() {
+        let root = tempfile::tempdir().unwrap();
+        let downloads = root.path().join("downloads");
+        std::fs::create_dir_all(downloads.join("Source/Series/Chapter 1")).unwrap();
+        std::fs::write(downloads.join("Source/Series/Chapter 1/001.jpg"), b"x").unwrap();
+        let mut app = AppState::default();
+        app.config.downloads_path = Some(downloads.clone());
+
+        app.confirm_clear_downloads();
+
+        assert!(downloads.is_dir());
+        assert_eq!(std::fs::read_dir(&downloads).unwrap().count(), 0);
     }
 
     #[test]

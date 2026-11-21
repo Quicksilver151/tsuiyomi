@@ -333,7 +333,7 @@ Rules:
   path/rescan/sort/default category, reader mode/zoom/fit/prefetch/cache, downloads
   folder, backup import, and Security → Incognito (stops progress writes). Tracking is an
   informational placeholder. More → Data and storage shows library/downloads/host sizes
-  on demand (`r`); cleanup actions are still pending. More has a single focus: Enter
+  on demand (`r`) and can clear cached covers (`c`) or all downloads (`d`, confirmed). More has a single focus: Enter
   enters the selected section/page or activates a setting, Esc backs out one level, and
   left/right adjust the selected setting. Clicking sections, menu rows, and sliders works.
 - Core has tests for chapter parsing, config loading, scanning, categories, page

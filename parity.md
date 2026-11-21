@@ -304,7 +304,7 @@ deviations and is excluded. Recompute with `python3 scripts/parity-score.py` aft
 | Downloads | Download settings/management page | Yes | 🟡 | 🟡 | Configurable downloads folder; no per-series download list/queue screen yet. |
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
 | Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
-| Data | Storage statistics/cleanup | Yes | 🟡 | 🟡 | Library/downloads/host sizes and counts; cleanup actions pending. |
+| Data | Storage statistics/cleanup | Yes | 🟡 | 🟡 | Sizes/counts, clear cover cache, and clear all downloads; per-series cleanup pending. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
 | Statistics | Dedicated statistics screen | Yes | 🟡 | 🟡 | History → Stats mini-tab. |
 
