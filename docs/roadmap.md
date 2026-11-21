@@ -16,10 +16,10 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 40 | 2 | 5 | 0 | 87.2% |
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
-| [Migrate](#migrate) | 17 | 2 | 1 | 0 | 90.0% |
+| [Migrate](#migrate) | 18 | 1 | 1 | 0 | 92.5% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **187** | **16** | **13** | **2** | **90.3%** |
+| **All categories** | **188** | **15** | **13** | **2** | **90.5%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -263,7 +263,7 @@ table below.
 | Entry | Duplicate-dialog Migrate | Yes | ✅ | ✅ | `M` in duplicate dialog. |
 | Config | Migration source configuration/order | Yes | ✅ | ✅ | Target sources are selectable, reorderable, and persisted. |
 | Matching | Prioritize by chapters / hide options | Yes | ❌ | ❌ | |
-| Apply | Manual search override / skip | Yes | 🟡 | 🟡 | Per-item skip implemented; manual target search pending. |
+| Apply | Manual search override / skip | Yes | ✅ | ✅ | `↵`/`o` searches target sources and replaces the match; `s` skips an item. |
 | Apply | Batch progress / cancel | Yes | 🟡 | 🟡 | Matching runs in the background with a status; applying is synchronous and cancellation drops the result. |
 | Downloads | Move/delete old downloads | Yes | ✅ | ✅ | Replace moves the old series’ downloaded chapters to the target source/series; copy leaves them in place. |
 

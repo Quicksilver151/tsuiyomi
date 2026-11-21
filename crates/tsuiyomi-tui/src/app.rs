@@ -1850,7 +1850,7 @@ impl AppState {
                 self.select_browse_entry(0);
             }
             MigrateScreen::Favorites => self.toggle_multi_select(),
-            MigrateScreen::Matches => {}
+            MigrateScreen::Matches => self.open_migration_search(),
         }
     }
 
@@ -16874,7 +16874,7 @@ mod tests {
         }];
         app.browse_selection = 0;
 
-        app.open_migration_search();
+        app.migrate_open();
 
         let input = app.text_input.as_ref().expect("search input");
         assert_eq!(input.action, TextAction::MigrationSearch);

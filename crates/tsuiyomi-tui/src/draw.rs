@@ -1457,7 +1457,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                     ("q", "quit"),
                     ("↑↓", "match"),
                     ("s", "skip"),
-                    ("o", "override"),
+                    ("↵/o", "override"),
                     ("t", "sources"),
                     ("M", "migrate"),
                     ("C", "copy"),
