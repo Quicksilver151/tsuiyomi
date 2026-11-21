@@ -938,7 +938,7 @@ explicitly marked as a deliberate deviation.
 - [ ] Copy now.
 - [ ] Batch migrate.
 - [ ] Batch copy.
-- [ ] Progress.
+- [x] Progress (matching status; applying remains synchronous).
 - [ ] Cancel.
 - [ ] Exit confirmation.
 - [ ] Chapter/progress migration.
@@ -1199,3 +1199,11 @@ automatically at the last row.
 - Global search starts with a per-source `searching…` row and updates it in place.
 - Saved results are marked and dimmed, store rows show counts, and `g` opens a source's
   home page from installed extension metadata.
+
+
+### Migrate polish status
+
+- Title/deep matching runs on a dedicated background worker. The Favorites screen
+  reports that matching is running; a completed result opens the Matches screen.
+- Back increments the migration generation so late results are ignored.
+- Migrate/copy application and chapter/history transfer still run synchronously.

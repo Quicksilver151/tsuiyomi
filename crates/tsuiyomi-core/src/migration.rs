@@ -4,9 +4,24 @@
 //! titles and accept candidates above a similarity threshold, with an optional
 //! deep-search query set that strips punctuation and bracket noise.
 
-use crate::browse::normalized_title;
+use crate::{
+    browse::normalized_title,
+    host::{RemoteChapter, RemoteFavorite, RemoteManga, RemoteSource},
+};
 
 pub const MATCH_THRESHOLD: f64 = 0.5;
+
+/// One favorite's migration match, including the old and target chapter lists.
+#[derive(Debug, Clone)]
+pub struct MigrationMatch {
+    pub old: RemoteFavorite,
+    pub old_chapters: Vec<RemoteChapter>,
+    pub target: Option<RemoteManga>,
+    pub target_source: Option<RemoteSource>,
+    pub target_chapters: Vec<RemoteChapter>,
+    pub score: f64,
+    pub error: Option<String>,
+}
 
 /// Normalized Levenshtein similarity in `0.0..=1.0`.
 pub fn title_similarity(left: &str, right: &str) -> f64 {

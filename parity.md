@@ -100,7 +100,7 @@ Legend:
 | Stores | Add / remove repository | Yes | ✅ | ✅ | |
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
 | Stores | Store name / website / counts | Yes | 🟡 | 🟡 | Rows show URL, extension count, and installed count; no website metadata. |
-| Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, favorites, filters, preferences, extension lists, and remote details/chapters fetch on workers; mutations and migration still block. |
+| Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, favorites, filters, preferences, extension lists, migration matching, and remote details/chapters fetch on workers; mutations and migration apply still block. |
 | Search | Extension source URL/id search terms | Yes | 🟡 | 🟡 | Installed source ids/base URLs; repo-only entries expose names/languages. |
 | Search | Debounced extension search | Yes | ❌ | ❌ | Local filtering is immediate. |
 
@@ -252,7 +252,7 @@ Legend:
 | Config | Migration source configuration/order | Yes | ❌ | ❌ | |
 | Matching | Prioritize by chapters / hide options | Yes | ❌ | ❌ | |
 | Apply | Manual search override / skip | Yes | ❌ | ❌ | |
-| Apply | Batch progress / cancel | Yes | ❌ | ❌ | Matching/applying is synchronous. |
+| Apply | Batch progress / cancel | Yes | 🟡 | 🟡 | Matching runs in the background with a status; applying is synchronous and cancellation drops the result. |
 | Downloads | Move/delete old downloads | Yes | ❌ | ❌ | |
 
 ## 9. Settings, security, and data

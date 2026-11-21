@@ -26,8 +26,8 @@ use tsuiyomi_core::{
     source_dir_name, story_cache_path, today_key, visible_chapters, BookmarkStore, CachedStory,
     Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, Config,
     ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
-    InstallJob, Library, LibrarySort, LocalSourceOrder, NotLoadedExtension, Page, PageSource,
-    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch, NotLoadedExtension, Page,
+    PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
     RemoteManga, RemoteMangaPage, RemoteSeries, RemoteSource, Series, SourceDisplayMode,
     SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
     Theme, TriState,
@@ -42,6 +42,7 @@ use crate::{
     filters_worker::{FiltersRequest, FiltersWorker},
     host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
+    migration_worker::{MigrationRequest, MigrationWorker},
     palette,
     prefs_worker::{PrefsRequest, PrefsWorker},
     result_worker::{ResultListing, ResultRequest, ResultWorker},
@@ -706,20 +707,10 @@ pub enum MigrateScreen {
     Matches,
 }
 
-#[derive(Debug, Clone)]
-pub struct MigrationMatch {
-    pub old: RemoteFavorite,
-    pub old_chapters: Vec<RemoteChapter>,
-    pub target: Option<RemoteManga>,
-    pub target_source: Option<RemoteSource>,
-    pub target_chapters: Vec<RemoteChapter>,
-    pub score: f64,
-    pub error: Option<String>,
-}
-
 #[derive(Debug, Default)]
 pub struct MigrateState {
     pub screen: MigrateScreen,
+    pub matching: bool,
     pub source_id: Option<String>,
     pub favorites: Vec<RemoteFavorite>,
     pub matches: Vec<MigrationMatch>,
@@ -956,6 +947,8 @@ pub struct AppState {
     prefs_generation: u64,
     pub(crate) extensions_worker: Option<ExtensionsWorker>,
     extensions_generation: u64,
+    pub(crate) migration_worker: Option<MigrationWorker>,
+    migration_generation: u64,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1091,6 +1084,8 @@ impl AppState {
             prefs_generation: 0,
             extensions_worker: None,
             extensions_generation: 0,
+            migration_worker: None,
+            migration_generation: 0,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -1748,6 +1743,10 @@ impl AppState {
     }
 
     pub fn migrate_back(&mut self) {
+        if self.migrate.matching {
+            self.migration_generation = self.migration_generation.wrapping_add(1);
+            self.migrate.matching = false;
+        }
         match self.migrate.screen {
             MigrateScreen::Matches => {
                 self.migrate.screen = MigrateScreen::Favorites;
@@ -1791,6 +1790,11 @@ impl AppState {
     }
 
     pub fn migrate_start_matching(&mut self) {
+        if self.migrate.matching {
+            self.remote.status = Some("Matching is already running…".to_owned());
+            self.remote.error = false;
+            return;
+        }
         if self.migrate.screen == MigrateScreen::Sources {
             self.migrate_open();
         }
@@ -1819,6 +1823,21 @@ impl AppState {
         if targets.is_empty() {
             self.remote.status = Some("No enabled target sources.".to_owned());
             self.remote.error = false;
+            return;
+        }
+
+        if let Some(worker) = self.migration_worker.as_ref() {
+            self.migration_generation = self.migration_generation.wrapping_add(1);
+            self.migrate.matching = true;
+            let count = favorites.len();
+            self.remote.status = Some(format!("Matching {count} manga…"));
+            self.remote.error = false;
+            worker.request(MigrationRequest {
+                generation: self.migration_generation,
+                client,
+                favorites,
+                targets,
+            });
             return;
         }
 
@@ -1911,8 +1930,40 @@ impl AppState {
         self.remote.error = found == 0;
     }
 
+    /// Apply completed background migration matching. Returns whether the UI changed.
+    pub fn poll_migration_worker(&mut self) -> bool {
+        let Some(event) = self
+            .migration_worker
+            .as_ref()
+            .and_then(MigrationWorker::try_result)
+        else {
+            return false;
+        };
+        if event.generation != self.migration_generation {
+            return false;
+        }
+        self.migrate.matching = false;
+        self.migrate.matches = event.matches;
+        self.migrate.screen = MigrateScreen::Matches;
+        self.browse_selection = 0;
+        self.migrate.list_state = ListState::default();
+        self.select_browse_entry(0);
+        let found = self
+            .migrate
+            .matches
+            .iter()
+            .filter(|matched| matched.target.is_some())
+            .count();
+        self.remote.status = Some(format!(
+            "Matched {found}/{} selected manga",
+            self.migrate.matches.len()
+        ));
+        self.remote.error = found == 0;
+        true
+    }
+
     pub fn migrate_apply(&mut self, replace: bool) {
-        if self.migrate.screen != MigrateScreen::Matches {
+        if self.migrate.matching || self.migrate.screen != MigrateScreen::Matches {
             return;
         }
         if self.host_client.is_none() && !self.ensure_host() {
@@ -6176,6 +6227,10 @@ impl AppState {
 
     pub(crate) fn set_extensions_worker(&mut self, worker: ExtensionsWorker) {
         self.extensions_worker = Some(worker);
+    }
+
+    pub(crate) fn set_migration_worker(&mut self, worker: MigrationWorker) {
+        self.migration_worker = Some(worker);
     }
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
@@ -14455,6 +14510,16 @@ mod tests {
         let local = std::path::PathBuf::from("/tmp/library/Chapter 1");
         app.record_progress(&local, 1, 5);
         assert!(app.progress.entry(&local).is_some());
+    }
+
+    #[test]
+    fn backing_out_of_migration_cancels_matching() {
+        let mut app = remote_app();
+        app.migrate.screen = MigrateScreen::Favorites;
+        app.migrate.matching = true;
+        app.migrate_back();
+        assert!(!app.migrate.matching);
+        assert_eq!(app.migrate.screen, MigrateScreen::Sources);
     }
 
     #[test]

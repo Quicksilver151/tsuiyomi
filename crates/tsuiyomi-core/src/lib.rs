@@ -56,7 +56,7 @@ pub use library::{
     ensure_series_cover, read_cover, scan_library, Chapter, ChapterKind, Library, RemoteSeries,
     ScanError, Series,
 };
-pub use migration::{best_match, deep_queries, title_similarity, MATCH_THRESHOLD};
+pub use migration::{best_match, deep_queries, title_similarity, MigrationMatch, MATCH_THRESHOLD};
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
 pub use reading_stats::{date_key_for_unix, today_key, ReadingStats, SeriesReadingTime};
