@@ -1195,6 +1195,7 @@ automatically at the last row.
   chapters on the story worker, with an error status if the source fails.
 - Source-list and initial favorites loads run on background workers.
 - Source filters preload and source preferences load on background workers.
+- Extension installed/repository/not-loaded lists load on a background worker.
 - Global search starts with a per-source `searching…` row and updates it in place.
 - Saved results are marked and dimmed, store rows show counts, and `g` opens a source's
   home page from installed extension metadata.

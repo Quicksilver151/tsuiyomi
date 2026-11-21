@@ -8,6 +8,7 @@ mod cover_cache;
 mod cover_worker;
 mod download_worker;
 mod draw;
+mod extensions_worker;
 mod favorites_worker;
 mod filters_worker;
 mod host_worker;
@@ -85,6 +86,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_favorites_worker(crate::favorites_worker::FavoritesWorker::spawn());
     app.set_filters_worker(crate::filters_worker::FiltersWorker::spawn());
     app.set_prefs_worker(crate::prefs_worker::PrefsWorker::spawn());
+    app.set_extensions_worker(crate::extensions_worker::ExtensionsWorker::spawn());
     app.set_global_search_worker(GlobalSearchWorker::spawn());
     app.set_cover_worker(CoverWorker::spawn());
     app.maybe_recover_covers();
@@ -166,6 +168,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_prefs_worker() {
+            needs_draw = true;
+        }
+        if app.poll_extensions_worker() {
             needs_draw = true;
         }
         if app.poll_story_refresh() {

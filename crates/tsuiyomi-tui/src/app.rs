@@ -37,6 +37,7 @@ use crate::{
     cover_cache::{fit_cover_image, image_bytes, TileCoverCache},
     cover_worker::{CoverRequest, CoverWorker},
     download_worker::{DownloadRequest, DownloadWorker},
+    extensions_worker::{ExtensionsRequest, ExtensionsSnapshot, ExtensionsWorker},
     favorites_worker::{FavoritesRequest, FavoritesWorker},
     filters_worker::{FiltersRequest, FiltersWorker},
     host_worker::{HostRequest, HostWorker},
@@ -953,6 +954,8 @@ pub struct AppState {
     filters_generation: u64,
     pub(crate) prefs_worker: Option<PrefsWorker>,
     prefs_generation: u64,
+    pub(crate) extensions_worker: Option<ExtensionsWorker>,
+    extensions_generation: u64,
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
@@ -1086,6 +1089,8 @@ impl AppState {
             filters_generation: 0,
             prefs_worker: None,
             prefs_generation: 0,
+            extensions_worker: None,
+            extensions_generation: 0,
             story_worker: None,
             host_worker: None,
             global_search_worker: None,
@@ -1477,8 +1482,8 @@ impl AppState {
                 self.load_remote_chapters_with(true);
                 self.status = Some("Refreshed details and chapters".to_owned());
             }
-            BrowseView::Extensions | BrowseView::Stores => self.load_extensions(),
-            BrowseView::ExtensionDetails => self.load_extensions(),
+            BrowseView::Extensions | BrowseView::Stores => self.load_extensions_async(),
+            BrowseView::ExtensionDetails => self.load_extensions_async(),
             BrowseView::Chapters => self.refresh(),
             BrowseView::Migrate => self.migrate_refresh(),
             BrowseView::GlobalResults => self.retry_global_search(),
@@ -5087,7 +5092,7 @@ impl AppState {
     pub fn open_extensions(&mut self) {
         self.browse_view = BrowseView::Extensions;
         self.browse_selection = 0;
-        self.load_extensions();
+        self.load_extensions_async();
         self.select_browse_entry(0);
     }
 
@@ -5095,9 +5100,80 @@ impl AppState {
         self.browse_view = BrowseView::Stores;
         self.browse_selection = 0;
         if self.remote.repos.is_empty() {
-            self.load_extensions();
+            self.load_extensions_async();
         }
         self.select_browse_entry(0);
+    }
+
+    /// Load extensions without blocking when the worker is available.
+    pub fn load_extensions_async(&mut self) {
+        if !self.ensure_host() {
+            return;
+        }
+        let Some(client) = self.host_client.clone() else {
+            return;
+        };
+        self.extensions_generation = self.extensions_generation.wrapping_add(1);
+        if let Some(worker) = self.extensions_worker.as_ref() {
+            self.remote.status = Some("Loading extensions…".to_owned());
+            self.remote.error = false;
+            worker.request(ExtensionsRequest {
+                generation: self.extensions_generation,
+                client,
+            });
+            return;
+        }
+        self.load_extensions();
+    }
+
+    /// Apply a completed background extension-list load. Returns whether the UI changed.
+    pub fn poll_extensions_worker(&mut self) -> bool {
+        let Some(event) = self
+            .extensions_worker
+            .as_ref()
+            .and_then(ExtensionsWorker::try_result)
+        else {
+            return false;
+        };
+        if event.generation != self.extensions_generation {
+            return false;
+        }
+        match event.result {
+            Ok(snapshot) => self.apply_extensions_snapshot(snapshot),
+            Err(error) => {
+                self.remote.status = Some(error);
+                self.remote.error = true;
+            }
+        }
+        self.clamp_browse_selection();
+        true
+    }
+
+    fn apply_extensions_snapshot(&mut self, snapshot: ExtensionsSnapshot) {
+        self.remote.extensions = merge_extensions(snapshot.installed, snapshot.entries);
+        self.remote.not_loaded = snapshot.not_loaded;
+        self.remote.repos = snapshot.repos;
+        if snapshot.repo_errors.is_empty() {
+            self.remote.status = None;
+            self.remote.error = false;
+        } else {
+            self.remote.status = Some(format!(
+                "{} repositories failed to load",
+                snapshot.repo_errors.len()
+            ));
+            self.remote.error = true;
+        }
+        if let Some(state) = self.extension_details.as_mut() {
+            if let Some(updated) = self
+                .remote
+                .extensions
+                .iter()
+                .find(|extension| extension.pkg == state.extension.pkg)
+                .cloned()
+            {
+                state.extension = updated;
+            }
+        }
     }
 
     /// Refresh installed extensions and merge them with every configured repository.
@@ -6096,6 +6172,10 @@ impl AppState {
 
     pub(crate) fn set_prefs_worker(&mut self, worker: PrefsWorker) {
         self.prefs_worker = Some(worker);
+    }
+
+    pub(crate) fn set_extensions_worker(&mut self, worker: ExtensionsWorker) {
+        self.extensions_worker = Some(worker);
     }
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
