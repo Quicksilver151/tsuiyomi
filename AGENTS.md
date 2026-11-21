@@ -14,10 +14,10 @@ compiling, but do not extend it. It will be replaced by the manga library.
 
 ## Status
 
-Parity details are split by category under `docs/parity/`. Update the affected category
-file whenever behavior changes or work lands, then run
-`python3 scripts/parity-score.py` to refresh the aggregate tables and percentages in
-`docs/roadmap.md`.
+All parity feature tables live in `docs/roadmap.md` under `## Parity detail`; category
+plans live under `docs/parity/`. Update the affected roadmap table whenever behavior
+changes or work lands, then run `python3 scripts/parity-score.py` to refresh the
+aggregate tables and percentages.
 
 Local-library and extension-host MVP: scanning, browsing, metadata, covers, reading,
 progress, settings, remote sources, extension management, and reading history work.

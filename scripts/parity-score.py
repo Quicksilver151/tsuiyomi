@@ -1,30 +1,32 @@
 #!/usr/bin/env python3
-"""Recompute parity completion in docs/roadmap.md from docs/parity/*.md.
+"""Recompute parity completion in docs/roadmap.md.
 
-Score = (✅ + 0.5 × 🟡) / (✅ + 🟡 + ❌). The intentional-deviation marker (➖)
-is excluded from the denominator.
+All feature tables live in the roadmap under `## Parity detail`. Score =
+(✅ + 0.5 × 🟡) / (✅ + 🟡 + ❌); the intentional-deviation marker (➖) is excluded.
 """
 
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = ROOT / "docs"
-ROADMAP = DOCS / "roadmap.md"
+ROADMAP = ROOT / "docs" / "roadmap.md"
 START = "<!-- parity-summary:start -->"
 END = "<!-- parity-summary:end -->"
+DETAIL = "## Parity detail"
+DETAIL_END = "## Verification snapshot"
 
-CATEGORIES = [
-    ("On-disk compatibility", "parity/01-on-disk.md"),
-    ("Library", "parity/02-library.md"),
-    ("Browse, sources, and global search", "parity/03-browse.md"),
-    ("Extensions and host lifecycle", "parity/04-extensions.md"),
-    ("Shared story / chapter screen", "parity/05-story.md"),
-    ("Reader", "parity/06-reader.md"),
-    ("History and Stats", "parity/07-history.md"),
-    ("Migrate", "parity/08-migrate.md"),
-    ("Settings, security, and data", "parity/09-settings-data.md"),
-    ("Documented TUI deviations", "parity/10-tui-deviations.md"),
-]
+SLUGS = {
+    "On-disk compatibility": "on-disk-compatibility",
+    "Library": "library",
+    "Browse, sources, and global search": "browse-sources-and-global-search",
+    "Extensions and host lifecycle": "extensions-and-host-lifecycle",
+    "Shared story / chapter screen": "shared-story--chapter-screen",
+    "Reader": "reader",
+    "History and Stats": "history-and-stats",
+    "Migrate": "migrate",
+    "Settings, security, and data": "settings-security-and-data",
+    "Documented TUI deviations": "documented-tui-deviations",
+}
 
 
 def score(counts: dict[str, int]) -> float:
@@ -34,30 +36,39 @@ def score(counts: dict[str, int]) -> float:
     return (counts["✅"] + 0.5 * counts["🟡"]) / denominator * 100.0
 
 
-def statuses(path: Path) -> dict[str, int]:
-    counts = {"✅": 0, "🟡": 0, "❌": 0, "➖": 0}
-    for line in path.read_text().splitlines():
-        if not line.startswith("|"):
+def parse(text: str) -> list[tuple[str, dict[str, int]]]:
+    start = text.index(DETAIL) + len(DETAIL)
+    end = text.index(DETAIL_END)
+    sections: list[tuple[str, dict[str, int]]] = []
+    counts: dict[str, int] | None = None
+    for line in text[start:end].splitlines():
+        if line.startswith("### "):
+            name = line[4:].strip()
+            counts = {"✅": 0, "🟡": 0, "❌": 0, "➖": 0}
+            sections.append((name, counts))
+            continue
+        if counts is None or not line.startswith("|"):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
         for cell in cells:
             if cell in counts:
                 counts[cell] += 1
                 break
-    return counts
+    return sections
 
 
-def summary_table(results: list[tuple[str, str, dict[str, int]]]) -> list[str]:
-    total = {key: sum(counts[key] for _, _, counts in results) for key in ("✅", "🟡", "❌", "➖")}
+def summary_table(sections: list[tuple[str, dict[str, int]]]) -> list[str]:
+    total = {key: sum(counts[key] for _, counts in sections) for key in ("✅", "🟡", "❌", "➖")}
     lines = [
         "## Parity completion",
         "",
         "| Category | ✅ | 🟡 | ❌ | ➖ | Score |",
         "|---|---:|---:|---:|---:|---:|",
     ]
-    for name, link, counts in results:
+    for name, counts in sections:
+        anchor = SLUGS.get(name, re.sub(r"[^a-z0-9 -]", "", name.lower()).replace(" ", "-"))
         lines.append(
-            f"| [{name}]({link}) | {counts['✅']} | {counts['🟡']} | {counts['❌']} | "
+            f"| [{name}](#{anchor}) | {counts['✅']} | {counts['🟡']} | {counts['❌']} | "
             f"{counts['➖']} | {score(counts):.1f}% |"
         )
     lines.append(
@@ -68,28 +79,25 @@ def summary_table(results: list[tuple[str, str, dict[str, int]]]) -> list[str]:
         "",
         "Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are",
         "excluded. Recompute with `python3 scripts/parity-score.py` after editing a",
-        "category file.",
+        "table below.",
     ]
     return lines
 
 
 def main() -> None:
-    results = []
-    for name, relative in CATEGORIES:
-        path = DOCS / relative
-        if not path.exists():
-            raise SystemExit(f"missing parity file: {path}")
-        results.append((name, relative, statuses(path)))
-
     text = ROADMAP.read_text()
+    sections = parse(text)
+    if not sections:
+        raise SystemExit("no parity detail sections found")
+
     start = text.index(START) + len(START)
     end = text.index(END)
-    block = "\n\n" + "\n".join(summary_table(results)) + "\n\n"
+    block = "\n\n" + "\n".join(summary_table(sections)) + "\n\n"
     ROADMAP.write_text(text[:start] + block + text[end:])
 
-    total = {key: sum(counts[key] for _, _, counts in results) for key in ("✅", "🟡", "❌", "➖")}
+    total = {key: sum(counts[key] for _, counts in sections) for key in ("✅", "🟡", "❌", "➖")}
     print(f"Updated docs/roadmap.md: {score(total):.1f}% complete")
-    for name, _, counts in results:
+    for name, counts in sections:
         print(f"  {score(counts):5.1f}%  {name}")
 
 

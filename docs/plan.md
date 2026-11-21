@@ -106,22 +106,25 @@ database rows. tsuiyomi owns reading progress.
 
 ### Parity references
 
-- [On-disk compatibility](parity/01-on-disk.md)
-- [Library](parity/02-library.md)
-- [Browse, sources, and global search](parity/03-browse.md)
-- [Extensions and host lifecycle](parity/04-extensions.md)
-- [Shared story/chapter screen](parity/05-story.md)
-- [Reader](parity/06-reader.md)
-- [History and Stats](parity/07-history.md)
-- [Migrate](parity/08-migrate.md)
-- [Settings, security, and data](parity/09-settings-data.md)
-- [Documented TUI deviations](parity/10-tui-deviations.md)
+The complete parity tables and aggregate percentages live in the
+[roadmap](roadmap.md#parity-completion). Individual sections:
 
-Aggregate tables and percentages live in the [roadmap](roadmap.md).
+- [On-disk compatibility](roadmap.md#on-disk-compatibility)
+- [Library](roadmap.md#library)
+- [Browse, sources, and global search](roadmap.md#browse-sources-and-global-search)
+- [Extensions and host lifecycle](roadmap.md#extensions-and-host-lifecycle)
+- [Shared story/chapter screen](roadmap.md#shared-story--chapter-screen)
+- [Reader](roadmap.md#reader)
+- [History and Stats](roadmap.md#history-and-stats)
+- [Migrate](roadmap.md#migrate)
+- [Settings, security, and data](roadmap.md#settings-security-and-data)
+- [Documented TUI deviations](roadmap.md#documented-tui-deviations)
 
-Detailed feature-parity plan: `browse-parity-plan.md`.
-History parity and reading-time stats plan: `history-parity-plan.md`.
-Chapter/story parity plan: `story-parity-plan.md`.
+Category plans:
+
+- [Browse](parity/browse.md)
+- [History](parity/history.md)
+- [Story/chapter](parity/story.md)
 
 - [x] Mihon-style Sources / Extensions / Migrate tabs, switched with `[`/`]`.
 - [x] Sources grouped by last used, pinned, and language, with a persistent `Pinned`

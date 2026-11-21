@@ -973,7 +973,7 @@ Docs:
 
 - `README.md`
 - `AGENTS.md`
-- `plan.md`
+- `../plan.md`
 - this file
 
 ## 17. Risks and mitigations

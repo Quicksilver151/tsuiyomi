@@ -785,7 +785,7 @@ Library and should be scheduled with Library work where possible.
 - Add keyboard help/commands for every screen.
 - Add empty/loading/error rendering tests.
 - Add config migration tests and preserve unknown keys.
-- Update README, AGENTS.md, and `plan.md`.
+- Update README, AGENTS.md, and `../plan.md`.
 - Run the manual matrix.
 - Add release notes and known limitations.
 
@@ -1090,8 +1090,8 @@ explicitly marked as a deliberate deviation.
 
 - `README.md`
 - `AGENTS.md`
-- `plan.md`
-- `browse-parity-plan.md` (this file)
+- `../plan.md`
+- `browse.md` (this file)
 
 ## 11. Risks and mitigations
 

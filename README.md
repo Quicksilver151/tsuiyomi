@@ -49,9 +49,9 @@ just test
 Machine-local paths and log settings live in `.env.local`, which is gitignored. The
 devshell sources it automatically.
 
-Documentation index: [`docs/index.md`](docs/index.md). Parity details are split under
-[`docs/parity/`](docs/parity/), with aggregate tables and percentages in the
-[`docs/roadmap.md`](docs/roadmap.md).
+Documentation index: [`docs/index.md`](docs/index.md). All parity tables, percentages,
+verification, and remaining work live in the [`docs/roadmap.md`](docs/roadmap.md), with
+category plans under [`docs/parity/`](docs/parity/).
 
 ## Library layout
 
