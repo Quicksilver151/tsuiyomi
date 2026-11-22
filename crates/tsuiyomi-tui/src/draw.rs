@@ -1364,6 +1364,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("N", "notes"),
                 ("Y", "copy tags"),
                 ("E", "metadata"),
+                ("S", "share cover"),
                 ("C", "copy URL"),
                 ("o", "open source"),
                 ("Esc", "back"),
@@ -1398,6 +1399,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("c", "categories"),
                 ("N", "notes"),
                 ("Y", "copy tags"),
+                ("S", "share cover"),
                 ("C/o", "copy/open"),
                 ("w/W", "cover"),
                 ("t", "tags"),
@@ -1605,6 +1607,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("b", "bookmark"),
                 ("Y", "tags"),
                 ("E", "metadata"),
+                ("S", "cover"),
                 ("Esc", "back"),
             ],
         }

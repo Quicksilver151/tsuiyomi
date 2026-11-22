@@ -947,6 +947,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.export_story_metadata();
                 }
             }
+            Action::ShareCover => {
+                if app.story_screen_active() {
+                    app.share_story_cover();
+                }
+            }
             Action::SourcePrefs => {
                 if app.story_screen_active() {
                     app.copy_story_reference();

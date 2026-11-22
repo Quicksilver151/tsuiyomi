@@ -237,7 +237,8 @@ Rules:
   invert, mark read/unread/previous, continue reading, single and batch downloads
   (selected, next 1/5/10/25, unread, bookmarked), queue cancellation, download deletion,
   categories, notes, migrate, tag copy, `ComicInfo.xml` export for local series,
-  copy/open, cover overlay, tag search, and custom covers for local or saved source manga.
+  copy/open, cover share through the system viewer, cover overlay, tag search, and custom
+  covers for local or saved source manga.
   The details pane warns when a remote source extension is not loaded. Panels with item
   actions support multi-select with `Space` (stable keys, `✓` markers, count in the
   commands bar; Esc clears); delete, install/uninstall/update/pin, source pinning, store

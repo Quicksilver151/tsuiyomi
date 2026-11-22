@@ -13,13 +13,13 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Library](#library) | 15 | 1 | 0 | 0 | 96.9% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 0 | 1 | 95.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 42 | 1 | 3 | 1 | 92.4% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 43 | 1 | 2 | 1 | 94.6% |
 | [Reader](#reader) | 16 | 0 | 1 | 0 | 94.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 19 | 0 | 1 | 0 | 95.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 3 | 62.5% |
-| **All categories** | **196** | **9** | **8** | **6** | **94.1%** |
+| **All categories** | **197** | **9** | **7** | **6** | **94.6%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -191,7 +191,7 @@ table below.
 | Downloads | Series download screen | Yes | ✅ | ✅ | More → Downloads shows the active queue, waiting chapters, downloaded series, sizes, and per-series deletion. |
 | Actions | Copy/open, cover overlay | Yes | ✅ | ✅ | `C`, `o`, `w`. |
 | Actions | Custom cover | Yes | ✅ | ✅ | Local and saved source manga; `W`. |
-| Actions | Remote cover share/delete | Yes | ❌ | ❌ | Replace/remove only. |
+| Actions | Remote cover share/delete | Yes | ✅ | ✅ | `S` opens the cached cover in the system viewer; an empty custom-cover path removes a cover. |
 | Actions | Tag search | Yes | ✅ | ✅ | `t` picker. |
 | Actions | Tag copy | Yes | ✅ | ✅ | `Y` copies the story tags through OSC 52. |
 | Gestures | Swipe to read/bookmark/download | Yes | ➖ | ➖ | TUI uses keys and menu actions. |
@@ -291,7 +291,7 @@ table below.
 | Android feature | TUI equivalent | Status | Notes |
 |---|---|---|---|
 | WebView source page | Copy URL (`C`) / open absolute URL (`o`) | 🟡 | Relative source URLs cannot be opened externally without a base URL. |
-| Android share sheet | OSC 52 clipboard copy | ✅ | `C` on story. |
+| Android share sheet | OSC 52 clipboard copy / open file | ✅ | `C` on story; `S` opens the cached cover externally. |
 | File picker | Path-entry dialog | ✅ | Custom covers and series import. |
 | Swipe actions | Keys and download menu | ➖ | Intentional terminal deviation. |
 | Tracker OAuth dialogs | None | ❌ | Separate integration. |

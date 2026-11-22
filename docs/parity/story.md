@@ -410,5 +410,6 @@ Remaining or intentionally deferred:
 - Tracking integration (separate milestone).
 - Android swipe gestures; TUI keys and the download menu replace them.
 - Source-site WebView; `C` and `o` cover copy/open behavior instead.
-- Cover share and delete beyond replacing/removing a saved source cover.
+- Cover deletion is limited to removing a custom cover; there is no separate remote-cover
+  delete beyond that.
 - Per-series tracking/update fields the host does not expose.

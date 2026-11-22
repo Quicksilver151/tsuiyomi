@@ -9635,6 +9635,20 @@ impl AppState {
         }
     }
 
+    /// Open the cached cover in the system image viewer. This is the terminal
+    /// equivalent of Mihon's cover share action; there is no Android share sheet.
+    pub fn share_story_cover(&mut self) {
+        let Some(path) = self.current_story_cover() else {
+            self.status = Some("No cover is available for this story.".to_owned());
+            return;
+        };
+        let target = path.to_string_lossy().into_owned();
+        match open_external_target(&target) {
+            Ok(()) => self.status = Some(format!("Opened cover {target}")),
+            Err(error) => self.status = Some(format!("Could not open cover: {error}")),
+        }
+    }
+
     /// Copy the open story's tags through OSC 52, one per line.
     pub fn copy_story_tags(&mut self) {
         let tags = self.current_story_tags();
