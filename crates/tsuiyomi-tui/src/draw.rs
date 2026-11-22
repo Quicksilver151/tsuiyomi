@@ -3709,6 +3709,17 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
         return;
     };
     let extension = &state.extension;
+    let store = if extension.repo_url.is_empty() {
+        if extension.obsolete {
+            "installed only · orphaned".to_owned()
+        } else {
+            "installed only · private".to_owned()
+        }
+    } else if extension.obsolete {
+        format!("{} · orphaned", app.store_label(&extension.repo_url))
+    } else {
+        app.store_label(&extension.repo_url)
+    };
     let info = vec![
         Line::from(Span::styled(
             extension.name.clone(),
@@ -3727,17 +3738,7 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
         ),
         field(
             "Store",
-            if extension.repo_url.is_empty() {
-                if extension.obsolete {
-                    "installed only · orphaned"
-                } else {
-                    "installed only · private"
-                }
-            } else if extension.obsolete {
-                "repository · orphaned"
-            } else {
-                &extension.repo_url
-            },
+            &store,
             if extension.obsolete {
                 c_peach()
             } else {
@@ -4303,6 +4304,8 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     status.push_str(" · orphaned");
                 } else if private {
                     status.push_str(" · private");
+                } else if !extension.repo_url.is_empty() {
+                    status.push_str(&format!(" · {}", app.store_label(&extension.repo_url)));
                 }
                 let status_style = if job.is_some_and(|job| job.state == "error") {
                     Style::default().fg(c_peach())

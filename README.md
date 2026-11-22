@@ -161,7 +161,8 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   source count, language, installed/available versions, `18+` warnings, and
   private/orphaned states. Languages
   can be restricted in Sources `o`; NSFW extensions can be hidden from Settings → Browse.
-  Not-loaded rows show their failure reason and can be inspected with `o` or deleted.
+  Rows show their store name, and not-loaded rows show their failure reason and can be
+  inspected with `o` or deleted.
   Signature trust is not implemented because the host does not verify extension
   signatures.
 - **Migrate** — saved remote manga grouped by source. Open a source, select one or more

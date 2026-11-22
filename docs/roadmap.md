@@ -139,7 +139,7 @@ table below.
 | Details | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Warnings | NSFW/content warning indicator | Yes | ✅ | ✅ | `18+` in rows and details. |
 | Warnings | Hide NSFW extensions | Yes | ✅ | ✅ | Settings → Browse. |
-| Warnings | Private/shared/orphaned indicators | Yes | 🟡 | 🟡 | Private (installed outside a store) and orphaned flags shown; shared/signature states remain. |
+| Warnings | Private/shared/orphaned indicators | Yes | 🟡 | 🟡 | Private (installed outside a store), store name, and orphaned flags shown; shared/signature states remain. |
 | Languages | Enabled-language filtering | Yes | ✅ | ✅ | Installed entries remain manageable. |
 | Search | Comma-separated extension terms | Yes | ✅ | ✅ | Matches names, packages, languages, source names. |
 | WebView | WebView-dependent sources | Yes | ➖ | ➖ | Unsupported by design; documented TUI deviation. |
