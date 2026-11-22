@@ -2263,7 +2263,13 @@ fn draw_updates(frame: &mut Frame, area: Rect, app: &mut AppState) {
         if cover_width > 0 {
             let cover_area = Rect::new(row.x, row.y, cover_width, 3);
             let cover_path = if let Some(remote) = &entry.remote {
-                remote_cover_path(&remote.source_id, &remote.manga_url).filter(|path| path.exists())
+                let path = remote_cover_path(&remote.source_id, &remote.manga_url);
+                if path.as_ref().is_none_or(|path| !path.exists()) {
+                    app.request_series_thumbnail(&remote.source_id, &remote.manga_url, None);
+                    None
+                } else {
+                    path
+                }
             } else {
                 app.library
                     .series
