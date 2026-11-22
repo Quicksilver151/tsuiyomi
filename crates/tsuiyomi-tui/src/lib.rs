@@ -1186,6 +1186,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::OpenConfig => {
                 if app.story_screen_active() {
                     app.open_category_picker();
+                } else if app.tab == 4 && app.more_section == MoreSection::Downloads {
+                    app.cancel_downloads();
                 } else if app.tab == 3
                     && matches!(
                         app.browse_view,

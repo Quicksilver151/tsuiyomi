@@ -438,7 +438,7 @@ categories:
   challenges. Changing it restarts a running host.
 - **Downloads** — shows the download folder, the active download queue and waiting
   chapters, and the downloaded series with chapter counts and sizes (`r` refreshes,
-  `x`/Delete removes one after confirmation). `D` downloads the selected remote chapter,
+  `c` cancels the queue, `x`/Delete removes a series after confirmation). `D` downloads the selected remote chapter,
   and downloaded chapters are read from disk.
 - **Tracking** — informational; no remote tracking services.
 - **Browse** — local source path and the extension host (URL or bundled runtime).

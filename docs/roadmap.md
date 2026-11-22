@@ -18,8 +18,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
-| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 1 | 4 | 75.0% |
-| **All categories** | **205** | **2** | **5** | **8** | **97.2%** |
+| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
+| **All categories** | **205** | **2** | **4** | **8** | **97.6%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -188,7 +188,7 @@ table below.
 | Downloads | Cancel queue / active chapter | Yes | ✅ | ✅ | Core cancellation hook. |
 | Downloads | Delete selected downloads | Yes | ✅ | ✅ | Confirmed. |
 | Downloads | Auto-download new chapters | Yes | ✅ | ✅ | Per-series setting. |
-| Downloads | Series download screen | Yes | ✅ | ✅ | More → Downloads shows the active queue, waiting chapters, downloaded series, sizes, and per-series deletion. |
+| Downloads | Series download screen | Yes | ✅ | ✅ | More → Downloads shows the active queue, waiting chapters, downloaded series, sizes, `c` queue cancellation, and per-series deletion. |
 | Actions | Copy/open, cover overlay | Yes | ✅ | ✅ | `C`, `o`, `w`. |
 | Actions | Custom cover | Yes | ✅ | ✅ | Local and saved source manga; `W`. |
 | Actions | Remote cover share/delete | Yes | ✅ | ✅ | `S` opens the cached cover in the system viewer; an empty custom-cover path removes a cover. |
@@ -294,7 +294,6 @@ table below.
 | Android share sheet | OSC 52 clipboard copy / open file | ✅ | `C` on story; `S` opens the cached cover externally. |
 | File picker | Path-entry dialog | ✅ | Custom covers and series import. |
 | Swipe actions | Keys and download menu | ➖ | Intentional terminal deviation. |
-| Tracker OAuth dialogs | None | ❌ | Separate integration. |
 | Android notifications | TUI status bar/queue markers | ➖ | No background daemon notifications. |
 | WebView-dependent source | None | ➖ | The host has no browser engine, so these sources stay unsupported. |
 | Mihon database categories | Portable `categories.json` sidecar | ➖ | A filesystem library cannot share the Android app database; the sidecar keeps categories portable. |

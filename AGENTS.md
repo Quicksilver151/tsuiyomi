@@ -365,9 +365,9 @@ Rules:
   path/rescan/sort/default category, reader mode/zoom/fit/prefetch/cache, downloads
   folder, backup import, and Security → Incognito (stops progress writes). Tracking is an
   informational placeholder. More → Downloads lists downloaded series with chapter counts
-  and sizes (`r` refreshes, `x`/Delete removes one after confirmation) and shows the live
-  queue. More → Statistics shows library/chapter counts, read states, reading-time totals,
-  and unique series read. More → Data and storage shows library/downloads/host sizes on
+  and sizes (`r` refreshes, `c` cancels the queue, `x`/Delete removes one after
+  confirmation) and shows the live queue. More → Statistics shows library/chapter counts,
+  read states, reading-time totals, and unique series read. More → Data and storage shows library/downloads/host sizes on
   demand (`r`) and can clear cached covers (`c`) or all downloads (`d`, confirmed). More
   has a single focus: Enter
   enters the selected section/page or activates a setting, Esc backs out one level, and
