@@ -308,6 +308,7 @@ pub enum TextAction {
     SourcePreference,
     FilterText,
     AddExtensionStore,
+    RenameStore,
     SetHostUrl,
     SetFlareSolverr,
     SetDownloadsPath,
@@ -1807,6 +1808,51 @@ impl AppState {
 
     pub fn selected_store(&self) -> Option<&String> {
         self.remote.repos.get(self.browse_selection)
+    }
+
+    pub fn store_label(&self, url: &str) -> String {
+        self.config
+            .store_names
+            .get(url)
+            .filter(|name| !name.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                url.split("://")
+                    .nth(1)
+                    .unwrap_or(url)
+                    .split('/')
+                    .next()
+                    .unwrap_or(url)
+                    .to_owned()
+            })
+    }
+
+    pub fn open_rename_store(&mut self) {
+        if !(self.tab == 3 && self.browse_view == BrowseView::Stores) {
+            return;
+        }
+        let Some(store) = self.selected_store().cloned() else {
+            return;
+        };
+        let current = self.store_label(&store);
+        self.open_text_input(TextAction::RenameStore, "Store name", &current);
+    }
+
+    fn save_store_name(&mut self, value: &str) {
+        let Some(store) = self.selected_store().cloned() else {
+            return;
+        };
+        let value = value.trim();
+        if value.is_empty() {
+            self.config.store_names.remove(&store);
+        } else {
+            self.config
+                .store_names
+                .insert(store.clone(), value.to_owned());
+        }
+        self.persist_settings();
+        self.remote.status = Some(format!("Store name: {}", self.store_label(&store)));
+        self.remote.error = false;
     }
 
     pub fn migrate_sources(&self) -> Vec<(RemoteSource, usize)> {
@@ -5764,6 +5810,7 @@ impl AppState {
                 }
             }
             TextAction::AddExtensionStore => self.add_extension_store(&input.value),
+            TextAction::RenameStore => self.save_store_name(&input.value),
             TextAction::SetHostUrl => self.set_host_url(&input.value),
             TextAction::SetFlareSolverr => self.set_flaresolverr_url(&input.value),
             TextAction::SetDownloadsPath => self.set_downloads_path(&input.value),
@@ -18462,6 +18509,23 @@ mod tests {
         app.extension_search_stop(true);
         assert!(!app.extension_search);
         assert_eq!(app.filtered_extension_count(), 2);
+    }
+
+    #[test]
+    fn store_names_fall_back_to_the_url_host() {
+        let mut app = remote_app();
+        let store = "https://github.com/keiyoushi/extensions/index.min.json".to_owned();
+        assert_eq!(app.store_label(&store), "github.com");
+
+        app.config
+            .store_names
+            .insert(store.clone(), "Keiyoushi".to_owned());
+        assert_eq!(app.store_label(&store), "Keiyoushi");
+
+        app.config
+            .store_names
+            .insert(store.clone(), "  ".to_owned());
+        assert_eq!(app.store_label(&store), "github.com");
     }
 
     #[test]

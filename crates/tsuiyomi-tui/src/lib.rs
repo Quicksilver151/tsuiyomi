@@ -729,6 +729,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::NextChapter => {
                 if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     app.load_next_remote_page();
+                } else if app.tab == 3 && app.browse_view == BrowseView::Stores {
+                    app.open_rename_store();
                 } else {
                     app.next_chapter();
                 }

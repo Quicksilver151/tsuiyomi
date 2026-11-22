@@ -159,6 +159,8 @@ pub struct Config {
     /// Sources used for migration matching, keyed by `pkg|name|lang`. Empty
     /// means every enabled source.
     pub migration_sources: Vec<String>,
+    /// Display names for extension repository URLs; missing entries use the URL host.
+    pub store_names: BTreeMap<String, String>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// When a series first appeared in the library, keyed by the history series key
@@ -219,6 +221,7 @@ impl Default for Config {
             browse_hide_saved: false,
             show_nsfw_extensions: true,
             migration_sources: Vec::new(),
+            store_names: BTreeMap::new(),
             remote_library: Vec::new(),
             series_added_at: BTreeMap::new(),
             hidden_series: Vec::new(),

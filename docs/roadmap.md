@@ -11,7 +11,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 0 | 0 | 97.7% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
-| [Browse, sources, and global search](#browse-sources-and-global-search) | 29 | 2 | 0 | 1 | 96.8% |
+| [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 44 | 0 | 2 | 1 | 95.7% |
 | [Reader](#reader) | 16 | 0 | 1 | 0 | 94.1% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 1 | 3 | 75.0% |
-| **All categories** | **203** | **4** | **6** | **6** | **96.2%** |
+| **All categories** | **204** | **3** | **6** | **6** | **96.5%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -109,7 +109,7 @@ table below.
 | Global search | Group ordering | Yes | ✅ | ✅ | Pinned first, normal next, empty/error last, then name. |
 | Stores | Add / remove repository | Yes | ✅ | ✅ | |
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
-| Stores | Store name / website / counts | Yes | 🟡 | 🟡 | Rows show URL, extension count, and installed count; no website metadata. |
+| Stores | Store name / website / counts | Yes | ✅ | ✅ | Rows show an editable display name, the repository URL, and extension/installed counts. |
 | Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, favorites, filters, preferences, extension lists, migration matching, and remote details/chapters fetch on workers; mutations and migration apply still block. |
 | Search | Extension source URL/id search terms | Yes | ✅ | ✅ | Matches names, packages, languages, source IDs, and source base URLs for installed and repository entries. |
 | Search | Debounced extension search | Yes | ➖ | ➖ | Local filtering is immediate, so a debounce would only add latency. |

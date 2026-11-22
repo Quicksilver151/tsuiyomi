@@ -1438,6 +1438,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("q", "quit"),
                 ("↑↓", "store"),
                 ("a", "add"),
+                ("n", "name"),
                 ("d", "remove"),
                 ("C", "copy URL"),
                 ("o", "open"),
@@ -4398,14 +4399,24 @@ fn draw_stores(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 .iter()
                 .filter(|extension| &extension.repo_url == store && extension.installed)
                 .count();
-            ListItem::new(Line::from(vec![
-                Span::styled(marker, Style::default().fg(c_accent())),
-                Span::styled(store.clone(), Style::default().fg(c_text())),
-                Span::styled(
-                    format!("  {count} extensions · {installed} installed"),
+            let label = app.store_label(store);
+            ListItem::new(vec![
+                Line::from(vec![
+                    Span::styled(marker, Style::default().fg(c_accent())),
+                    Span::styled(
+                        label,
+                        Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("  {count} extensions · {installed} installed"),
+                        Style::default().fg(c_overlay0()),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    format!("  {store}"),
                     Style::default().fg(c_overlay0()),
-                ),
-            ]))
+                )),
+            ])
         })
         .collect();
     app.browse_list_state

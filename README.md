@@ -176,8 +176,9 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   while keeping the migrations that already completed.
 - **Global search** — `o` opens the selected source with the query filled in, `r`
   retries the search, `F` saves results, and `h` hides empty/failed sources.
-- **Stores** — `a` adds a URL, `d` removes it, `C` copies it, `o` opens it in the system
-  browser, and `r` refreshes the extension lists.
+- **Stores** — `a` adds a URL, `n` renames the selected store, `d` removes it, `C` copies
+  it, `o` opens it in the system browser, and `r` refreshes the extension lists. Rows show
+  the name, repository URL, and extension/installed counts.
 - Saving a new remote manga opens a category chooser with the default category
   preselected. `Space` toggles categories, `Enter` saves, and `Esc` cancels.
 
