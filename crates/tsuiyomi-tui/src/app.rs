@@ -4159,6 +4159,9 @@ impl AppState {
         }
         self.config.remote_library = persisted;
         self.persist_settings();
+        if self.updates.retain_favorites(&self.config.remote_library) > 0 {
+            let _ = self.updates.save();
+        }
         self.merge_remote_library();
         self.cache_favorite_covers();
     }

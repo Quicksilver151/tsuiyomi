@@ -13,7 +13,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{host::RemoteChapter, library::Library};
+use crate::{
+    host::{RemoteChapter, RemoteFavorite},
+    library::Library,
+};
 
 /// How long a detected chapter stays in the Updates list.
 const RETENTION_SECS: u64 = 30 * 24 * 60 * 60;
@@ -196,6 +199,20 @@ impl UpdateStore {
         true
     }
 
+    /// Drop remote entries whose saved favorite no longer exists. Local entries are kept.
+    pub fn retain_favorites(&mut self, favorites: &[RemoteFavorite]) -> usize {
+        let before = self.entries.len();
+        self.entries.retain(|entry| {
+            let Some(remote) = &entry.remote else {
+                return true;
+            };
+            favorites.iter().any(|favorite| {
+                favorite.source_id == remote.source_id && favorite.url == remote.manga_url
+            })
+        });
+        before.saturating_sub(self.entries.len())
+    }
+
     /// Newest first.
     pub fn entries(&self) -> &[UpdateEntry] {
         &self.entries
@@ -357,6 +374,27 @@ mod tests {
             .unwrap();
         assert_eq!(store.entries().len(), 1);
         assert!(store.entries()[0].remote.is_some());
+        let favorite = RemoteFavorite {
+            source_id: "7".to_owned(),
+            url: "/manga/berserk".to_owned(),
+            title: "Berserk".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+            categories: Vec::new(),
+        };
+        assert_eq!(store.retain_favorites(&[]), 1);
+        assert!(store.entries().is_empty());
+        store.record_remote(
+            "7",
+            Some("Source (EN)"),
+            "/manga/berserk",
+            "Berserk",
+            &chapter,
+            500,
+        );
+        assert_eq!(store.retain_favorites(&[favorite]), 0);
+        assert_eq!(store.entries().len(), 1);
     }
 
     #[test]
