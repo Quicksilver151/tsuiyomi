@@ -7983,6 +7983,56 @@ impl AppState {
         }
     }
 
+    /// Refresh every saved-source story now, using the same worker as the interval
+    /// scheduler. Existing in-flight requests are skipped.
+    pub fn update_library_now(&mut self) {
+        if self.config.remote_library.is_empty() {
+            self.status = Some("No saved source manga to update.".to_owned());
+            return;
+        }
+        if self.host_client.is_none() && !self.ensure_host() {
+            return;
+        }
+        let (Some(worker), Some(client)) = (self.story_worker.as_ref(), self.host_client.clone())
+        else {
+            self.status = Some("The extension host is starting; try again shortly.".to_owned());
+            return;
+        };
+        let favorites = self.config.remote_library.clone();
+        let mut queued = 0usize;
+        for favorite in favorites {
+            let key = remote_story_key(&favorite.source_id, &favorite.url);
+            if self.auto_update_inflight.contains(&key)
+                || self.story_refresh.as_deref() == Some(key.as_str())
+            {
+                continue;
+            }
+            self.auto_update_inflight.insert(key.clone());
+            worker.request(StoryRequest {
+                key,
+                manga: RemoteManga {
+                    source_id: favorite.source_id,
+                    url: favorite.url,
+                    title: favorite.title,
+                    author: None,
+                    artist: None,
+                    description: None,
+                    genre: Vec::new(),
+                    status: "unknown".to_owned(),
+                    thumbnail_url: favorite.thumbnail_url,
+                    memo: None,
+                },
+                client: client.clone(),
+            });
+            queued += 1;
+        }
+        self.status = Some(if queued == 0 {
+            "Saved stories are already updating.".to_owned()
+        } else {
+            format!("Updating {queued} saved stories…")
+        });
+    }
+
     pub fn next_story_update_at(&self) -> Option<u64> {
         if self.config.update_interval_hours == 0 {
             return None;
@@ -18619,6 +18669,17 @@ mod tests {
         app.extension_search_stop(true);
         assert!(!app.extension_search);
         assert_eq!(app.filtered_extension_count(), 2);
+    }
+
+    #[test]
+    fn manual_library_update_reports_an_empty_saved_library() {
+        let mut app = remote_app();
+        app.config.remote_library.clear();
+        app.update_library_now();
+        assert_eq!(
+            app.status.as_deref(),
+            Some("No saved source manga to update.")
+        );
     }
 
     #[test]

@@ -121,8 +121,8 @@ thumbnail with an empty one. Details, description, and chapters are cached per s
 `$XDG_DATA_HOME/tsuiyomi/stories`, so reopening a saved story after a restart is
 immediate; the first open fetches it, and `r` refreshes it. `[`/`]` switch categories,
 `i` imports a series folder by path (copied into the library; an existing name gets a
-numeric suffix), `r` rescans, `R` refetches missing covers for saved source manga, and `b`
-bookmarks the selected chapter. The initial scan and later rescans run on a background worker with a
+numeric suffix), `r` rescans, `U` refreshes saved-source stories now, `R` refetches missing
+covers for saved source manga, and `b` bookmarks the selected chapter. The initial scan and later rescans run on a background worker with a
 status message, so the TUI opens immediately and the Library fills in. Missing
 library covers are also retried automatically when the Library tab is shown; missing source covers are regenerated or fetched in the background. `x` or `Delete` opens the remove
 dialog for the selected series: remove it from the library and, for saved source manga,

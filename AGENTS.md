@@ -250,9 +250,9 @@ Rules:
   The details pane shows the cached story refresh age, the next check, and a warning when
   a remote source extension is not loaded. Saved stories whose cache is older than
   `update_interval_hours` refresh through `story_worker` while the host is running; checks
-  are throttled to once a minute and ten stories per pass. Panels with item actions support
-  multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
-  clears); delete,
+  are throttled to once a minute and ten stories per pass. `U` on the Library grid refreshes
+  every saved story immediately. Panels with item actions support multi-select with
+  `Space` (stable keys, `✓` markers, count in the commands bar; Esc clears); delete,
   install/uninstall/update/pin, source pinning, store removal, save to library, chapter
   download, and bookmark all operate on the selection. In the Library
   grid, `x`/Delete opens a

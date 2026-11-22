@@ -1595,6 +1595,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("/", "search"),
                 ("i", "import"),
                 ("r", "rescan"),
+                ("U", "update saved"),
                 ("c", "config"),
                 ("R", "covers"),
                 ("x/Del", "delete"),
