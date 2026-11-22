@@ -14,12 +14,12 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 0 | 1 | 95.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 42 | 1 | 3 | 1 | 92.4% |
-| [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
+| [Reader](#reader) | 16 | 0 | 1 | 0 | 94.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 19 | 0 | 1 | 0 | 95.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 3 | 62.5% |
-| **All categories** | **195** | **10** | **8** | **6** | **93.9%** |
+| **All categories** | **196** | **9** | **8** | **6** | **94.1%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -206,7 +206,7 @@ table below.
 | Images | Unicode halfblock fallback | Yes | ✅ | ✅ | |
 | Modes | Page mode | Yes | ✅ | ✅ | |
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
-| Modes | Left-to-right / right-to-left / vertical | Yes | 🟡 | 🟡 | RTL reverses page-turn keys in page mode; vertical still uses paged mode. |
+| Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`, no upscaling at 100%. |
 | Zoom | Retransmit-free Kitty placement zoom | Yes | ❌ | ❌ | Pending. |

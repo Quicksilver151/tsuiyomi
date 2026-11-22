@@ -558,8 +558,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             match action {
                 Action::Quit => app.quit_confirm = true,
                 Action::Back => app.close_reader(),
-                Action::Previous | Action::ScrollUp => app.previous(),
-                Action::Next | Action::ScrollDown => app.next(),
+                Action::Previous | Action::ScrollUp => {
+                    if app.reader_vertical_paging() {
+                        app.previous_page();
+                    } else {
+                        app.previous();
+                    }
+                }
+                Action::Next | Action::ScrollDown => {
+                    if app.reader_vertical_paging() {
+                        app.next_page();
+                    } else {
+                        app.next();
+                    }
+                }
                 Action::PreviousPage => app.previous_page(),
                 Action::NextPage | Action::Open => app.next_page(),
                 Action::PreviousScreen => app.previous_screen(),

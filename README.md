@@ -389,7 +389,8 @@ works; remote dimensions are probed with small ranged requests. Set
 
 Reading mode, zoom, and scroll cache settings can also be changed in
 **More → Settings → Reader** using the thin sliders. Right-to-left mode reverses the
-left/right page-turn keys in paged mode. Valid `reading_mode` values are `default`,
+left/right page-turn keys in paged mode; vertical keeps paged mode but turns pages with
+up/down. Valid `reading_mode` values are `default`,
 `left_to_right`, `right_to_left`, `vertical`, `webtoon`, and `continuous_vertical`.
 Page-turn modes open single pages and use the **Page fit** setting (Fit, Fill/crop, or
 Stretch); `webtoon` and `continuous_vertical` open in scroll mode. `m` switches between page and scroll for the current session. Scroll mode fits

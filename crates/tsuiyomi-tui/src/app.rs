@@ -81,6 +81,8 @@ pub enum ReadingDirection {
     #[default]
     LeftToRight,
     RightToLeft,
+    /// Mihon's paged-vertical mode: pages turn up and down instead of sideways.
+    Vertical,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -10291,11 +10293,16 @@ impl AppState {
                 ReaderMode::Scroll
             }
         };
-        self.reading_direction = if mode == ReadingMode::RightToLeft {
-            ReadingDirection::RightToLeft
-        } else {
-            ReadingDirection::LeftToRight
+        self.reading_direction = match mode {
+            ReadingMode::RightToLeft => ReadingDirection::RightToLeft,
+            ReadingMode::Vertical => ReadingDirection::Vertical,
+            _ => ReadingDirection::LeftToRight,
         };
+    }
+
+    /// Paged mode with up/down page turns instead of left/right.
+    pub fn reader_vertical_paging(&self) -> bool {
+        self.reader_mode == ReaderMode::Page && self.reading_direction == ReadingDirection::Vertical
     }
 
     /// In RTL page mode the left arrow advances and the right arrow goes back.
@@ -14908,6 +14915,19 @@ mod tests {
         app.set_reading_mode(ReadingMode::LeftToRight);
         assert_eq!(app.reading_direction, ReadingDirection::LeftToRight);
         assert!(!app.previous_page_key_advances());
+    }
+
+    #[test]
+    fn paged_vertical_mode_turns_pages_vertically() {
+        let mut app = AppState::default();
+        app.set_reading_mode(ReadingMode::Vertical);
+        assert_eq!(app.reader_mode, ReaderMode::Page);
+        assert_eq!(app.reading_direction, ReadingDirection::Vertical);
+        assert!(app.reader_vertical_paging());
+        assert!(!app.previous_page_key_advances());
+
+        app.set_reading_mode(ReadingMode::Webtoon);
+        assert!(!app.reader_vertical_paging());
     }
 
     #[test]

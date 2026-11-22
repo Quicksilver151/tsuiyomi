@@ -1263,6 +1263,13 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("f", "full"),
                 ("Esc", "back"),
             ]
+        } else if app.reader_vertical_paging() {
+            vec![
+                ("q", "quit"),
+                ("↑↓", "page"),
+                ("f", "full"),
+                ("Esc", "back"),
+            ]
         } else {
             vec![
                 ("q", "quit"),
