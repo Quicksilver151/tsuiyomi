@@ -206,7 +206,8 @@ Rules:
   update count in the tab title, groups updates/installed/available by language, and offers
   `U` update-all. Installs and updates use host jobs with downloading/installing
   progress, cancellation (`c`), and retry; rows show job state, versions, languages,
-  source counts, content warnings, store names, and private/orphaned states. A failed file
+  source counts, content warnings, store names, and sideloaded/orphaned states; host
+  installs are private because the extension directory belongs to tsuiyomi. A failed file
   appears under Not loaded with its reason and can be inspected or deleted. Extension
   language filtering follows `enabled_languages`, and `show_nsfw_extensions` hides NSFW
   entries. Extension search

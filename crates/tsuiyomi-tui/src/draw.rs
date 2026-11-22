@@ -3714,17 +3714,17 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
         return;
     };
     let extension = &state.extension;
-    let store = if extension.repo_url.is_empty() {
-        if extension.obsolete {
-            "installed only · orphaned".to_owned()
-        } else {
-            "installed only · private".to_owned()
-        }
-    } else if extension.obsolete {
-        format!("{} · orphaned", app.store_label(&extension.repo_url))
+    let mut store = if extension.repo_url.is_empty() {
+        "installed only".to_owned()
     } else {
         app.store_label(&extension.repo_url)
     };
+    if extension.installed {
+        store.push_str(" · private host");
+    }
+    if extension.obsolete {
+        store.push_str(" · orphaned");
+    }
     let info = vec![
         Line::from(Span::styled(
             extension.name.clone(),
@@ -4318,7 +4318,7 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
             ExtensionRow::Extension(index) => {
                 let extension = &app.remote.extensions[*index];
                 let job = app.remote.extension_jobs.get(&extension.pkg);
-                let private = extension.installed && extension.repo_url.is_empty();
+                let sideloaded = extension.installed && extension.repo_url.is_empty();
                 let mut status = if let Some(job) = job {
                     job.label()
                 } else if extension.update_available() {
@@ -4330,8 +4330,8 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 };
                 if extension.obsolete {
                     status.push_str(" · orphaned");
-                } else if private {
-                    status.push_str(" · private");
+                } else if sideloaded {
+                    status.push_str(" · sideloaded");
                 } else if !extension.repo_url.is_empty() {
                     status.push_str(&format!(" · {}", app.store_label(&extension.repo_url)));
                 }

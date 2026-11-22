@@ -12,14 +12,14 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 0 | 0 | 1 | 100.0% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
-| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
+| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 1 | 1 | 95.8% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 45 | 0 | 1 | 1 | 97.8% |
 | [Reader](#reader) | 16 | 0 | 1 | 0 | 94.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **205** | **2** | **4** | **8** | **97.6%** |
+| **All categories** | **206** | **1** | **4** | **8** | **97.9%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -139,7 +139,7 @@ table below.
 | Details | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Warnings | NSFW/content warning indicator | Yes | ✅ | ✅ | `18+` in rows and details. |
 | Warnings | Hide NSFW extensions | Yes | ✅ | ✅ | Settings → Browse. |
-| Warnings | Private/shared/orphaned indicators | Yes | 🟡 | 🟡 | Private (installed outside a store), store name, and orphaned flags shown; shared/signature states remain. |
+| Warnings | Private/shared/orphaned indicators | Yes | ✅ | ✅ | Host installs are private, store/sideloaded origin and orphaned flags are shown; shared system installs do not exist on desktop. |
 | Languages | Enabled-language filtering | Yes | ✅ | ✅ | Installed entries remain manageable. |
 | Search | Comma-separated extension terms | Yes | ✅ | ✅ | Matches names, packages, languages, source names. |
 | WebView | WebView-dependent sources | Yes | ➖ | ➖ | Unsupported by design; documented TUI deviation. |

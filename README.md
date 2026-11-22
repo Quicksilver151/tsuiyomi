@@ -161,7 +161,7 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   all sources of the selected extensions, `a` adds a store URL, and `t` opens the store
   list. Installs and updates report downloading/installing progress and errors. Rows show
   source count, language, installed/available versions, `18+` warnings, and
-  private/orphaned states. Languages
+  sideloaded/orphaned states; host installs are private. Languages
   can be restricted in Sources `o`; NSFW extensions can be hidden from Settings → Browse.
   Rows show their store name, and not-loaded rows show their failure reason and can be
   inspected with `o` or deleted.
