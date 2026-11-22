@@ -193,6 +193,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         if app.poll_story_refresh() {
             needs_draw = true;
         }
+        app.maybe_auto_update_library();
         if app.poll_host_start() {
             needs_draw = true;
         }

@@ -462,6 +462,7 @@ pub enum SettingId {
     LibraryPath,
     DefaultCategory,
     LibrarySort,
+    UpdateInterval,
     RescanLibrary,
     Theme,
     Accent,
@@ -516,13 +517,15 @@ const APPEARANCE_ROWS: [MoreRow; 7] = [
     MoreRow::Setting(SettingId::ThumbnailSize),
 ];
 
-const LIBRARY_ROWS: [MoreRow; 6] = [
+const LIBRARY_ROWS: [MoreRow; 8] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::LibraryPath),
     MoreRow::Setting(SettingId::RescanLibrary),
     MoreRow::Divider("Display"),
     MoreRow::Setting(SettingId::LibrarySort),
     MoreRow::Setting(SettingId::DefaultCategory),
+    MoreRow::Divider("Updates"),
+    MoreRow::Setting(SettingId::UpdateInterval),
 ];
 
 const READER_ROWS: [MoreRow; 8] = [
@@ -1029,6 +1032,8 @@ pub struct AppState {
     pub updates: UpdateStore,
     pub updates_selection: usize,
     pub story_updated_at: Option<u64>,
+    auto_update_checked_at: Option<Instant>,
+    auto_update_inflight: HashSet<String>,
     pub migrate: MigrateState,
     pub chapter_settings_modal: Option<ChapterSettingsModal>,
     history_dirty: bool,
@@ -1188,6 +1193,8 @@ impl AppState {
             updates: UpdateStore::default(),
             updates_selection: 0,
             story_updated_at: None,
+            auto_update_checked_at: None,
+            auto_update_inflight: HashSet::new(),
             migrate: MigrateState::default(),
             chapter_settings_modal: None,
             history_dirty: false,
@@ -7910,9 +7917,88 @@ impl AppState {
     }
 
     /// Apply background story refreshes. Returns whether the UI changed.
+    /// Refresh saved-source caches whose last check is older than the configured
+    /// interval. Runs at most once a minute and only when the host is already up.
+    pub fn maybe_auto_update_library(&mut self) {
+        let hours = self.config.update_interval_hours;
+        if hours == 0 {
+            return;
+        }
+        let now = Instant::now();
+        if self
+            .auto_update_checked_at
+            .is_some_and(|checked| now.duration_since(checked) < Duration::from_secs(60))
+        {
+            return;
+        }
+        self.auto_update_checked_at = Some(now);
+        let (Some(worker), Some(client)) = (self.story_worker.as_ref(), self.host_client.clone())
+        else {
+            return;
+        };
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        let interval = hours.saturating_mul(3_600);
+        let favorites = self.config.remote_library.clone();
+        let mut queued = 0usize;
+        for favorite in favorites {
+            if queued >= 10 {
+                break;
+            }
+            let key = remote_story_key(&favorite.source_id, &favorite.url);
+            if self.auto_update_inflight.contains(&key)
+                || self.story_refresh.as_deref() == Some(key.as_str())
+            {
+                continue;
+            }
+            let due = story_cache_path(&favorite.source_id, &favorite.url)
+                .and_then(|path| std::fs::metadata(path).ok())
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|modified| modified.as_secs())
+                .is_none_or(|updated| now_unix.saturating_sub(updated) >= interval);
+            if !due {
+                continue;
+            }
+            self.auto_update_inflight.insert(key.clone());
+            worker.request(StoryRequest {
+                key,
+                manga: RemoteManga {
+                    source_id: favorite.source_id,
+                    url: favorite.url,
+                    title: favorite.title,
+                    author: None,
+                    artist: None,
+                    description: None,
+                    genre: Vec::new(),
+                    status: "unknown".to_owned(),
+                    thumbnail_url: favorite.thumbnail_url,
+                    memo: None,
+                },
+                client: client.clone(),
+            });
+            queued += 1;
+        }
+    }
+
+    pub fn next_story_update_at(&self) -> Option<u64> {
+        if self.config.update_interval_hours == 0 {
+            return None;
+        }
+        let updated = self.story_updated_at?;
+        let manga = self.remote_story_manga()?;
+        if !self.is_favorite(&manga.source_id, &manga.url) {
+            return None;
+        }
+        Some(updated.saturating_add(self.config.update_interval_hours.saturating_mul(3_600)))
+    }
+
     pub fn poll_story_refresh(&mut self) -> bool {
         let mut changed = false;
         while let Some(result) = self.story_worker.as_ref().and_then(StoryWorker::try_result) {
+            self.auto_update_inflight.remove(&result.key);
             if self.story_refresh.as_deref() == Some(result.key.as_str()) {
                 self.story_refresh = None;
             }
@@ -12805,6 +12891,11 @@ impl AppState {
             SettingId::CacheMargin => {
                 let value = (self.scroll_cache.cache_margin as i32 + delta).clamp(0, 12);
                 self.scroll_cache.cache_margin = value as usize;
+            }
+            SettingId::UpdateInterval => {
+                let value = (self.config.update_interval_hours as i32 + delta).clamp(0, 168);
+                self.config.update_interval_hours = value as u64;
+                self.auto_update_checked_at = None;
             }
             SettingId::LibrarySort => {
                 let sorts = [
@@ -18934,6 +19025,14 @@ mod tests {
         app.adjust_setting(-1);
         assert_eq!(app.config.default_category.as_deref(), Some("Default"));
         assert_eq!(app.category_name(), Some("Default"));
+
+        app.setting_index = 4;
+        app.adjust_setting(1);
+        assert_eq!(app.config.update_interval_hours, 13);
+        app.adjust_setting(-20);
+        assert_eq!(app.config.update_interval_hours, 0);
+        app.adjust_setting(1);
+        assert_eq!(app.config.update_interval_hours, 1);
     }
 
     #[test]

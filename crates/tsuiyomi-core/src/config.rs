@@ -130,6 +130,8 @@ pub struct Config {
     pub thumbnail_width: u16,
     /// Library list ordering.
     pub library_sort: LibrarySort,
+    /// Hours between automatic saved-source chapter checks. Zero disables them.
+    pub update_interval_hours: u64,
     /// Category selected on startup. `None` keeps the scanner's first category.
     pub default_category: Option<String>,
     /// Do not write reading progress while enabled.
@@ -207,6 +209,7 @@ impl Default for Config {
             fullscreen: false,
             thumbnail_width: 14,
             library_sort: LibrarySort::default(),
+            update_interval_hours: 12,
             default_category: None,
             incognito: false,
             pinned_sources: Vec::new(),

@@ -1943,6 +1943,7 @@ fn draw_library_remote_detail(
         source.as_deref(),
         "saved to library",
         app.story_updated_at,
+        app.next_story_update_at(),
     );
     append_story_notes(&mut lines, app);
     let cover = cover_path
@@ -4128,6 +4129,7 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         source.as_deref(),
         note,
         app.story_updated_at,
+        app.next_story_update_at(),
     );
     append_story_notes(&mut lines, app);
     let cover = cover_path
@@ -4143,6 +4145,7 @@ fn remote_story_lines(
     source: Option<&str>,
     note: &str,
     updated_at: Option<u64>,
+    next_update: Option<u64>,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
@@ -4174,6 +4177,9 @@ fn remote_story_lines(
     if let Some(updated_at) = updated_at {
         lines.push(field("Updated", &relative_age(updated_at), c_overlay1()));
     }
+    if let Some(next_update) = next_update {
+        lines.push(field("Next check", &relative_until(next_update), c_teal()));
+    }
     if source.is_none() {
         lines.push(Line::from(Span::styled(
             "The source extension is not loaded (host stopped or extension missing).",
@@ -4192,6 +4198,23 @@ fn remote_story_lines(
         lines.push(Line::from(description.to_owned()));
     }
     lines
+}
+
+fn relative_until(unix_seconds: u64) -> String {
+    let seconds = unix_seconds as i64 - Local::now().timestamp();
+    if seconds <= 0 {
+        return "due now".to_owned();
+    }
+    let seconds = seconds as u64;
+    if seconds < 60 {
+        "in <1m".to_owned()
+    } else if seconds < 3_600 {
+        format!("in {}m", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("in {}h", seconds / 3_600)
+    } else {
+        format!("in {}d", seconds / 86_400)
+    }
 }
 
 fn relative_age(unix_seconds: u64) -> String {
@@ -5530,6 +5553,14 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
             library_sort_label(app.config.library_sort).to_owned(),
         ),
         SettingId::RescanLibrary => ("Rescan library".to_owned(), "Enter".to_owned()),
+        SettingId::UpdateInterval => (
+            "Update interval".to_owned(),
+            if app.config.update_interval_hours == 0 {
+                "Off".to_owned()
+            } else {
+                format!("{}h", app.config.update_interval_hours)
+            },
+        ),
         SettingId::Theme => ("Theme".to_owned(), theme_label(app.theme).to_owned()),
         SettingId::Accent => ("Accent".to_owned(), app.accent_name()),
         SettingId::Fullscreen => (
@@ -6915,6 +6946,15 @@ mod tests {
     }
 
     #[test]
+    fn relative_until_labels_cover_due_and_future_windows() {
+        let now = Local::now().timestamp().max(0) as u64;
+        assert_eq!(relative_until(now.saturating_sub(5)), "due now");
+        assert_eq!(relative_until(now + 120), "in 2m");
+        assert_eq!(relative_until(now + 7_200), "in 2h");
+        assert_eq!(relative_until(now + 172_800), "in 2d");
+    }
+
+    #[test]
     fn relative_age_labels_cover_minutes_hours_and_days() {
         let now = Local::now().timestamp().max(0) as u64;
         assert_eq!(relative_age(now.saturating_sub(30)), "just now");
@@ -6937,7 +6977,7 @@ mod tests {
             thumbnail_url: None,
             memo: None,
         };
-        let lines = remote_story_lines(&manga, &[], None, "Not saved", None);
+        let lines = remote_story_lines(&manga, &[], None, "Not saved", None, None);
         let text: String = lines
             .iter()
             .flat_map(|line| line.spans.iter())
@@ -6946,7 +6986,7 @@ mod tests {
         assert!(text.contains("unavailable"));
         assert!(text.contains("source extension is not loaded"));
 
-        let lines = remote_story_lines(&manga, &[], Some("Source (EN)"), "Saved", Some(0));
+        let lines = remote_story_lines(&manga, &[], Some("Source (EN)"), "Saved", Some(0), Some(0));
         let text: String = lines
             .iter()
             .flat_map(|line| line.spans.iter())

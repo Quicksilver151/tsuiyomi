@@ -13,13 +13,13 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 44 | 1 | 1 | 1 | 96.7% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 45 | 0 | 1 | 1 | 97.8% |
 | [Reader](#reader) | 16 | 0 | 1 | 0 | 94.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 1 | 4 | 75.0% |
-| **All categories** | **204** | **3** | **5** | **8** | **96.9%** |
+| **All categories** | **205** | **2** | **5** | **8** | **97.2%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -155,7 +155,7 @@ table below.
 | Header | Notes | Yes | ✅ | ✅ | `N`, persisted per story. |
 | Header | Missing-chapter count | Yes | ✅ | ✅ | |
 | Header | Source/stub warning | Yes | ✅ | ✅ | Warns when a remote source is not loaded; saved entries always keep their source, so Mihon migration stubs do not occur. |
-| Header | Next update / fetch interval | Yes | 🟡 | 🟡 | Shows how long ago the cached story was refreshed; the host does not expose next-check scheduling or fetch intervals. |
+| Header | Next update / fetch interval | Yes | ✅ | ✅ | Saved stories refresh in the background when older than the configurable interval; details show the last refresh and next check. Checks run only while the host is up. |
 | Header | Add/remove library | Yes | ✅ | ✅ | `F`. Remove confirmation exists; downloads checkbox is Library-level. |
 | Header | Edit categories | Yes | ✅ | ✅ | Saved source manga; `c`. |
 | Header | Migrate from story | Yes | ✅ | ✅ | `M`, preloads Migrate. |

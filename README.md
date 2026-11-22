@@ -107,7 +107,9 @@ title; Esc clears the filter. Covers are centered without a
 border or tile background. `↑↓` moves by grid row, `←→` by one tile, and `Enter` opens
 the chapter list. Saved manga from sources open the same details screen as Browse: cover,
 source, author/artist, status, tags, description, chapters, and how long ago the cached
-story was refreshed. If the source extension is not loaded, the details pane says so
+story was refreshed and when the next check is due. Saved stories refresh in the
+background while the host is running when their cache is older than the configured
+interval. If the source extension is not loaded, the details pane says so
 instead of silently hiding the source. Their covers are cached
 in `$XDG_DATA_HOME/tsuiyomi/covers`, so they survive restarts and normal cache cleanup
 without the extension host. If a cover file is missing or corrupt, the app starts the
@@ -381,6 +383,7 @@ thumbnail_width = 14    # cover tile width in columns, 8–28
 library_sort = "natural" # natural, title_asc, title_desc, chapter_count_desc,
                              # latest_chapter_desc, unread_desc, last_read_desc,
                              # date_added_desc
+update_interval_hours = 12  # background saved-story checks; 0 disables
 # default_category = "Reading"
 incognito = false
 ```
@@ -417,7 +420,8 @@ Data and storage, About, and Help. Settings is a submenu mirroring Mihon's setti
 categories:
 
 - **Appearance** — theme, accent, fullscreen, thumbnail size.
-- **Library** — library path, rescan, sort order, default category.
+- **Library** — library path, rescan, sort order, default category, and the saved-story
+  update interval.
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
 - **Downloads** — configurable download folder, with the active queue shown in story
   headers.

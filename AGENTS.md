@@ -247,9 +247,12 @@ Rules:
   copy/open, cover share through the system viewer, relative source-page URL resolution
   through installed extension metadata, cover overlay, tag search, and custom
   covers for local or saved source manga.
-  The details pane shows the cached story refresh age and warns when a remote source
-  extension is not loaded. Panels with item actions support multi-select with `Space`
-  (stable keys, `✓` markers, count in the commands bar; Esc clears); delete,
+  The details pane shows the cached story refresh age, the next check, and a warning when
+  a remote source extension is not loaded. Saved stories whose cache is older than
+  `update_interval_hours` refresh through `story_worker` while the host is running; checks
+  are throttled to once a minute and ten stories per pass. Panels with item actions support
+  multi-select with `Space` (stable keys, `✓` markers, count in the commands bar; Esc
+  clears); delete,
   install/uninstall/update/pin, source pinning, store removal, save to library, chapter
   download, and bookmark all operate on the selection. In the Library
   grid, `x`/Delete opens a
@@ -352,8 +355,8 @@ Rules:
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
   `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
-  `remote_library`, `store_names`, `series_added_at`, `downloads_path`, and `hidden_series`,
-  and preserves unknown keys from existing files.
+  `remote_library`, `store_names`, `series_added_at`, `update_interval_hours`,
+  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
