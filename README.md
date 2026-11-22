@@ -106,7 +106,8 @@ The Library tab opens as a cover tile grid, like Mihon. Each tile shows the seri
 title; Esc clears the filter. Covers are centered without a
 border or tile background. `↑↓` moves by grid row, `←→` by one tile, and `Enter` opens
 the chapter list. Saved manga from sources open the same details screen as Browse: cover,
-source, author/artist, status, tags, description, and chapters. Their covers are cached
+source, author/artist, status, tags, description, and chapters. If the source extension
+is not loaded, the details pane says so instead of silently hiding the source. Their covers are cached
 in `$XDG_DATA_HOME/tsuiyomi/covers`, so they survive restarts and normal cache cleanup
 without the extension host. If a cover file is missing or corrupt, the app starts the
 host in the background once to restore it; a local series cover is regenerated on demand
@@ -421,9 +422,10 @@ categories:
   bookmarks, notes, and history.
 - **Advanced** — optional FlareSolverr URL, used by the bundled host for Cloudflare
   challenges. Changing it restarts a running host.
-- **Downloads** — shows the download folder and the downloaded series with their
-  chapter counts and sizes (`r` refreshes, `x`/Delete removes one after confirmation);
-  `D` downloads the selected remote chapter, and downloaded chapters are read from disk.
+- **Downloads** — shows the download folder, the active download queue and waiting
+  chapters, and the downloaded series with chapter counts and sizes (`r` refreshes,
+  `x`/Delete removes one after confirmation). `D` downloads the selected remote chapter,
+  and downloaded chapters are read from disk.
 - **Tracking** — informational; no remote tracking services.
 - **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.

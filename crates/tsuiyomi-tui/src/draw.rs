@@ -4130,6 +4130,8 @@ fn remote_story_lines(
     }
     if let Some(source) = source {
         lines.push(field("Source", source, c_blue()));
+    } else {
+        lines.push(field("Source", "unavailable", c_peach()));
     }
     lines.push(field("Status", &manga.status, c_green()));
     if !manga.genre.is_empty() {
@@ -4140,6 +4142,12 @@ fn remote_story_lines(
         lines.push(field("Latest", &latest.name, c_blue()));
     }
     lines.push(field("Library", note, c_yellow()));
+    if source.is_none() {
+        lines.push(Line::from(Span::styled(
+            "The source extension is not loaded (host stopped or extension missing).",
+            Style::default().fg(c_peach()),
+        )));
+    }
     lines.push(Line::from(""));
 
     let description = manga.description.as_deref().unwrap_or("").trim();
@@ -5568,7 +5576,20 @@ fn draw_more_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
     );
     let inner = block.inner(area);
     frame.render_widget(&block, area);
-    let mut lines = vec![field("Folder", &root, c_blue()), Line::from("")];
+    let mut lines = vec![field("Folder", &root, c_blue())];
+    if let Some(label) = app.download_queue.label() {
+        lines.push(field("Queue", &label, c_yellow()));
+    }
+    if let Some((_, title, _)) = &app.download_queue.active {
+        lines.push(field("Active", title, c_teal()));
+    }
+    for label in app.download_queue.pending_labels().iter().take(3) {
+        lines.push(Line::from(Span::styled(
+            format!("  waiting · {label}"),
+            Style::default().fg(c_overlay1()),
+        )));
+    }
+    lines.push(Line::from(""));
     if app.downloaded_series.is_empty() {
         lines.push(Line::from(Span::styled(
             if app.downloads_loaded {
@@ -6734,6 +6755,38 @@ mod tests {
         assert!(!text.contains("Tsuiyomi"));
         assert!(!text.contains("commands"));
         assert!(text.contains("Library"));
+    }
+
+    #[test]
+    fn remote_story_warns_when_the_source_is_not_loaded() {
+        let manga = RemoteManga {
+            source_id: "42".to_owned(),
+            url: "/manga/test".to_owned(),
+            title: "Test".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        let lines = remote_story_lines(&manga, &[], None, "Not saved");
+        let text: String = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert!(text.contains("unavailable"));
+        assert!(text.contains("source extension is not loaded"));
+
+        let lines = remote_story_lines(&manga, &[], Some("Source (EN)"), "Saved");
+        let text: String = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert!(!text.contains("unavailable"));
     }
 
     #[test]

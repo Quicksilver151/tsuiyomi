@@ -9,17 +9,17 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| [On-disk compatibility](#on-disk-compatibility) | 19 | 3 | 0 | 0 | 93.2% |
+| [On-disk compatibility](#on-disk-compatibility) | 20 | 2 | 0 | 0 | 95.5% |
 | [Library](#library) | 15 | 1 | 0 | 0 | 96.9% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 40 | 2 | 5 | 0 | 87.2% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 42 | 1 | 4 | 0 | 90.4% |
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 19 | 0 | 1 | 0 | 95.0% |
 | [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **191** | **13** | **12** | **2** | **91.4%** |
+| **All categories** | **194** | **11** | **11** | **2** | **92.4%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -41,7 +41,7 @@ table below.
 | Chapters | `.rar` / `.cbr` | Yes | Yes | ✅ | Bundled UnRAR support. |
 | Chapters | `.7z` / `.cb7` | Yes | Yes | ✅ | |
 | Chapters | `.tar` / `.cbt` | Yes | Yes | ✅ | |
-| Chapters | `.epub` | Yes | Yes | 🟡 | Image targets from spine XHTML only; prose is not rendered. |
+| Chapters | `.epub` | Yes | Yes | ✅ | Image targets from spine XHTML, matching Mihon; prose is not part of a manga chapter. |
 | Chapters | Number recognition | Yes | Yes | ✅ | Numbers, `v2`, `c001`, ranges, specials. |
 | Chapters | Natural page ordering | Yes | Yes | ✅ | Case-insensitive natural sort. |
 | Metadata | `ComicInfo.xml` series metadata | Yes | Yes | ✅ | Preferred over legacy metadata. |
@@ -154,7 +154,7 @@ table below.
 | Header | Chapter count and latest chapter | Yes | ✅ | ✅ | |
 | Header | Notes | Yes | ✅ | ✅ | `N`, persisted per story. |
 | Header | Missing-chapter count | Yes | ✅ | ✅ | |
-| Header | Source/stub warning | Yes | ❌ | ❌ | |
+| Header | Source/stub warning | Yes | ✅ | ✅ | Warns when a remote source is not loaded; saved entries always keep their source, so Mihon migration stubs do not occur. |
 | Header | Next update / fetch interval | Yes | ❌ | ❌ | Host does not expose scheduling metadata. |
 | Header | Add/remove library | Yes | ✅ | ✅ | `F`. Remove confirmation exists; downloads checkbox is Library-level. |
 | Header | Edit categories | Yes | ✅ | ✅ | Saved source manga; `c`. |
@@ -188,7 +188,7 @@ table below.
 | Downloads | Cancel queue / active chapter | Yes | ✅ | ✅ | Core cancellation hook. |
 | Downloads | Delete selected downloads | Yes | ✅ | ✅ | Confirmed. |
 | Downloads | Auto-download new chapters | Yes | ✅ | ✅ | Per-series setting. |
-| Downloads | Series download screen | Yes | 🟡 | 🟡 | More → Downloads lists downloaded series with sizes and deletes them; the live queue stays transient. |
+| Downloads | Series download screen | Yes | ✅ | ✅ | More → Downloads shows the active queue, waiting chapters, downloaded series, sizes, and per-series deletion. |
 | Actions | Copy/open, cover overlay | Yes | ✅ | ✅ | `C`, `o`, `w`. |
 | Actions | Custom cover | Yes | ✅ | ✅ | Local and saved source manga; `W`. |
 | Actions | Remote cover share/delete | Yes | ❌ | ❌ | Replace/remove only. |

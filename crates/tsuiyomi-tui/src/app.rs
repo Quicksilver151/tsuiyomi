@@ -804,6 +804,13 @@ impl DownloadQueue {
         self.active.is_some() || !self.pending.is_empty()
     }
 
+    pub fn pending_labels(&self) -> Vec<&str> {
+        self.pending
+            .iter()
+            .map(|task| task.request.label.as_str())
+            .collect()
+    }
+
     pub fn label(&self) -> Option<String> {
         let total = self.total;
         if total == 0 {

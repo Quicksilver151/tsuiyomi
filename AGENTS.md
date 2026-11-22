@@ -238,9 +238,10 @@ Rules:
   (selected, next 1/5/10/25, unread, bookmarked), queue cancellation, download deletion,
   categories, notes, migrate, tag copy, `ComicInfo.xml` export for local series,
   copy/open, cover overlay, tag search, and custom covers for local or saved source manga.
-  Panels with item actions support multi-select with `Space` (stable keys, `✓` markers,
-  count in the commands bar; Esc clears); delete, install/uninstall/update/pin, source pinning, store removal, save to
-  library, chapter download, and bookmark all operate on the selection. In the Library
+  The details pane warns when a remote source extension is not loaded. Panels with item
+  actions support multi-select with `Space` (stable keys, `✓` markers, count in the
+  commands bar; Esc clears); delete, install/uninstall/update/pin, source pinning, store
+  removal, save to library, chapter download, and bookmark all operate on the selection. In the Library
   grid, `x`/Delete opens a
   remove dialog with "Manga from library" and, for saved source manga, "Downloaded
   chapters" checkboxes, mirroring Mihon's delete dialog. Removing a local series writes
