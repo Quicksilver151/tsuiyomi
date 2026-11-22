@@ -80,4 +80,4 @@ pub use source_prefs::{
     SourcePreferences,
 };
 pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};
-pub use updates::{UpdateEntry, UpdateStore};
+pub use updates::{RemoteUpdate, UpdateEntry, UpdateStore};

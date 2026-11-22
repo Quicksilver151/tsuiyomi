@@ -68,7 +68,7 @@ table below.
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
 | Sorting | Other Mihon sort fields | Yes | ✅ | ✅ | Chapter count, latest chapter, unread, recently read, and recently added; add dates come from `series_added_at` or filesystem metadata. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
-| Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan, kept 30 days; Enter reads, `x` dismisses, `X` clears. Saved-source caches refresh on the update interval, but those chapters are not merged into this local list. |
+| Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan and newly discovered saved-source chapters, kept 30 days; Enter reads, `x` dismisses, `X` clears. |
 | Removal | Remove local series, keep files | Yes | ✅ | ✅ | Path stored in `hidden_series`. |
 | Removal | Remove saved source manga + downloads | Yes | ✅ | ✅ | Delete dialog with optional downloads. |
 | Covers | Persistent cover cache | Yes | ✅ | ✅ | LRU, 512 px, atomic writes, Kitty reset. |

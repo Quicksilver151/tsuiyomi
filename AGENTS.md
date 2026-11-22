@@ -331,8 +331,10 @@ Rules:
   `$XDG_DATA_HOME/tsuiyomi/updates.json` (`updates.rs`). The first scan only seeds the
   snapshot. The Updates tab lists one entry per new chapter, newest first, for 30 days;
   `x`/Delete dismisses one, `X` clears the list, `Enter` reads it, and `r` rescans.
-  Entries vanish when their chapter leaves the library. Saved source manga are not
-  refreshed by a background update job.
+  Entries vanish when their chapter leaves the library. Saved-source refreshes also add
+  entries for chapters not in the previous cached story; the first fetch only seeds a
+  baseline. Remote entries open through the cached story and disappear if the favorite is
+  removed.
 - Reading history lives in an unbounded append-only
   `$XDG_DATA_HOME/tsuiyomi/history.jsonl` (`history.rs`), one record per chapter and
   compacted with tombstones. The UI shows the latest chapter per series, grouped by

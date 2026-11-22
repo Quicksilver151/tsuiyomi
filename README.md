@@ -138,8 +138,9 @@ The Updates tab lists chapters that appeared since the previous library scan. Th
 scan only records a baseline, so installing tsuiyomi does not mark the whole library as
 new. `↑↓` selects an update, `Enter` reads it, `x`/`Delete` dismisses one entry, and `X`
 clears the list. Entries are kept for 30 days and disappear if their chapter is deleted;
-`r` rescans to look for more. The list covers local library scans; saved source manga are
-refreshed from the host when opened rather than by a background update job.
+`r` rescans to look for more. Local scans and saved-source refreshes both add entries; a
+saved story's first fetch after saving only records a baseline, then later new chapters
+appear in the list. Opening a saved-source entry loads its cached story and chapter.
 
 ## Browse
 

@@ -31,9 +31,9 @@ use tsuiyomi_core::{
     HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibrarySort,
     LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
     ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, Series,
-    SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
-    SourcePreferences, Theme, TriState, UpdateEntry, UpdateStore,
+    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
+    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    SourcePreferenceValue, SourcePreferences, Theme, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -8065,6 +8065,37 @@ impl AppState {
             if result.chapters.is_empty() || self.removed_stories.contains(&result.key) {
                 continue;
             }
+            let previous = load_cached_story(&result.manga.source_id, &result.manga.url)
+                .map(|story| story.chapters)
+                .unwrap_or_default();
+            if !previous.is_empty() {
+                let known: HashSet<&str> = previous
+                    .iter()
+                    .map(|chapter| chapter.url.as_str())
+                    .collect();
+                let now = current_unix_seconds();
+                let source_name = self.remote_source_display_name(&result.manga.source_id);
+                let mut added = 0usize;
+                for chapter in &result.chapters {
+                    if known.contains(chapter.url.as_str()) {
+                        continue;
+                    }
+                    if self.updates.record_remote(
+                        &result.manga.source_id,
+                        source_name.as_deref(),
+                        &result.manga.url,
+                        &result.manga.title,
+                        chapter,
+                        now,
+                    ) {
+                        added += 1;
+                    }
+                }
+                if added > 0 {
+                    let _ = self.updates.save();
+                    self.status = Some(format!("{added} new chapters from saved sources"));
+                }
+            }
             self.cache_story(result.manga.clone(), result.chapters.clone());
 
             let library_key = self
@@ -11233,6 +11264,11 @@ impl AppState {
             .entries()
             .iter()
             .filter(|entry| {
+                if let Some(remote) = &entry.remote {
+                    return self.config.remote_library.iter().any(|favorite| {
+                        favorite.source_id == remote.source_id && favorite.url == remote.manga_url
+                    });
+                }
                 self.library.series.iter().any(|series| {
                     series.path.to_string_lossy() == entry.series_key
                         && series
@@ -11265,6 +11301,10 @@ impl AppState {
         else {
             return;
         };
+        if let Some(remote) = &entry.remote {
+            self.open_remote_update(remote);
+            return;
+        }
         let Some(series) = self
             .library
             .series
@@ -11302,6 +11342,38 @@ impl AppState {
             start_page,
             ReaderOrigin::Updates,
         );
+    }
+
+    fn open_remote_update(&mut self, remote: &RemoteUpdate) {
+        if !self.is_favorite(&remote.source_id, &remote.manga_url) {
+            self.status = Some("That manga is no longer saved.".to_owned());
+            return;
+        }
+        let Some(story) = load_cached_story(&remote.source_id, &remote.manga_url) else {
+            self.status = Some("The saved story cache is missing; refresh the library.".to_owned());
+            return;
+        };
+        let Some(index) = story
+            .chapters
+            .iter()
+            .position(|chapter| chapter.url == remote.chapter_url)
+        else {
+            self.status = Some("That chapter is no longer in the saved story.".to_owned());
+            return;
+        };
+        let source_name = remote
+            .source_name
+            .clone()
+            .or_else(|| self.remote_source_display_name(&remote.source_id));
+        self.tab = 0;
+        self.view = LibraryView::RemoteDetails;
+        self.story_updated_at = Some(story.updated_at);
+        self.library_remote.source_name = source_name;
+        self.library_remote.manga = Some(story.manga);
+        self.library_remote.chapters = story.chapters;
+        self.library_remote.chapter_index = index;
+        self.library_remote.list_state.select(Some(index));
+        self.open_library_remote_chapter(index);
     }
 
     pub fn dismiss_update(&mut self) {
@@ -14918,6 +14990,13 @@ fn directory_size(path: &Path) -> u64 {
         .sum()
 }
 
+fn current_unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
 fn unix_seconds(value: u64) -> u64 {
     if value > 100_000_000_000 {
         value / 1000
@@ -15557,6 +15636,47 @@ mod tests {
         app.dismiss_update();
         assert_eq!(app.updates_count(), 0);
         assert_eq!(app.updates_selection, 0);
+    }
+
+    #[test]
+    fn saved_source_updates_require_the_favorite() {
+        let mut app = remote_app();
+        let chapter = RemoteChapter {
+            url: "/chapter/3".to_owned(),
+            name: "Chapter 3".to_owned(),
+            chapter_number: 3.0,
+            scanlator: None,
+            upload_date: 0,
+            memo: None,
+        };
+        app.updates.record_remote(
+            "1",
+            Some("Alpha (EN)"),
+            "/manga/test",
+            "Test Manga",
+            &chapter,
+            100,
+        );
+        assert_eq!(app.updates_count(), 0);
+
+        app.config.remote_library.push(RemoteFavorite {
+            source_id: "1".to_owned(),
+            url: "/manga/test".to_owned(),
+            title: "Test Manga".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+            categories: Vec::new(),
+        });
+        assert_eq!(app.updates_count(), 1);
+        let row = app.update_rows()[0];
+        assert_eq!(row.chapter_title, "Chapter 3");
+        assert_eq!(
+            row.remote
+                .as_ref()
+                .map(|remote| remote.chapter_url.as_str()),
+            Some("/chapter/3")
+        );
     }
 
     #[test]

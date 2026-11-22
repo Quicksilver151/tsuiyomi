@@ -13,10 +13,19 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::library::Library;
+use crate::{host::RemoteChapter, library::Library};
 
 /// How long a detected chapter stays in the Updates list.
 const RETENTION_SECS: u64 = 30 * 24 * 60 * 60;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteUpdate {
+    pub source_id: String,
+    pub manga_url: String,
+    pub chapter_url: String,
+    #[serde(default)]
+    pub source_name: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateEntry {
@@ -28,6 +37,9 @@ pub struct UpdateEntry {
     pub chapter_title: String,
     pub chapter_number: Option<f32>,
     pub found_at: u64,
+    /// Set for a chapter discovered in a saved source manga.
+    #[serde(default)]
+    pub remote: Option<RemoteUpdate>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -93,6 +105,7 @@ impl UpdateStore {
                         chapter_title: chapter.title.clone(),
                         chapter_number: chapter.number,
                         found_at: now,
+                        remote: None,
                     });
                 }
                 chapters.insert(chapter_key.clone());
@@ -114,8 +127,12 @@ impl UpdateStore {
 
         self.seen = seen;
         self.entries.retain(|entry| {
-            current.contains(&entry.chapter_key)
-                && now.saturating_sub(entry.found_at) <= RETENTION_SECS
+            let fresh = now.saturating_sub(entry.found_at) <= RETENTION_SECS;
+            if entry.remote.is_some() {
+                fresh
+            } else {
+                fresh && current.contains(&entry.chapter_key)
+            }
         });
         self.entries.sort_by(|left, right| {
             right
@@ -132,6 +149,51 @@ impl UpdateStore {
     /// Observe with the current wall clock.
     pub fn observe_now(&mut self, library: &Library) -> io::Result<usize> {
         self.observe(library, unix_seconds())
+    }
+
+    /// Record a chapter discovered for a saved source manga.
+    ///
+    /// Returns whether a new entry was added. Duplicate series/chapter pairs are ignored.
+    pub fn record_remote(
+        &mut self,
+        source_id: &str,
+        source_name: Option<&str>,
+        manga_url: &str,
+        manga_title: &str,
+        chapter: &RemoteChapter,
+        now: u64,
+    ) -> bool {
+        let series_key = format!("remote:{source_id}\n{manga_url}");
+        let chapter_key = format!("{series_key}\n{}", chapter.url);
+        if self
+            .entries
+            .iter()
+            .any(|entry| entry.series_key == series_key && entry.chapter_key == chapter_key)
+        {
+            return false;
+        }
+        self.entries.push(UpdateEntry {
+            series_key,
+            series_title: manga_title.to_owned(),
+            chapter_key,
+            chapter_title: chapter.name.clone(),
+            chapter_number: (chapter.chapter_number >= 0.0).then_some(chapter.chapter_number),
+            found_at: now,
+            remote: Some(RemoteUpdate {
+                source_id: source_id.to_owned(),
+                manga_url: manga_url.to_owned(),
+                chapter_url: chapter.url.clone(),
+                source_name: source_name.map(str::to_owned),
+            }),
+        });
+        self.entries.sort_by(|left, right| {
+            right
+                .found_at
+                .cmp(&left.found_at)
+                .then_with(|| left.series_title.cmp(&right.series_title))
+                .then_with(|| left.chapter_title.cmp(&right.chapter_title))
+        });
+        true
     }
 
     /// Newest first.
@@ -258,6 +320,43 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+
+    #[test]
+    fn remote_entries_survive_local_scans_and_are_deduplicated() {
+        let mut store = UpdateStore::default();
+        store
+            .observe(&library(vec![series("Berserk", &["1"])]), 100)
+            .unwrap();
+        let chapter = RemoteChapter {
+            url: "/chapter/2".to_owned(),
+            name: "Chapter 2".to_owned(),
+            chapter_number: 2.0,
+            scanlator: None,
+            upload_date: 0,
+            memo: None,
+        };
+        assert!(store.record_remote(
+            "7",
+            Some("Source (EN)"),
+            "/manga/berserk",
+            "Berserk",
+            &chapter,
+            200,
+        ));
+        assert!(!store.record_remote(
+            "7",
+            Some("Source (EN)"),
+            "/manga/berserk",
+            "Berserk",
+            &chapter,
+            300,
+        ));
+        store
+            .observe(&library(vec![series("Berserk", &["1"])]), 400)
+            .unwrap();
+        assert_eq!(store.entries().len(), 1);
+        assert!(store.entries()[0].remote.is_some());
     }
 
     #[test]

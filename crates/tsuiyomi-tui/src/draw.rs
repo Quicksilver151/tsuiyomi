@@ -2262,13 +2262,16 @@ fn draw_updates(frame: &mut Frame, area: Rect, app: &mut AppState) {
         let cover_width = if row.width >= 40 { 4 } else { 0 };
         if cover_width > 0 {
             let cover_area = Rect::new(row.x, row.y, cover_width, 3);
-            let cover = app
-                .library
-                .series
-                .iter()
-                .position(|series| series.path.to_string_lossy() == entry.series_key)
-                .and_then(|index| app.ensure_local_series_cover(index));
-            let cover = cover.and_then(|path| {
+            let cover_path = if let Some(remote) = &entry.remote {
+                remote_cover_path(&remote.source_id, &remote.manga_url).filter(|path| path.exists())
+            } else {
+                app.library
+                    .series
+                    .iter()
+                    .position(|series| series.path.to_string_lossy() == entry.series_key)
+                    .and_then(|index| app.ensure_local_series_cover(index))
+            };
+            let cover = cover_path.and_then(|path| {
                 app.ensure_tile_cover(&path);
                 app.tile_covers.contains_key(&path).then_some(path)
             });
@@ -2319,7 +2322,15 @@ fn draw_updates(frame: &mut Frame, area: Rect, app: &mut AppState) {
             )),
             Line::from(Span::styled(detail, Style::default().fg(c_subtext1()))),
             Line::from(Span::styled(
-                format!("Local · {}", history_time(entry.found_at)),
+                format!(
+                    "{} · {}",
+                    entry
+                        .remote
+                        .as_ref()
+                        .and_then(|remote| remote.source_name.as_deref())
+                        .unwrap_or("Saved source"),
+                    history_time(entry.found_at)
+                ),
                 Style::default().fg(c_overlay0()),
             )),
         ];
