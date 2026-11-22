@@ -919,23 +919,23 @@ explicitly marked as a deliberate deviation.
 - [ ] Source list with favorite counts.
 - [ ] Sort by name/count and direction.
 - [ ] Select favorites.
-- [ ] Multi-select and selection UI.
+- [x] Multi-select and selection UI.
 - [ ] Open target/current details.
 - [x] Migration source selection: all/none/enabled (pinned ordering still pending).
 - [x] Source reordering.
 - [x] Persisted source selection; ordering pending.
-- [ ] Regular matching.
-- [ ] Deep matching.
-- [ ] Similarity threshold.
-- [ ] Same source/URL exclusion.
-- [ ] Empty-chapter rejection.
-- [ ] Prioritize by latest chapter.
-- [ ] Hide unmatched.
+- [x] Regular matching.
+- [x] Deep matching.
+- [x] Similarity threshold.
+- [x] Same source/URL exclusion.
+- [x] Empty-chapter rejection.
+- [x] Prioritize by target chapter count.
+- [x] Hide unmatched.
 - [ ] Hide without updates.
-- [ ] Manual search override.
+- [x] Manual search override.
 - [x] Skip.
-- [ ] Migrate now.
-- [ ] Copy now.
+- [x] Migrate now.
+- [x] Copy now.
 - [ ] Batch migrate.
 - [ ] Batch copy.
 - [x] Progress (matching status; applying remains synchronous).

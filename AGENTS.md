@@ -211,7 +211,8 @@ Rules:
   not implemented: the host cannot verify extension signatures, so there is no trust
   action. Migrate lists saved manga by source, multi-selects favorites, matches
   titles against enabled sources with regular/deep queries, previews targets, skips a
-  preview (`s`), and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
+  preview (`s`), hides unmatched rows (`h`), prioritizes by target chapter count (`p`),
+  and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
   Replace also moves downloaded chapters into the target source/series directory. Apply
   processes one match per event-loop tick with a progress status; Esc cancels between
   items and persists the migrations that already completed.

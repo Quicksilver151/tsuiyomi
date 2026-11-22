@@ -576,7 +576,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::NextPage | Action::Open => app.next_page(),
                 Action::PreviousScreen => app.previous_screen(),
                 Action::NextScreen => app.next_screen(),
-                Action::PreviousChapter => app.previous_chapter(),
+                Action::PreviousChapter => {
+                    if app.tab == 3
+                        && app.browse_view == BrowseView::Migrate
+                        && app.migrate.screen == app::MigrateScreen::Matches
+                    {
+                        app.toggle_migration_prioritize();
+                    } else {
+                        app.previous_chapter();
+                    }
+                }
                 Action::NextChapter => {
                     if app.story_screen_active() {
                         app.continue_reading();
@@ -904,6 +913,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     match app.browse_view {
                         BrowseView::RemoteResults => app.toggle_hide_saved_results(),
                         BrowseView::GlobalResults => app.toggle_global_search_only_results(),
+                        BrowseView::Migrate
+                            if app.migrate.screen == app::MigrateScreen::Matches =>
+                        {
+                            app.toggle_migration_hide_unmatched()
+                        }
                         _ => {}
                     }
                 }

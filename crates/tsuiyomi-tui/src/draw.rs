@@ -1470,6 +1470,8 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                     ("↑↓", "match"),
                     ("s", "skip"),
                     ("↵/o", "override"),
+                    ("h", "hide"),
+                    ("p", "chapters"),
                     ("t", "sources"),
                     ("M", "migrate"),
                     ("C", "copy"),
@@ -4499,9 +4501,15 @@ fn draw_migrate(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 .collect::<Vec<_>>()
         }
         crate::app::MigrateScreen::Matches => {
-            if app.migrate.matches.is_empty() {
+            let visible = app.migration_visible_indices();
+            if visible.is_empty() {
+                let message = if app.migrate.matches.is_empty() {
+                    "No migration matches yet."
+                } else {
+                    "All matches are hidden. Press h to show them."
+                };
                 frame.render_widget(
-                    Paragraph::new("No migration matches yet.")
+                    Paragraph::new(message)
                         .alignment(Alignment::Center)
                         .style(Style::default().fg(c_overlay1())),
                     Rect::new(list_area.x, list_area.y, list_area.width, 1),
@@ -4509,10 +4517,10 @@ fn draw_migrate(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 app.migrate.list_state.select(None);
                 return;
             }
-            app.migrate
-                .matches
+            visible
                 .iter()
-                .map(|matched| {
+                .map(|index| {
+                    let matched = &app.migrate.matches[*index];
                     let target = if let Some(target) = &matched.target {
                         let source = matched
                             .target_source

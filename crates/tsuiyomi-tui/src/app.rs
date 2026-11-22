@@ -746,6 +746,8 @@ pub struct MigrateState {
     pub favorites: Vec<RemoteFavorite>,
     pub matches: Vec<MigrationMatch>,
     pub list_state: ListState,
+    pub hide_unmatched: bool,
+    pub prioritize_chapters: bool,
     apply_replace: bool,
     apply_queue: Vec<usize>,
     apply_position: usize,
@@ -1847,11 +1849,71 @@ impl AppState {
         favorites
     }
 
+    /// Match indices in display order, honoring the hide/prioritize options.
+    pub fn migration_visible_indices(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self
+            .migrate
+            .matches
+            .iter()
+            .enumerate()
+            .filter(|(_, matched)| !self.migrate.hide_unmatched || matched.target.is_some())
+            .map(|(index, _)| index)
+            .collect();
+        if self.migrate.prioritize_chapters {
+            indices.sort_by(|left, right| {
+                let left_match = &self.migrate.matches[*left];
+                let right_match = &self.migrate.matches[*right];
+                right_match
+                    .target_chapters
+                    .len()
+                    .cmp(&left_match.target_chapters.len())
+                    .then_with(|| left_match.old.title.cmp(&right_match.old.title))
+            });
+        }
+        indices
+    }
+
+    fn selected_migration_index(&self) -> Option<usize> {
+        self.migration_visible_indices()
+            .get(self.browse_selection)
+            .copied()
+    }
+
+    pub fn toggle_migration_hide_unmatched(&mut self) {
+        if self.migrate.screen != MigrateScreen::Matches {
+            return;
+        }
+        self.migrate.hide_unmatched = !self.migrate.hide_unmatched;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+        self.remote.status = Some(if self.migrate.hide_unmatched {
+            "Hiding unmatched manga".to_owned()
+        } else {
+            "Showing all matches".to_owned()
+        });
+        self.remote.error = false;
+    }
+
+    pub fn toggle_migration_prioritize(&mut self) {
+        if self.migrate.screen != MigrateScreen::Matches {
+            return;
+        }
+        self.migrate.prioritize_chapters = !self.migrate.prioritize_chapters;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+        self.remote.status = Some(if self.migrate.prioritize_chapters {
+            "Prioritizing matches by chapter count".to_owned()
+        } else {
+            "Match order restored".to_owned()
+        });
+        self.remote.error = false;
+    }
+
     pub(crate) fn migrate_item_count(&self) -> usize {
         match self.migrate.screen {
             MigrateScreen::Sources => self.migrate_sources().len(),
             MigrateScreen::Favorites => self.migrate.favorites.len(),
-            MigrateScreen::Matches => self.migrate.matches.len(),
+            MigrateScreen::Matches => self.migration_visible_indices().len(),
         }
     }
 
@@ -2275,10 +2337,13 @@ impl AppState {
         {
             return;
         }
+        let Some(index) = self.selected_migration_index() else {
+            return;
+        };
         let Some(title) = self
             .migrate
             .matches
-            .get(self.browse_selection)
+            .get(index)
             .map(|matched| matched.old.title.clone())
         else {
             return;
@@ -2291,10 +2356,13 @@ impl AppState {
         if query.is_empty() {
             return;
         }
+        let Some(index) = self.selected_migration_index() else {
+            return;
+        };
         let Some(old) = self
             .migrate
             .matches
-            .get(self.browse_selection)
+            .get(index)
             .map(|matched| matched.old.clone())
         else {
             return;
@@ -2376,7 +2444,10 @@ impl AppState {
         );
         let (message, error) = match chapters {
             Ok(chapters) if !chapters.is_empty() => {
-                let Some(matched) = self.migrate.matches.get_mut(self.browse_selection) else {
+                let Some(index) = self.selected_migration_index() else {
+                    return;
+                };
+                let Some(matched) = self.migrate.matches.get_mut(index) else {
                     return;
                 };
                 matched.target = Some(result.manga.clone());
@@ -2405,7 +2476,10 @@ impl AppState {
         if self.migrate.screen != MigrateScreen::Matches {
             return;
         }
-        if let Some(matched) = self.migrate.matches.get_mut(self.browse_selection) {
+        let Some(index) = self.selected_migration_index() else {
+            return;
+        };
+        if let Some(matched) = self.migrate.matches.get_mut(index) {
             matched.skipped = !matched.skipped;
             let skipped = matched.skipped;
             let title = matched.old.title.clone();
@@ -17372,6 +17446,80 @@ mod tests {
             app.remote.status.as_deref(),
             Some("No matched manga to migrate.")
         );
+    }
+
+    fn migration_match_fixture(title: &str, matched: bool, chapters: usize) -> MigrationMatch {
+        MigrationMatch {
+            old: RemoteFavorite {
+                source_id: "1".to_owned(),
+                url: format!("/manga/{title}"),
+                title: title.to_owned(),
+                thumbnail_url: None,
+                last_read_url: None,
+                last_read_name: None,
+                categories: Vec::new(),
+            },
+            old_chapters: Vec::new(),
+            target: matched.then(|| RemoteManga {
+                source_id: "2".to_owned(),
+                url: format!("/target/{title}"),
+                title: title.to_owned(),
+                author: None,
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "unknown".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            }),
+            target_source: matched.then(|| RemoteSource {
+                id: "2".to_owned(),
+                name: "Target".to_owned(),
+                lang: "en".to_owned(),
+                pkg: None,
+                supports_latest: true,
+            }),
+            target_chapters: (0..chapters)
+                .map(|index| RemoteChapter {
+                    url: format!("/target/{title}/{index}"),
+                    name: format!("Chapter {}", index + 1),
+                    chapter_number: index as f32 + 1.0,
+                    scanlator: None,
+                    upload_date: 0,
+                    memo: None,
+                })
+                .collect(),
+            score: if matched { 1.0 } else { 0.0 },
+            error: (!matched).then(|| "No match found".to_owned()),
+            skipped: false,
+        }
+    }
+
+    #[test]
+    fn migration_match_options_filter_and_prioritize() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Migrate;
+        app.migrate.screen = MigrateScreen::Matches;
+        app.migrate.matches = vec![
+            migration_match_fixture("Alpha", true, 2),
+            migration_match_fixture("Beta", false, 0),
+            migration_match_fixture("Gamma", true, 5),
+        ];
+
+        app.migrate.hide_unmatched = true;
+        assert_eq!(app.migration_visible_indices(), vec![0, 2]);
+
+        app.migrate.hide_unmatched = false;
+        app.migrate.prioritize_chapters = true;
+        assert_eq!(app.migration_visible_indices(), vec![2, 0, 1]);
+
+        app.migrate.hide_unmatched = true;
+        assert_eq!(app.migration_visible_indices(), vec![2, 0]);
+        app.browse_selection = 1;
+        assert_eq!(app.selected_migration_index(), Some(0));
+        app.migrate_toggle_skip();
+        assert!(app.migrate.matches[0].skipped);
     }
 
     #[test]
