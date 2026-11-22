@@ -17,9 +17,9 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 19 | 0 | 1 | 0 | 95.0% |
-| [Settings, security, and data](#settings-security-and-data) | 12 | 1 | 1 | 0 | 89.3% |
+| [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **194** | **11** | **11** | **2** | **92.4%** |
+| **All categories** | **195** | **10** | **11** | **2** | **92.6%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -284,7 +284,7 @@ table below.
 | Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
 | Data | Storage statistics/cleanup | Yes | ✅ | ✅ | Sizes/counts, cover-cache cleanup, clear-all, and per-series deletion. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
-| Statistics | Dedicated statistics screen | Yes | 🟡 | 🟡 | History → Stats mini-tab. |
+| Statistics | Dedicated statistics screen | Yes | ✅ | ✅ | More → Statistics shows library/chapter counts, read states, reading time, and unique series read; History → Stats remains live. |
 
 ### Documented TUI deviations
 

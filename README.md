@@ -413,6 +413,8 @@ categories:
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
 - **Downloads** — configurable download folder, with the active queue shown in story
   headers.
+- **Statistics** — library and chapter counts, read/in-progress/unread chapters, reading
+  time for all time/today/7 days/30 days, and how many series were read.
 - **Data and storage** — storage counts and library/downloads/host sizes, refreshed
   with `r`; `c` clears cached covers and `d` deletes all downloaded chapters after
   confirmation. Imports and exports Mihon `.tachibk` / `.proto.gz` backups. Import restores

@@ -5740,18 +5740,83 @@ fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
         .iter()
         .map(|series| series.chapters.len())
         .sum();
+    let mut read = 0usize;
+    let mut in_progress = 0usize;
+    let mut unread = 0usize;
+    for series in &app.library.series {
+        for chapter in &series.chapters {
+            match read_state(
+                app.progress
+                    .entry(&chapter.path)
+                    .map(|entry| (entry.page, entry.pages)),
+            ) {
+                ReadState::Read => read += 1,
+                ReadState::InProgress => in_progress += 1,
+                ReadState::Unread => unread += 1,
+            }
+        }
+    }
+    let stats = &app.reading_stats;
     let lines = vec![
-        field("Series", &app.library.series.len().to_string(), c_green()),
-        field("Chapters", &chapters.to_string(), c_green()),
-        field(
+        Line::from(Span::styled(
+            " Library",
+            Style::default()
+                .fg(c_overlay0())
+                .add_modifier(Modifier::BOLD),
+        )),
+        stat_field("Series", &app.library.series.len().to_string(), c_green()),
+        stat_field("Chapters", &chapters.to_string(), c_green()),
+        stat_field(
             "Categories",
             &app.library.categories.len().to_string(),
             c_green(),
         ),
-        field(
+        stat_field(
             "Scan errors",
             &app.library.errors.len().to_string(),
             c_peach(),
+        ),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Chapters",
+            Style::default()
+                .fg(c_overlay0())
+                .add_modifier(Modifier::BOLD),
+        )),
+        stat_field("Read", &read.to_string(), c_green()),
+        stat_field("In progress", &in_progress.to_string(), c_blue()),
+        stat_field("Unread", &unread.to_string(), c_yellow()),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Reading time",
+            Style::default()
+                .fg(c_overlay0())
+                .add_modifier(Modifier::BOLD),
+        )),
+        stat_field(
+            "All time",
+            &format_duration(stats.total_seconds),
+            c_accent(),
+        ),
+        stat_field(
+            "Today",
+            &format_duration(stats.day_seconds(&today_key())),
+            c_green(),
+        ),
+        stat_field(
+            "Last 7d",
+            &format_duration(stats.range_seconds(7)),
+            c_teal(),
+        ),
+        stat_field(
+            "Last 30d",
+            &format_duration(stats.range_seconds(30)),
+            c_blue(),
+        ),
+        stat_field(
+            "Series read",
+            &stats.series_seconds.len().to_string(),
+            c_mauve(),
         ),
     ];
     let paragraph = Paragraph::new(Text::from(lines))
@@ -5762,8 +5827,16 @@ fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
             )),
             more_content_border(app),
         ))
-        .style(Style::default().fg(c_subtext1()));
+        .style(Style::default().fg(c_subtext1()))
+        .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
+}
+
+fn stat_field(label: &str, value: &str, value_color: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("{label:<12}"), Style::default().fg(c_overlay1())),
+        Span::styled(value.to_owned(), Style::default().fg(value_color)),
+    ])
 }
 
 fn draw_more_storage(frame: &mut Frame, area: Rect, app: &AppState) {
@@ -6755,6 +6828,25 @@ mod tests {
         assert!(!text.contains("Tsuiyomi"));
         assert!(!text.contains("commands"));
         assert!(text.contains("Library"));
+    }
+
+    #[test]
+    fn more_statistics_show_read_state_and_reading_time() {
+        let mut app = test_app();
+        let chapter = PathBuf::from("/tmp/library/Test Series/Chapter 1");
+        app.progress.update(&chapter, 0, 1);
+        app.reading_stats.total_seconds = 3661;
+        app.reading_stats.daily_seconds.insert(today_key(), 60);
+        app.tab = 4;
+        app.more_section = MoreSection::Statistics;
+
+        let text = render(&mut app, 80, 30);
+        assert!(text.contains("Statistics"));
+        assert!(text.contains("Read"));
+        assert!(text.contains("In progress"));
+        assert!(text.contains("All time"));
+        assert!(text.contains("1h 01m"));
+        assert!(text.contains("Categories"));
     }
 
     #[test]
