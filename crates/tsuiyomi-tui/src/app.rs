@@ -20,20 +20,20 @@ use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
     downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, import_series,
-    is_downloaded, legacy_remote_cover_path, load_cached_story, merge_extensions,
-    missing_chapter_count, move_series_downloads, normalized_title, page_dimensions,
-    parse_mihon_backup, progress_prefix, read_cover, read_page, read_state, remote_cover_path,
-    save_cached_story, save_config, scan_library, series_dir_name, source_dir_name,
-    story_cache_path, title_similarity, today_key, visible_chapters, write_comic_info,
-    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
-    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
-    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
-    HostClient, HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch,
-    MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode,
-    ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState,
-    RemoteSeries, RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreference,
-    SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme, TriState, UpdateEntry,
-    UpdateStore,
+    is_downloaded, latest_chapter_number, legacy_remote_cover_path, load_cached_story,
+    merge_extensions, missing_chapter_count, move_series_downloads, normalized_title,
+    page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page, read_state,
+    remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
+    source_dir_name, story_cache_path, title_similarity, today_key, visible_chapters,
+    write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
+    BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
+    ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
+    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibrarySort,
+    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
+    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, Series,
+    SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,
+    SourcePreferences, Theme, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -747,6 +747,7 @@ pub struct MigrateState {
     pub matches: Vec<MigrationMatch>,
     pub list_state: ListState,
     pub hide_unmatched: bool,
+    pub hide_without_updates: bool,
     pub prioritize_chapters: bool,
     apply_replace: bool,
     apply_queue: Vec<usize>,
@@ -1856,17 +1857,18 @@ impl AppState {
             .matches
             .iter()
             .enumerate()
-            .filter(|(_, matched)| !self.migrate.hide_unmatched || matched.target.is_some())
+            .filter(|(_, matched)| {
+                (!self.migrate.hide_unmatched || matched.target.is_some())
+                    && (!self.migrate.hide_without_updates || migration_has_updates(matched))
+            })
             .map(|(index, _)| index)
             .collect();
         if self.migrate.prioritize_chapters {
             indices.sort_by(|left, right| {
                 let left_match = &self.migrate.matches[*left];
                 let right_match = &self.migrate.matches[*right];
-                right_match
-                    .target_chapters
-                    .len()
-                    .cmp(&left_match.target_chapters.len())
+                latest_chapter_number(&right_match.target_chapters)
+                    .total_cmp(&latest_chapter_number(&left_match.target_chapters))
                     .then_with(|| left_match.old.title.cmp(&right_match.old.title))
             });
         }
@@ -1895,16 +1897,34 @@ impl AppState {
     }
 
     pub fn toggle_migration_prioritize(&mut self) {
-        if self.migrate.screen != MigrateScreen::Matches {
+        if !matches!(
+            self.migrate.screen,
+            MigrateScreen::Favorites | MigrateScreen::Matches
+        ) {
             return;
         }
         self.migrate.prioritize_chapters = !self.migrate.prioritize_chapters;
         self.browse_selection = 0;
         self.select_browse_entry(0);
         self.remote.status = Some(if self.migrate.prioritize_chapters {
-            "Prioritizing matches by chapter count".to_owned()
+            "Prioritizing sources by latest chapter".to_owned()
         } else {
-            "Match order restored".to_owned()
+            "Title matching order restored".to_owned()
+        });
+        self.remote.error = false;
+    }
+
+    pub fn toggle_migration_hide_without_updates(&mut self) {
+        if self.migrate.screen != MigrateScreen::Matches {
+            return;
+        }
+        self.migrate.hide_without_updates = !self.migrate.hide_without_updates;
+        self.browse_selection = 0;
+        self.select_browse_entry(0);
+        self.remote.status = Some(if self.migrate.hide_without_updates {
+            "Hiding matches without newer chapters".to_owned()
+        } else {
+            "Showing matches without newer chapters".to_owned()
         });
         self.remote.error = false;
     }
@@ -2204,6 +2224,7 @@ impl AppState {
                 client,
                 favorites,
                 targets,
+                prioritize_chapters: self.migrate.prioritize_chapters,
             });
             return;
         }
@@ -14740,6 +14761,10 @@ fn filesystem_added_at(series: &Series) -> Option<u64> {
         .map(|duration| duration.as_millis() as u64)
 }
 
+fn migration_has_updates(matched: &MigrationMatch) -> bool {
+    latest_chapter_number(&matched.target_chapters) > latest_chapter_number(&matched.old_chapters)
+}
+
 fn backup_added_at(manga: &BackupManga) -> Option<u64> {
     if manga.date_added > 0 {
         Some(manga.date_added as u64)
@@ -17692,6 +17717,27 @@ mod tests {
         assert_eq!(app.selected_migration_index(), Some(0));
         app.migrate_toggle_skip();
         assert!(app.migrate.matches[0].skipped);
+
+        app.migrate.hide_unmatched = false;
+        app.migrate.prioritize_chapters = false;
+        app.migrate.matches[0].old_chapters = vec![RemoteChapter {
+            url: "/old/1".to_owned(),
+            name: "Chapter 1".to_owned(),
+            chapter_number: 1.0,
+            scanlator: None,
+            upload_date: 0,
+            memo: None,
+        }];
+        app.migrate.matches[2].old_chapters = vec![RemoteChapter {
+            url: "/old/2".to_owned(),
+            name: "Chapter 10".to_owned(),
+            chapter_number: 10.0,
+            scanlator: None,
+            upload_date: 0,
+            memo: None,
+        }];
+        app.migrate.hide_without_updates = true;
+        assert_eq!(app.migration_visible_indices(), vec![0]);
     }
 
     #[test]

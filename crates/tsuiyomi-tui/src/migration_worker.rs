@@ -4,8 +4,8 @@ use std::{
 };
 
 use tsuiyomi_core::{
-    best_match, deep_queries, load_cached_story, HostClient, MigrationMatch, RemoteFavorite,
-    RemoteManga, RemoteSource,
+    best_match, deep_queries, latest_chapter_number, load_cached_story, HostClient, MigrationMatch,
+    RemoteChapter, RemoteFavorite, RemoteManga, RemoteSource,
 };
 
 pub(crate) struct MigrationRequest {
@@ -13,6 +13,7 @@ pub(crate) struct MigrationRequest {
     pub client: HostClient,
     pub favorites: Vec<RemoteFavorite>,
     pub targets: Vec<RemoteSource>,
+    pub prioritize_chapters: bool,
 }
 
 pub(crate) struct MigrationEvent {
@@ -45,6 +46,7 @@ impl MigrationWorker {
                         })
                         .unwrap_or_default();
                     let mut best: Option<(RemoteSource, RemoteManga, f64)> = None;
+                    let mut candidates: Vec<(RemoteSource, RemoteManga, f64)> = Vec::new();
                     for source in &request.targets {
                         if source.id == favorite.source_id {
                             continue;
@@ -74,8 +76,12 @@ impl MigrationWorker {
                             }
                         }
                         if let Some((manga, score)) = source_best {
+                            let candidate = (source.clone(), manga, score);
+                            if request.prioritize_chapters {
+                                candidates.push(candidate.clone());
+                            }
                             if best.as_ref().is_none_or(|(_, _, known)| score > *known) {
-                                best = Some((source.clone(), manga, score));
+                                best = Some(candidate);
                             }
                         }
                     }
@@ -90,7 +96,50 @@ impl MigrationWorker {
                         error: Some("No match found".to_owned()),
                         skipped: false,
                     };
-                    if let Some((source, target, score)) = best {
+                    if request.prioritize_chapters {
+                        // Mihon's prioritize-by-chapters mode searches every target
+                        // source and keeps the candidate with the newest chapter.
+                        let mut chosen: Option<(
+                            RemoteSource,
+                            RemoteManga,
+                            f64,
+                            Vec<RemoteChapter>,
+                        )> = None;
+                        let mut last_error = None;
+                        for (source, target, score) in candidates {
+                            match request.client.chapters(
+                                &source.id,
+                                &target.url,
+                                target.memo.as_deref(),
+                            ) {
+                                Ok(chapters) if !chapters.is_empty() => {
+                                    let newer = chosen.as_ref().is_none_or(|(_, _, _, known)| {
+                                        latest_chapter_number(&chapters)
+                                            > latest_chapter_number(known)
+                                    });
+                                    if newer {
+                                        chosen = Some((source, target, score, chapters));
+                                    }
+                                }
+                                Ok(_) => {}
+                                Err(error) => last_error = Some(error.to_string()),
+                            }
+                        }
+                        match chosen {
+                            Some((source, target, score, chapters)) => {
+                                matched.target = Some(target);
+                                matched.target_source = Some(source);
+                                matched.target_chapters = chapters;
+                                matched.score = score;
+                                matched.error = None;
+                            }
+                            None => {
+                                if let Some(error) = last_error {
+                                    matched.error = Some(error);
+                                }
+                            }
+                        }
+                    } else if let Some((source, target, score)) = best {
                         match request.client.chapters(
                             &source.id,
                             &target.url,

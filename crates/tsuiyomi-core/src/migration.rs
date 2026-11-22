@@ -24,6 +24,20 @@ pub struct MigrationMatch {
     pub skipped: bool,
 }
 
+/// Highest chapter number in a list, or `0.0` when there are none.
+pub fn latest_chapter_number(chapters: &[RemoteChapter]) -> f32 {
+    let latest = chapters
+        .iter()
+        .map(|chapter| chapter.chapter_number)
+        .filter(|number| number.is_finite())
+        .fold(f32::NEG_INFINITY, f32::max);
+    if latest.is_finite() {
+        latest
+    } else {
+        0.0
+    }
+}
+
 /// Normalized Levenshtein similarity in `0.0..=1.0`.
 pub fn title_similarity(left: &str, right: &str) -> f64 {
     let left = normalized_title(left);
@@ -135,6 +149,30 @@ mod tests {
         assert_eq!(title_similarity("Solo Leveling!", "solo leveling"), 1.0);
         assert!(title_similarity("Solo Leveling", "Solo Leveling 2") > 0.7);
         assert!(title_similarity("Berserk", "Naruto") < MATCH_THRESHOLD);
+    }
+
+    #[test]
+    fn latest_chapter_number_ignores_empty_lists() {
+        assert_eq!(latest_chapter_number(&[]), 0.0);
+        let chapters = vec![
+            RemoteChapter {
+                url: "/1".to_owned(),
+                name: "Chapter 1".to_owned(),
+                chapter_number: 1.0,
+                scanlator: None,
+                upload_date: 0,
+                memo: None,
+            },
+            RemoteChapter {
+                url: "/2".to_owned(),
+                name: "Chapter 2".to_owned(),
+                chapter_number: 2.0,
+                scanlator: None,
+                upload_date: 0,
+                memo: None,
+            },
+        ];
+        assert_eq!(latest_chapter_number(&chapters), 2.0);
     }
 
     #[test]

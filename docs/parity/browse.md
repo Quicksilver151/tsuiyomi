@@ -929,9 +929,9 @@ explicitly marked as a deliberate deviation.
 - [x] Similarity threshold.
 - [x] Same source/URL exclusion.
 - [x] Empty-chapter rejection.
-- [x] Prioritize by target chapter count.
+- [x] Prioritize by latest chapter.
 - [x] Hide unmatched.
-- [ ] Hide without updates.
+- [x] Hide without updates.
 - [x] Manual search override.
 - [x] Skip.
 - [x] Migrate now.
