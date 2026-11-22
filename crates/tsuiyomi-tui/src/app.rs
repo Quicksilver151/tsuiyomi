@@ -1028,6 +1028,7 @@ pub struct AppState {
     pub history_clear_confirm: bool,
     pub updates: UpdateStore,
     pub updates_selection: usize,
+    pub story_updated_at: Option<u64>,
     pub migrate: MigrateState,
     pub chapter_settings_modal: Option<ChapterSettingsModal>,
     history_dirty: bool,
@@ -1186,6 +1187,7 @@ impl AppState {
             history_clear_confirm: false,
             updates: UpdateStore::default(),
             updates_selection: 0,
+            story_updated_at: None,
             migrate: MigrateState::default(),
             chapter_settings_modal: None,
             history_dirty: false,
@@ -5422,6 +5424,7 @@ impl AppState {
         self.remote.manga = Some(manga.clone());
         self.remote.chapters.clear();
         self.remote.downloaded.clear();
+        self.story_updated_at = None;
         self.remote.remote_details_origin = origin;
         self.browse_view = BrowseView::RemoteDetails;
         self.browse_selection = 0;
@@ -13832,6 +13835,7 @@ impl AppState {
         }
         let key = remote_story_key(&remote.source_id, &remote.url);
         if let Some((manga, chapters)) = self.remote_chapter_cache.get(&key).cloned() {
+            self.story_updated_at = None;
             let mut manga = manga;
             if remote.thumbnail_url.is_some() {
                 manga.thumbnail_url = remote.thumbnail_url;
@@ -13850,6 +13854,7 @@ impl AppState {
             return;
         }
         if let Some(story) = load_cached_story(&remote.source_id, &remote.url) {
+            self.story_updated_at = Some(story.updated_at);
             let mut manga = story.manga;
             // Cached thumbnail URLs contain the old host process's port.
             manga.thumbnail_url = remote.thumbnail_url;
@@ -13884,7 +13889,7 @@ impl AppState {
             self.remote_chapter_cache.clear();
         }
         self.remote_chapter_cache
-            .insert(key, (manga.clone(), chapters.clone()));
+            .insert(key.clone(), (manga.clone(), chapters.clone()));
         let source_name = self
             .remote
             .sources
@@ -13894,6 +13899,20 @@ impl AppState {
         let mut story = CachedStory::new(manga, chapters);
         story.source_name = source_name;
         let _ = save_cached_story(&story);
+        let current_key = self
+            .remote
+            .manga
+            .as_ref()
+            .map(|manga| remote_story_key(&manga.source_id, &manga.url))
+            .or_else(|| {
+                self.library_remote
+                    .manga
+                    .as_ref()
+                    .map(|manga| remote_story_key(&manga.source_id, &manga.url))
+            });
+        if current_key.as_deref() == Some(key.as_str()) {
+            self.story_updated_at = Some(story.updated_at);
+        }
     }
 
     fn goto_library_remote_story(&mut self) {

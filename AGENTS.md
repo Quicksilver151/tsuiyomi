@@ -246,10 +246,11 @@ Rules:
   copy/open, cover share through the system viewer, relative source-page URL resolution
   through installed extension metadata, cover overlay, tag search, and custom
   covers for local or saved source manga.
-  The details pane warns when a remote source extension is not loaded. Panels with item
-  actions support multi-select with `Space` (stable keys, `✓` markers, count in the
-  commands bar; Esc clears); delete, install/uninstall/update/pin, source pinning, store
-  removal, save to library, chapter download, and bookmark all operate on the selection. In the Library
+  The details pane shows the cached story refresh age and warns when a remote source
+  extension is not loaded. Panels with item actions support multi-select with `Space`
+  (stable keys, `✓` markers, count in the commands bar; Esc clears); delete,
+  install/uninstall/update/pin, source pinning, store removal, save to library, chapter
+  download, and bookmark all operate on the selection. In the Library
   grid, `x`/Delete opens a
   remove dialog with "Manga from library" and, for saved source manga, "Downloaded
   chapters" checkboxes, mirroring Mihon's delete dialog. Removing a local series writes
