@@ -11,6 +11,7 @@ image.workspace = true
 ratatui.workspace = true
 ratatui-image.workspace = true
 tsuiyomi-core.workspace = true
+unicode-width.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

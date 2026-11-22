@@ -224,7 +224,9 @@ mirrored into the config so they appear before the extension host starts.
 
 Local and saved-source series open the same story screen: chapter list on the left,
 cover and metadata on the right. Browse uses that screen too. Rows show unread,
-in-progress, and read state, chapter dates, scanlators, bookmarks, and download state;
+in-progress, and read state, scanlators, bookmarks, and download state. Chapter release
+dates are right-aligned, and in-progress page counts sit immediately after the chapter
+title;
 chapter filters, sorting, and display mode persist per series. `x`/Delete removes
 selected downloads after confirmation, `c` edits categories for saved source manga,
 `M` opens Migrate with the manga selected, `N` edits notes, `Y` copies tags, `E` writes a

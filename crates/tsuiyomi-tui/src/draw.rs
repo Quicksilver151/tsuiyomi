@@ -23,6 +23,7 @@ use tsuiyomi_core::{
     ProgressStore, ReadState, ReadingMode, RemoteChapter, RemoteManga, RemoteSource, Series,
     SourceDisplayMode, SourceFilter, SourcePreferenceKind, Theme, UpdateEntry,
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     app::{
@@ -1856,7 +1857,7 @@ fn draw_library_chapters(
         selected: app.selected_keys(SelectionScope::LocalChapters),
         download_states: &app.download_states,
     };
-    let items = local_chapter_items(&series.chapters, &indices, &row_state);
+    let items = local_chapter_items(&series.chapters, &indices, &row_state, list_area.width);
     let position = app.story_chapter_position();
     let summary = story_chapter_summary(
         &settings,
@@ -1918,6 +1919,7 @@ fn draw_library_remote_detail(
         &app.library_remote.downloaded,
         &indices,
         &row_state,
+        list_area.width,
     );
     let position = app.story_chapter_position();
     let summary = story_chapter_summary(
@@ -4096,6 +4098,7 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         &app.remote.downloaded,
         &indices,
         &row_state,
+        layout.list.width,
     );
     let position = app.story_chapter_position();
     let summary = story_chapter_summary(
@@ -4655,7 +4658,7 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
         selected: app.selected_keys(SelectionScope::LocalChapters),
         download_states: &app.download_states,
     };
-    let items = local_chapter_items(&series.chapters, &indices, &row_state);
+    let items = local_chapter_items(&series.chapters, &indices, &row_state, layout.list.width);
     let position = app.story_chapter_position();
     let summary = story_chapter_summary(
         &settings,
@@ -4991,10 +4994,25 @@ struct ChapterRowState<'a> {
     download_states: &'a BTreeMap<String, DownloadState>,
 }
 
+fn push_right_aligned_date(spans: &mut Vec<Span<'static>>, date: String, width: u16) {
+    let current: usize = spans
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum();
+    let date_width = UnicodeWidthStr::width(date.as_str());
+    let target = width.saturating_sub(4) as usize;
+    let padding = target.saturating_sub(current + date_width);
+    if padding > 0 {
+        spans.push(Span::raw(" ".repeat(padding)));
+    }
+    spans.push(Span::styled(date, Style::default().fg(c_overlay0())));
+}
+
 fn local_chapter_items(
     chapters: &[Chapter],
     indices: &[usize],
     state: &ChapterRowState<'_>,
+    width: u16,
 ) -> Vec<ListItem<'static>> {
     let ChapterRowState {
         settings,
@@ -5025,6 +5043,12 @@ fn local_chapter_items(
                     Style::default().fg(c_overlay0()),
                 ));
             }
+            if let Some(entry) = entry.filter(|_| read == ReadState::InProgress) {
+                spans.push(Span::styled(
+                    format!("  {}/{}", entry.page + 1, entry.pages),
+                    Style::default().fg(c_teal()),
+                ));
+            }
             if let Some(scanlator) = chapter
                 .scanlator
                 .as_deref()
@@ -5036,16 +5060,11 @@ fn local_chapter_items(
                 ));
             }
             if let Some(date) = chapter.date {
-                spans.push(Span::styled(
-                    format!("  {:04}-{:02}-{:02}", date.year, date.month, date.day),
-                    Style::default().fg(c_overlay0()),
-                ));
-            }
-            if let Some(entry) = entry.filter(|_| read == ReadState::InProgress) {
-                spans.push(Span::styled(
-                    format!("  {}/{}", entry.page + 1, entry.pages),
-                    Style::default().fg(c_teal()),
-                ));
+                push_right_aligned_date(
+                    &mut spans,
+                    format!("{:04}-{:02}-{:02}", date.year, date.month, date.day),
+                    width,
+                );
             }
             ListItem::new(Line::from(spans))
         })
@@ -5058,6 +5077,7 @@ fn remote_chapter_items(
     downloaded: &[bool],
     indices: &[usize],
     state: &ChapterRowState<'_>,
+    width: u16,
 ) -> Vec<ListItem<'static>> {
     let ChapterRowState {
         settings,
@@ -5096,6 +5116,12 @@ fn remote_chapter_items(
                     Style::default().fg(c_overlay0()),
                 ));
             }
+            if let Some(entry) = entry.filter(|_| read == ReadState::InProgress) {
+                spans.push(Span::styled(
+                    format!("  {}/{}", entry.page + 1, entry.pages),
+                    Style::default().fg(c_teal()),
+                ));
+            }
             if let Some(scanlator) = chapter
                 .scanlator
                 .as_deref()
@@ -5113,17 +5139,8 @@ fn remote_chapter_items(
                     chapter.upload_date
                 };
                 if let Some(date) = DateTime::from_timestamp(seconds, 0) {
-                    spans.push(Span::styled(
-                        format!("  {}", date.format("%Y-%m-%d")),
-                        Style::default().fg(c_overlay0()),
-                    ));
+                    push_right_aligned_date(&mut spans, date.format("%Y-%m-%d").to_string(), width);
                 }
-            }
-            if let Some(entry) = entry.filter(|_| read == ReadState::InProgress) {
-                spans.push(Span::styled(
-                    format!("  {}/{}", entry.page + 1, entry.pages),
-                    Style::default().fg(c_teal()),
-                ));
             }
             ListItem::new(Line::from(spans))
         })
@@ -6945,6 +6962,21 @@ mod tests {
         assert!(text.contains("All time"));
         assert!(text.contains("1h 01m"));
         assert!(text.contains("Categories"));
+    }
+
+    #[test]
+    fn chapter_dates_are_right_aligned() {
+        let mut spans = vec![Span::raw("abc")];
+        push_right_aligned_date(&mut spans, "2024-01-01".to_owned(), 20);
+        let total: usize = spans
+            .iter()
+            .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+            .sum();
+        assert_eq!(total, 16);
+        assert_eq!(
+            spans.last().map(|span| span.content.as_ref()),
+            Some("2024-01-01")
+        );
     }
 
     #[test]

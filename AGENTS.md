@@ -239,9 +239,11 @@ Rules:
   chapter/reader path. The shared story screen applies persisted chapter settings
   (`chapter_settings`, falling back to `chapter_defaults`): tri-state downloaded/unread/
   bookmarked filters, excluded scanlators, source/number/date/title sorting with
-  direction, title/number display, and download-new-chapters. Rows show unread/in-progress/read markers, dates,
-  scanlators, bookmarks, and download queue state. Chapter actions cover select all/
-  invert, mark read/unread/previous, continue reading, single and batch downloads
+  direction, title/number display, and download-new-chapters. Rows show
+  unread/in-progress/read markers, scanlators, bookmarks, and download queue state;
+  chapter dates are right-aligned and in-progress page counts follow the chapter title.
+  Chapter actions cover select all/invert, mark read/unread/previous, continue reading,
+  single and batch downloads
   (selected, next 1/5/10/25, unread, bookmarked), queue cancellation, download deletion,
   categories, notes, migrate, tag copy, `ComicInfo.xml` export for local series,
   copy/open, cover share through the system viewer, relative source-page URL resolution

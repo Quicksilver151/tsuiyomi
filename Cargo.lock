@@ -2537,6 +2537,7 @@ dependencies = [
  "ratatui-image",
  "tempfile",
  "tsuiyomi-core",
+ "unicode-width",
 ]
 
 [[package]]
