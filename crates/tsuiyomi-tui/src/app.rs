@@ -9600,6 +9600,12 @@ impl AppState {
 
     fn story_reference(&self) -> Option<String> {
         if let Some(manga) = self.remote_story_manga() {
+            if manga.url.starts_with("http://") || manga.url.starts_with("https://") {
+                return Some(manga.url.clone());
+            }
+            if let Some(base) = self.source_base_url(&manga.source_id) {
+                return Some(join_source_url(base, &manga.url));
+            }
             return Some(manga.url.clone());
         }
         if self.tab == 0 && self.view == LibraryView::Chapters {
@@ -9613,6 +9619,16 @@ impl AppState {
                 .map(|series| series.path.display().to_string());
         }
         None
+    }
+
+    fn source_base_url(&self, source_id: &str) -> Option<&str> {
+        self.remote
+            .extensions
+            .iter()
+            .flat_map(|extension| &extension.sources)
+            .find(|source| source.id == source_id)
+            .map(|source| source.base_url.as_str())
+            .filter(|base| !base.trim().is_empty())
     }
 
     pub fn toggle_cover_overlay(&mut self) {
@@ -14761,6 +14777,17 @@ fn filesystem_added_at(series: &Series) -> Option<u64> {
         .map(|duration| duration.as_millis() as u64)
 }
 
+fn join_source_url(base: &str, path: &str) -> String {
+    if path.starts_with("http://") || path.starts_with("https://") {
+        return path.to_owned();
+    }
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
+}
+
 fn migration_has_updates(matched: &MigrationMatch) -> bool {
     latest_chapter_number(&matched.target_chapters) > latest_chapter_number(&matched.old_chapters)
 }
@@ -17629,6 +17656,40 @@ mod tests {
     }
 
     #[test]
+    fn extension_base_urls_resolve_relative_story_links() {
+        let mut app = remote_app();
+        app.remote.extensions = vec![ExtensionInfo {
+            name: "Alpha".to_owned(),
+            pkg: "pkg.a".to_owned(),
+            lang: "en".to_owned(),
+            version: "1.0".to_owned(),
+            apk: "alpha.apk".to_owned(),
+            installed: true,
+            nsfw: false,
+            source_count: 1,
+            sources: vec![ExtensionSource {
+                name: "Alpha".to_owned(),
+                lang: "en".to_owned(),
+                id: "1".to_owned(),
+                base_url: "https://example.org".to_owned(),
+            }],
+            repo_url: "https://example.org/index.min.json".to_owned(),
+            available_version: None,
+            obsolete: false,
+        }];
+
+        assert_eq!(app.source_base_url("1"), Some("https://example.org"));
+        assert_eq!(
+            join_source_url("https://example.org/", "/manga/test"),
+            "https://example.org/manga/test"
+        );
+        assert_eq!(
+            join_source_url("https://example.org", "https://cdn.example/manga"),
+            "https://cdn.example/manga"
+        );
+    }
+
+    #[test]
     fn migrate_apply_reports_when_nothing_is_matched() {
         let mut app = remote_app();
         app.tab = 3;
@@ -18401,6 +18462,63 @@ mod tests {
         app.extension_search_stop(true);
         assert!(!app.extension_search);
         assert_eq!(app.filtered_extension_count(), 2);
+    }
+
+    #[test]
+    fn extension_search_matches_source_ids_and_base_urls() {
+        let mut app = remote_app();
+        let extension = |name: &str, pkg: &str, sources: Vec<ExtensionSource>| ExtensionInfo {
+            name: name.to_owned(),
+            pkg: pkg.to_owned(),
+            lang: "en".to_owned(),
+            version: "1.0".to_owned(),
+            apk: format!("{pkg}.apk"),
+            installed: false,
+            nsfw: false,
+            source_count: sources.len(),
+            sources,
+            repo_url: "repo".to_owned(),
+            available_version: None,
+            obsolete: false,
+        };
+        app.remote.extensions = vec![
+            extension(
+                "Repo Extension",
+                "pkg.repo",
+                vec![ExtensionSource {
+                    name: "Example".to_owned(),
+                    lang: "en".to_owned(),
+                    id: "123".to_owned(),
+                    base_url: "https://source.example".to_owned(),
+                }],
+            ),
+            extension("Other", "pkg.other", Vec::new()),
+        ];
+        app.browse_view = BrowseView::Extensions;
+        app.browse_tab = BrowseTab::Extensions;
+
+        app.extension_search_start();
+        for character in "source.example".chars() {
+            app.extension_search_push(character);
+        }
+        assert_eq!(app.filtered_extension_count(), 1);
+        assert_eq!(
+            app.selected_extension()
+                .map(|extension| extension.name.as_str()),
+            Some("Repo Extension")
+        );
+
+        app.extension_search_stop(true);
+        app.extension_search_start();
+        for character in "123".chars() {
+            app.extension_search_push(character);
+        }
+        assert_eq!(app.filtered_extension_count(), 1);
+        assert_eq!(
+            app.selected_extension()
+                .map(|extension| extension.name.as_str()),
+            Some("Repo Extension")
+        );
     }
 
     #[test]

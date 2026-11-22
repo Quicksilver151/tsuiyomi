@@ -224,8 +224,8 @@ chapter filters, sorting, and display mode persist per series. `x`/Delete remove
 selected downloads after confirmation, `c` edits categories for saved source manga,
 `M` opens Migrate with the manga selected, `N` edits notes, `Y` copies tags, `E` writes a
 Mihon-readable `ComicInfo.xml` for a local series, `C` copies the URL, `S` opens the cover
-in the system viewer, `o` opens the local folder or an absolute source URL, `t` searches a
-tag, and `w`/`W` show
+in the system viewer, `o` opens the local folder or source page (resolving relative URLs
+through extension metadata), `t` searches a tag, and `w`/`W` show
 the cover or set a custom cover for local or saved source manga. An empty path removes a
 custom source cover. Remote chapters can be downloaded with `D`; they are read from disk
 afterwards, even when the source is offline. Cancelling a queue aborts the active

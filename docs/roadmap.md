@@ -11,15 +11,15 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 0 | 0 | 97.7% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
-| [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 0 | 1 | 95.2% |
+| [Browse, sources, and global search](#browse-sources-and-global-search) | 29 | 2 | 0 | 1 | 96.8% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 43 | 1 | 2 | 1 | 94.6% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 44 | 0 | 2 | 1 | 95.7% |
 | [Reader](#reader) | 16 | 0 | 1 | 0 | 94.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
-| [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 3 | 62.5% |
-| **All categories** | **200** | **7** | **6** | **6** | **95.5%** |
+| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 1 | 3 | 75.0% |
+| **All categories** | **203** | **4** | **6** | **6** | **96.2%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -111,7 +111,7 @@ table below.
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
 | Stores | Store name / website / counts | Yes | 🟡 | 🟡 | Rows show URL, extension count, and installed count; no website metadata. |
 | Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, favorites, filters, preferences, extension lists, migration matching, and remote details/chapters fetch on workers; mutations and migration apply still block. |
-| Search | Extension source URL/id search terms | Yes | 🟡 | 🟡 | Installed source ids/base URLs; repo-only entries expose names/languages. |
+| Search | Extension source URL/id search terms | Yes | ✅ | ✅ | Matches names, packages, languages, source IDs, and source base URLs for installed and repository entries. |
 | Search | Debounced extension search | Yes | ➖ | ➖ | Local filtering is immediate, so a debounce would only add latency. |
 
 ### Extensions and host lifecycle
@@ -161,7 +161,7 @@ table below.
 | Header | Migrate from story | Yes | ✅ | ✅ | `M`, preloads Migrate. |
 | Header | Tracking action | Yes | ❌ | ❌ | Separate integration milestone. |
 | Header | Copy/share URL | Yes | ✅ | ✅ | OSC 52 clipboard. |
-| Header | Open source page | Yes | 🟡 | 🟡 | Opens absolute URLs or local folders; relative source URLs need copy. |
+| Header | Open source page | Yes | ✅ | ✅ | Opens absolute URLs, local folders, and relative source paths resolved through the installed extension base URL; falls back to copied text when metadata is unavailable. |
 | Header | Refresh details and chapters | Yes | ✅ | ✅ | Remote refresh; local rescan. |
 | Header | Continue reading | Yes | ✅ | ✅ | In-progress first, then first unread. |
 | Chapter list | Title / number / date | Yes | ✅ | ✅ | Display mode switches title/number emphasis. |
@@ -290,7 +290,7 @@ table below.
 
 | Android feature | TUI equivalent | Status | Notes |
 |---|---|---|---|
-| WebView source page | Copy URL (`C`) / open absolute URL (`o`) | 🟡 | Relative source URLs cannot be opened externally without a base URL. |
+| WebView source page | Copy URL (`C`) / open URL (`o`) | ✅ | Relative source URLs resolve through installed extension metadata when available. |
 | Android share sheet | OSC 52 clipboard copy / open file | ✅ | `C` on story; `S` opens the cached cover externally. |
 | File picker | Path-entry dialog | ✅ | Custom covers and series import. |
 | Swipe actions | Keys and download menu | ➖ | Intentional terminal deviation. |
