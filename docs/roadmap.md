@@ -11,15 +11,15 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 20 | 2 | 0 | 0 | 95.5% |
 | [Library](#library) | 15 | 1 | 0 | 0 | 96.9% |
-| [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 1 | 0 | 92.2% |
-| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 2 | 0 | 90.0% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 42 | 1 | 4 | 0 | 90.4% |
+| [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 0 | 1 | 95.2% |
+| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 42 | 1 | 3 | 1 | 92.4% |
 | [Reader](#reader) | 15 | 1 | 1 | 0 | 91.2% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 19 | 0 | 1 | 0 | 95.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
-| [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 2 | 62.5% |
-| **All categories** | **195** | **10** | **11** | **2** | **92.6%** |
+| [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 3 | 62.5% |
+| **All categories** | **195** | **10** | **8** | **6** | **93.9%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -112,7 +112,7 @@ table below.
 | Stores | Store name / website / counts | Yes | 🟡 | 🟡 | Rows show URL, extension count, and installed count; no website metadata. |
 | Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, favorites, filters, preferences, extension lists, migration matching, and remote details/chapters fetch on workers; mutations and migration apply still block. |
 | Search | Extension source URL/id search terms | Yes | 🟡 | 🟡 | Installed source ids/base URLs; repo-only entries expose names/languages. |
-| Search | Debounced extension search | Yes | ❌ | ❌ | Local filtering is immediate. |
+| Search | Debounced extension search | Yes | ➖ | ➖ | Local filtering is immediate, so a debounce would only add latency. |
 
 ### Extensions and host lifecycle
 
@@ -142,7 +142,7 @@ table below.
 | Warnings | Private/shared/obsolete indicators | Yes | 🟡 | 🟡 | Private (installed outside a repo) and obsolete flags shown; shared/signature states remain. |
 | Languages | Enabled-language filtering | Yes | ✅ | ✅ | Installed entries remain manageable. |
 | Search | Comma-separated extension terms | Yes | ✅ | ✅ | Matches names, packages, languages, source names. |
-| WebView | WebView-dependent sources | Yes | ❌ | ❌ | Unsupported by design. |
+| WebView | WebView-dependent sources | Yes | ➖ | ➖ | Unsupported by design; documented TUI deviation. |
 
 ### Shared story / chapter screen
 
@@ -194,7 +194,7 @@ table below.
 | Actions | Remote cover share/delete | Yes | ❌ | ❌ | Replace/remove only. |
 | Actions | Tag search | Yes | ✅ | ✅ | `t` picker. |
 | Actions | Tag copy | Yes | ✅ | ✅ | `Y` copies the story tags through OSC 52. |
-| Gestures | Swipe to read/bookmark/download | Yes | ❌ | ❌ | TUI uses keys and menu actions. |
+| Gestures | Swipe to read/bookmark/download | Yes | ➖ | ➖ | TUI uses keys and menu actions. |
 
 ### Reader
 
@@ -296,6 +296,7 @@ table below.
 | Swipe actions | Keys and download menu | ➖ | Intentional terminal deviation. |
 | Tracker OAuth dialogs | None | ❌ | Separate integration. |
 | Android notifications | TUI status bar/queue markers | ➖ | No background daemon notifications. |
+| WebView-dependent source | None | ➖ | The host has no browser engine, so these sources stay unsupported. |
 
 ## Verification snapshot
 
