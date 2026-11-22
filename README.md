@@ -243,8 +243,9 @@ in the Mihon `local/` directory and rescan.
 
 ## Categories
 
-More → Categories lists categories and their series counts. `a` adds a category, `Enter`
-renames the selected category, and `x`/Delete removes it. Local story screens also edit
+More → Categories lists categories and their series counts. `a` adds a category, `+`/`-`
+reorders it, `Enter` renames the selected category, and `x`/Delete removes it. `Default`
+stays first. Local story screens also edit
 category assignments, writing `categories.json` in the Mihon library root.
 
 ## History

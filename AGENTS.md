@@ -185,8 +185,9 @@ Rules:
   generated `cover.jpg` from the first image of the first chapter, like Mihon (capped at
   512 px on the longest edge). Cover generation is best-effort and must not fail a scan.
 - Categories come from `categories.json` in the library root (Mihon keeps them in its
-  database). Unlisted series fall into `Default`. More → Categories adds/renames/deletes
-  categories, and local story screens edit assignments; writes preserve the file format.
+  database). Unlisted series fall into `Default`. More → Categories adds, reorders,
+  renames, and deletes categories, and local story screens edit assignments; writes
+  preserve the file format.
   Replace this with the DB layer later.
 - The initial scan, refresh, and rescan run on a background scan worker after the TUI
   opens; the Library fills in when it finishes. Browse mutations and migration apply

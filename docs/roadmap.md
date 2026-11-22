@@ -283,7 +283,7 @@ table below.
 | Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
 | Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
 | Data | Storage statistics/cleanup | Yes | ✅ | ✅ | Sizes/counts, cover-cache cleanup, clear-all, and per-series deletion. |
-| Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds/renames/deletes; no reordering yet. |
+| Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds, reorders with `+`/`-`, renames, and deletes; `Default` stays first. |
 | Statistics | Dedicated statistics screen | Yes | ✅ | ✅ | More → Statistics shows library/chapter counts, read states, reading time, and unique series read; History → Stats remains live. |
 
 ### Documented TUI deviations

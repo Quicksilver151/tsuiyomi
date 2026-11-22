@@ -12571,6 +12571,37 @@ impl AppState {
         }
     }
 
+    pub fn move_manage_category(&mut self, delta: i32) {
+        let index = self.category_manage_index;
+        let Some(target) = index
+            .checked_add_signed(delta as isize)
+            .filter(|target| *target < self.library.categories.len())
+        else {
+            return;
+        };
+        let Some(name) = self.library.categories.get(index).cloned() else {
+            return;
+        };
+        if name == "Default" {
+            self.status = Some("Default stays first.".to_owned());
+            return;
+        }
+        if target == 0
+            && self
+                .library
+                .categories
+                .first()
+                .is_some_and(|first| first == "Default")
+        {
+            self.status = Some("Default stays first.".to_owned());
+            return;
+        }
+        self.library.categories.swap(index, target);
+        self.category_manage_index = target;
+        self.save_library_categories();
+        self.status = Some(format!("Moved category {name}"));
+    }
+
     fn selected_manage_category(&self) -> Option<String> {
         self.library
             .categories
@@ -15445,6 +15476,16 @@ mod tests {
 
         app.add_category("Plan to Read");
         assert!(app.library.categories.contains(&"Plan to Read".to_owned()));
+
+        app.add_category("Later");
+        app.category_manage_index = 2;
+        let before = app.library.categories.clone();
+        app.move_manage_category(-1);
+        assert_eq!(app.library.categories[1], before[2]);
+        assert_eq!(app.category_manage_index, 1);
+        app.move_manage_category(-1);
+        assert_eq!(app.library.categories[0], "Default");
+        assert_eq!(app.category_manage_index, 1);
     }
 
     #[test]

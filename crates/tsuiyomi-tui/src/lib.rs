@@ -1162,7 +1162,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::ZoomIn => {
-                if app.tab == 4 {
+                if app.tab == 4 && app.more_section == MoreSection::Categories {
+                    app.move_manage_category(1);
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content
                         && app.more_section == MoreSection::Settings
                     {
@@ -1173,7 +1175,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::ZoomOut => {
-                if app.tab == 4 {
+                if app.tab == 4 && app.more_section == MoreSection::Categories {
+                    app.move_manage_category(-1);
+                } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content
                         && app.more_section == MoreSection::Settings
                     {
