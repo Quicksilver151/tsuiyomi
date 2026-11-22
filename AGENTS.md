@@ -118,6 +118,10 @@ References:
 - Advanced local metadata: <https://mihon.app/docs/guides/local-source/advanced>
 - Backups: <https://mihon.app/docs/guides/backups>
 
+Mihon's `BackupManga.dateAdded` and `favoriteModifiedAt` fields are parsed and exported;
+the library uses them for the recently-added sort, falling back to local filesystem
+timestamps when a series predates the field.
+
 ## Architecture
 
 The backend is **data-driven and UI-agnostic**. It must be usable from a TUI today and a
@@ -344,8 +348,8 @@ Rules:
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
   `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
-  `remote_library`, `downloads_path`, and `hidden_series`, and preserves unknown keys from
-  existing files.
+  `remote_library`, `series_added_at`, `downloads_path`, and `hidden_series`, and preserves
+  unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

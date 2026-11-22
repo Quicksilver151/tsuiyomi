@@ -6721,6 +6721,13 @@ impl AppState {
                     .cloned()
                     .unwrap_or_default(),
                 history,
+                date_added: self
+                    .config
+                    .series_added_at
+                    .get(&remote_series_identity(&favorite.source_id, &favorite.url))
+                    .copied()
+                    .unwrap_or(0) as i64,
+                favorite_modified_at: None,
             });
         }
 
@@ -6819,6 +6826,8 @@ impl AppState {
                     .cloned()
                     .unwrap_or_default(),
                 history,
+                date_added: self.config.series_added_at.get(&key).copied().unwrap_or(0) as i64,
+                favorite_modified_at: None,
             });
         }
 
@@ -6891,6 +6900,12 @@ impl AppState {
                     || series.title == manga.title)
         })?;
         let series = self.library.series[index].clone();
+        if let Some(added) = backup_added_at(manga) {
+            self.config
+                .series_added_at
+                .entry(format!("local:{}", series.path.display()))
+                .or_insert(added);
+        }
 
         let categories: Vec<String> = manga
             .category_ids
@@ -7108,6 +7123,12 @@ impl AppState {
                 memo: None,
             };
             let story_key = remote_story_key(&source.id, &manga.url);
+            if let Some(added) = backup_added_at(manga) {
+                self.config
+                    .series_added_at
+                    .entry(remote_series_identity(&source.id, &manga.url))
+                    .or_insert(added);
+            }
             if manga.favorite
                 && !self.is_favorite(&source.id, &manga.url)
                 && client.add_favorite(&remote_manga).is_err()
@@ -8872,6 +8893,43 @@ impl AppState {
                         .count()
                 };
                 unread(*right).cmp(&unread(*left)).then_with(|| {
+                    self.library.series[*left]
+                        .title
+                        .cmp(&self.library.series[*right].title)
+                })
+            }),
+            LibrarySort::LastReadDesc => {
+                let last_read: BTreeMap<String, u64> = self
+                    .history
+                    .latest_per_series()
+                    .into_iter()
+                    .map(|(_, entry)| (entry.series_key(), entry.last_read))
+                    .collect();
+                indices.sort_by(|left, right| {
+                    let when = |index: usize| {
+                        last_read
+                            .get(&series_identity(&self.library.series[index]))
+                            .copied()
+                            .unwrap_or(0)
+                    };
+                    when(*right).cmp(&when(*left)).then_with(|| {
+                        self.library.series[*left]
+                            .title
+                            .cmp(&self.library.series[*right].title)
+                    })
+                });
+            }
+            LibrarySort::DateAddedDesc => indices.sort_by(|left, right| {
+                let added = |index: usize| {
+                    let series = &self.library.series[index];
+                    self.config
+                        .series_added_at
+                        .get(&series_identity(series))
+                        .copied()
+                        .or_else(|| filesystem_added_at(series))
+                        .unwrap_or(0)
+                };
+                added(*right).cmp(&added(*left)).then_with(|| {
                     self.library.series[*left]
                         .title
                         .cmp(&self.library.series[*right].title)
@@ -12669,6 +12727,8 @@ impl AppState {
                     LibrarySort::ChapterCountDesc,
                     LibrarySort::LatestChapterDesc,
                     LibrarySort::UnreadDesc,
+                    LibrarySort::LastReadDesc,
+                    LibrarySort::DateAddedDesc,
                 ];
                 let index = sorts
                     .iter()
@@ -14014,6 +14074,27 @@ impl AppState {
             }
         }
         self.clamp_selection();
+        self.record_series_added();
+    }
+
+    fn record_series_added(&mut self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        let mut changed = false;
+        for series in &self.library.series {
+            let key = series_identity(series);
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.config.series_added_at.entry(key)
+            {
+                slot.insert(now);
+                changed = true;
+            }
+        }
+        if changed {
+            self.persist_settings();
+        }
     }
 
     pub fn open_library_remote_chapter(&mut self, index: usize) {
@@ -14635,6 +14716,39 @@ fn global_group_cmp(
 
 fn remote_story_key(source_id: &str, url: &str) -> String {
     format!("{source_id}\n{url}")
+}
+
+fn remote_series_identity(source_id: &str, url: &str) -> String {
+    format!("remote:{source_id}\n{url}")
+}
+
+fn series_identity(series: &Series) -> String {
+    match &series.remote {
+        Some(remote) => remote_series_identity(&remote.source_id, &remote.url),
+        None => format!("local:{}", series.path.display()),
+    }
+}
+
+fn filesystem_added_at(series: &Series) -> Option<u64> {
+    if series.remote.is_some() {
+        return None;
+    }
+    let metadata = std::fs::metadata(&series.path).ok()?;
+    let time = metadata.created().or_else(|_| metadata.modified()).ok()?;
+    time.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as u64)
+}
+
+fn backup_added_at(manga: &BackupManga) -> Option<u64> {
+    if manga.date_added > 0 {
+        Some(manga.date_added as u64)
+    } else {
+        manga
+            .favorite_modified_at
+            .filter(|value| *value > 0)
+            .map(|value| value as u64 * 1000)
+    }
 }
 
 fn local_chapter_metas<'a>(
@@ -15275,6 +15389,58 @@ mod tests {
         assert_eq!(app.downloads_selection, 0);
         app.open_downloads_delete_confirm();
         assert!(!app.downloads_delete_confirm);
+    }
+
+    #[test]
+    fn library_sorts_by_last_read_and_date_added() {
+        let mut app = AppState::new(library(), None);
+
+        let mut older = HistoryEntry::local(
+            "Azumanga".to_owned(),
+            "Chapter 1".to_owned(),
+            "Azumanga".into(),
+            "Azumanga/Chapter 1".into(),
+            None,
+            0,
+            1,
+        );
+        older.last_read = 200;
+        app.history.record("Azumanga/Chapter 1".to_owned(), older);
+        let mut newer = HistoryEntry::local(
+            "Berserk".to_owned(),
+            "Chapter 1".to_owned(),
+            "Berserk".into(),
+            "Berserk/Chapter 1".into(),
+            None,
+            0,
+            1,
+        );
+        newer.last_read = 300;
+        app.history.record("Berserk/Chapter 1".to_owned(), newer);
+
+        app.config.library_sort = LibrarySort::LastReadDesc;
+        assert_eq!(
+            app.visible_indices()
+                .first()
+                .and_then(|index| app.library.series.get(*index))
+                .map(|series| series.title.as_str()),
+            Some("Berserk")
+        );
+
+        app.config
+            .series_added_at
+            .insert("local:Azumanga".to_owned(), 2_000);
+        app.config
+            .series_added_at
+            .insert("local:Berserk".to_owned(), 1_000);
+        app.config.library_sort = LibrarySort::DateAddedDesc;
+        assert_eq!(
+            app.visible_indices()
+                .first()
+                .and_then(|index| app.library.series.get(*index))
+                .map(|series| series.title.as_str()),
+            Some("Azumanga")
+        );
     }
 
     #[test]
@@ -17379,6 +17545,8 @@ mod tests {
                 last_read: 1_700_000_000_000,
                 read_duration: 90,
             }],
+            date_added: 1_600_000_000_000,
+            favorite_modified_at: None,
         };
         let categories = std::collections::HashMap::from([(7, "Reading".to_owned())]);
 
@@ -17407,6 +17575,10 @@ mod tests {
         assert_eq!(history.read_duration_secs, 90);
         assert_eq!(app.library.series[1].categories, ["Reading"]);
         assert!(app.library.categories.iter().any(|name| name == "Reading"));
+        assert_eq!(
+            app.config.series_added_at.get("local:Berserk"),
+            Some(&1_600_000_000_000)
+        );
         assert_eq!(
             app.config
                 .story_notes

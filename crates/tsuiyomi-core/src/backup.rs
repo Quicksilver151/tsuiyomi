@@ -33,6 +33,10 @@ pub struct BackupManga {
     pub favorite: bool,
     pub notes: String,
     pub history: Vec<BackupHistory>,
+    /// Milliseconds since the Unix epoch, as stored by Mihon's `dateAdded`.
+    pub date_added: i64,
+    /// Seconds since the epoch, the legacy fallback for `dateAdded`.
+    pub favorite_modified_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -122,6 +126,7 @@ fn parse_manga(data: &[u8]) -> Option<BackupManga> {
             (6, 2) => manga.description = nonempty(text(value)),
             (7, 2) => manga.genre.push(text(value)),
             (9, 2) => manga.thumbnail_url = nonempty(text(value)),
+            (13, 0) => manga.date_added = varint(value) as i64,
             (16, 2) => {
                 if let Some(chapter) = parse_chapter(value) {
                     manga.chapters.push(chapter);
@@ -134,6 +139,7 @@ fn parse_manga(data: &[u8]) -> Option<BackupManga> {
                     manga.history.push(history);
                 }
             }
+            (107, 0) => manga.favorite_modified_at = Some(varint(value) as i64),
             (110, 2) => manga.notes = text(value),
             _ => {}
         }
@@ -311,6 +317,9 @@ pub fn encode_mihon_backup(backup: &MihonBackup) -> Vec<u8> {
         if let Some(thumbnail) = &manga.thumbnail_url {
             put_bytes(&mut message, 9, thumbnail.as_bytes());
         }
+        if manga.date_added > 0 {
+            put_varint(&mut message, 13, manga.date_added as u64);
+        }
         for chapter in &manga.chapters {
             let mut chapter_message = Vec::new();
             put_bytes(&mut chapter_message, 1, chapter.url.as_bytes());
@@ -349,6 +358,9 @@ pub fn encode_mihon_backup(backup: &MihonBackup) -> Vec<u8> {
         }
         if manga.favorite {
             put_varint(&mut message, 100, 1);
+        }
+        if let Some(modified) = manga.favorite_modified_at.filter(|value| *value > 0) {
+            put_varint(&mut message, 107, modified as u64);
         }
         if !manga.notes.is_empty() {
             put_bytes(&mut message, 110, manga.notes.as_bytes());
@@ -487,6 +499,8 @@ mod tests {
         manga.extend(bytes_field(7, b"Action"));
         manga.extend(bytes_field(16, &chapter()));
         manga.extend(varint_field(17, 7));
+        manga.extend(varint_field(13, 1_600_000_000_000));
+        manga.extend(varint_field(107, 1_600_000_000));
         manga.extend(varint_field(100, 1));
         let category = {
             let mut out = bytes_field(1, b"Reading");
@@ -507,6 +521,8 @@ mod tests {
         assert_eq!(parsed.mangas.len(), 1);
         assert_eq!(parsed.mangas[0].title, "Alpha");
         assert_eq!(parsed.mangas[0].source_id, 42);
+        assert_eq!(parsed.mangas[0].date_added, 1_600_000_000_000);
+        assert_eq!(parsed.mangas[0].favorite_modified_at, Some(1_600_000_000));
         assert_eq!(parsed.mangas[0].chapters[0].name, "Chapter 1");
         assert!(parsed.mangas[0].chapters[0].read);
         assert_eq!(parsed.categories[0].name, "Reading");
@@ -537,6 +553,8 @@ mod tests {
                     last_read: 1_700_000_000_000,
                     read_duration: 60,
                 }],
+                date_added: 1_600_000_000_000,
+                favorite_modified_at: Some(1_600_000_000),
                 ..BackupManga::default()
             }],
             categories: vec![BackupCategory {

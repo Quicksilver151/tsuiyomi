@@ -32,6 +32,10 @@ pub enum LibrarySort {
     LatestChapterDesc,
     /// Most unread chapters first.
     UnreadDesc,
+    /// Most recently read first.
+    LastReadDesc,
+    /// Most recently added first.
+    DateAddedDesc,
 }
 
 /// How a page image fills the reader viewport.
@@ -157,6 +161,9 @@ pub struct Config {
     pub migration_sources: Vec<String>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
+    /// When a series first appeared in the library, keyed by the history series key
+    /// (`local:<path>` or `remote:<source>\n<url>`), in milliseconds since the epoch.
+    pub series_added_at: BTreeMap<String, u64>,
     /// Local series removed from the library but kept on disk, relative to the
     /// library root. Mihon only drops its database entry; files stay.
     pub hidden_series: Vec<PathBuf>,
@@ -213,6 +220,7 @@ impl Default for Config {
             show_nsfw_extensions: true,
             migration_sources: Vec::new(),
             remote_library: Vec::new(),
+            series_added_at: BTreeMap::new(),
             hidden_series: Vec::new(),
             chapter_defaults: ChapterSettings::default(),
             chapter_settings: BTreeMap::new(),

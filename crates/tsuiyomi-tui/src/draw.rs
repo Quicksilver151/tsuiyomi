@@ -5555,6 +5555,8 @@ fn library_sort_label(sort: LibrarySort) -> &'static str {
         LibrarySort::ChapterCountDesc => "Most chapters",
         LibrarySort::LatestChapterDesc => "Latest chapter",
         LibrarySort::UnreadDesc => "Most unread",
+        LibrarySort::LastReadDesc => "Recently read",
+        LibrarySort::DateAddedDesc => "Recently added",
     }
 }
 

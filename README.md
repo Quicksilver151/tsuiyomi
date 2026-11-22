@@ -374,15 +374,16 @@ theme = "catppuccin_mocha"
 # accent = "#b4befe"   # optional palette color or hex override
 fullscreen = false      # start with the title and commands boxes hidden
 thumbnail_width = 14    # cover tile width in columns, 8–28
-library_sort = "natural" # natural, title_asc, title_desc,
-                             # chapter_count_desc, latest_chapter_desc, unread_desc
+library_sort = "natural" # natural, title_asc, title_desc, chapter_count_desc,
+                             # latest_chapter_desc, unread_desc, last_read_desc,
+                             # date_added_desc
 # default_category = "Reading"
 incognito = false
 ```
 
 Library sort, default category, and Incognito mode live under
-**More → Settings → Library** (natural, title, chapter count, latest chapter, unread) and
-**Security**. Incognito stops writing
+**More → Settings → Library** (natural, title, chapter count, latest chapter, unread,
+recently read, recently added) and **Security**. Incognito stops writing
 `progress.json` while leaving existing progress readable.
 
 Scroll mode measures page sizes in the background and shows the first page while it

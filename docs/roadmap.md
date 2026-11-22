@@ -10,7 +10,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 20 | 2 | 0 | 0 | 95.5% |
-| [Library](#library) | 15 | 1 | 0 | 0 | 96.9% |
+| [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 0 | 1 | 95.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 43 | 1 | 2 | 1 | 94.6% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 19 | 1 | 0 | 0 | 97.5% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 3 | 62.5% |
-| **All categories** | **197** | **10** | **6** | **6** | **94.8%** |
+| **All categories** | **198** | **9** | **6** | **6** | **95.1%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -66,7 +66,7 @@ table below.
 | Categories | Category tabs/filtering | Yes | ✅ | ✅ | `[`/`]`; default category. |
 | Categories | Edit categories from story | Yes | ✅ | ✅ | Local and saved source manga; local assignments write `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
-| Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, and unread count; last-read and date-added pending. |
+| Sorting | Other Mihon sort fields | Yes | ✅ | ✅ | Chapter count, latest chapter, unread, recently read, and recently added; add dates come from `series_added_at` or filesystem metadata. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
 | Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan, kept 30 days; Enter reads, `x` dismisses, `X` clears. Saved-source background refresh is not included. |
 | Removal | Remove local series, keep files | Yes | ✅ | ✅ | Path stored in `hidden_series`. |
