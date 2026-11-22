@@ -9,7 +9,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| [On-disk compatibility](#on-disk-compatibility) | 20 | 2 | 0 | 0 | 95.5% |
+| [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 0 | 0 | 97.7% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 28 | 3 | 0 | 1 | 95.2% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 19 | 1 | 0 | 0 | 97.5% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 2 | 1 | 1 | 3 | 62.5% |
-| **All categories** | **198** | **9** | **6** | **6** | **95.1%** |
+| **All categories** | **199** | **8** | **6** | **6** | **95.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -54,7 +54,7 @@ table below.
 | Categories | Mihon database categories | Yes | 🟡 | 🟡 | `categories.json` in the library root; unlisted series use `Default`. |
 | Metadata writes | Mihon-readable metadata export | Yes | ✅ | ✅ | `E` writes `ComicInfo.xml` for a local series; existing files are kept. Legacy `details.json` is not rewritten. |
 | Backups | Import `.tachibk` / `.proto.gz` | Yes | ✅ | ✅ | Local and remote favorites, categories, notes, chapter state, bookmarks, and history. Local entries work without the extension host. |
-| Backups | Export Mihon-restorable backups | Yes | 🟡 | 🟡 | Local and remote library/categories/chapter state/history written; Mihon restore is not yet round-trip verified. |
+| Backups | Export Mihon-restorable backups | Yes | ✅ | ✅ | Local and remote library, categories, chapter state, history, notes, and date-added fields. Protobuf fields match current upstream models and round-trip in tests; not exercised in an Android Mihon build. |
 
 ### Library
 
