@@ -3723,12 +3723,12 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
             "Store",
             if extension.repo_url.is_empty() {
                 if extension.obsolete {
-                    "installed only · obsolete"
+                    "installed only · orphaned"
                 } else {
                     "installed only · private"
                 }
             } else if extension.obsolete {
-                "repository · obsolete"
+                "repository · orphaned"
             } else {
                 &extension.repo_url
             },
@@ -4271,7 +4271,7 @@ fn draw_extensions(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     "available".to_owned()
                 };
                 if extension.obsolete {
-                    status.push_str(" · obsolete");
+                    status.push_str(" · orphaned");
                 } else if private {
                     status.push_str(" · private");
                 }

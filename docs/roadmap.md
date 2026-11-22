@@ -9,7 +9,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 0 | 0 | 97.7% |
+| [On-disk compatibility](#on-disk-compatibility) | 21 | 0 | 0 | 1 | 100.0% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 22 | 1 | 1 | 1 | 93.8% |
@@ -18,8 +18,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
-| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 1 | 3 | 75.0% |
-| **All categories** | **204** | **3** | **6** | **6** | **96.5%** |
+| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 1 | 4 | 75.0% |
+| **All categories** | **204** | **2** | **6** | **8** | **96.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -51,7 +51,7 @@ table below.
 | Metadata | EPUB OPF metadata | Yes | Yes | ✅ | `dc:title`, creator/publisher, date. |
 | Covers | `cover.jpg` custom cover | Yes | Yes | ✅ | Other valid `cover.*` images also work. |
 | Covers | Generated first-page cover | Yes | Yes | ✅ | Best effort, capped at 512 px longest edge. |
-| Categories | Mihon database categories | Yes | 🟡 | 🟡 | `categories.json` in the library root; unlisted series use `Default`. |
+| Categories | Mihon database categories | Yes | ➖ | ➖ | Mihon keeps categories in its Android database; tsuiyomi uses a portable `categories.json` sidecar, with unlisted series in `Default`. |
 | Metadata writes | Mihon-readable metadata export | Yes | ✅ | ✅ | `E` writes `ComicInfo.xml` for a local series; existing files are kept. Legacy `details.json` is not rewritten. |
 | Backups | Import `.tachibk` / `.proto.gz` | Yes | ✅ | ✅ | Local and remote favorites, categories, notes, chapter state, bookmarks, and history. Local entries work without the extension host. |
 | Backups | Export Mihon-restorable backups | Yes | ✅ | ✅ | Local and remote library, categories, chapter state, history, notes, and date-added fields. Protobuf fields match current upstream models and round-trip in tests; not exercised in an Android Mihon build. |
@@ -139,7 +139,7 @@ table below.
 | Details | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Warnings | NSFW/content warning indicator | Yes | ✅ | ✅ | `18+` in rows and details. |
 | Warnings | Hide NSFW extensions | Yes | ✅ | ✅ | Settings → Browse. |
-| Warnings | Private/shared/obsolete indicators | Yes | 🟡 | 🟡 | Private (installed outside a repo) and obsolete flags shown; shared/signature states remain. |
+| Warnings | Private/shared/orphaned indicators | Yes | 🟡 | 🟡 | Private (installed outside a store) and orphaned flags shown; shared/signature states remain. |
 | Languages | Enabled-language filtering | Yes | ✅ | ✅ | Installed entries remain manageable. |
 | Search | Comma-separated extension terms | Yes | ✅ | ✅ | Matches names, packages, languages, source names. |
 | WebView | WebView-dependent sources | Yes | ➖ | ➖ | Unsupported by design; documented TUI deviation. |
@@ -297,6 +297,7 @@ table below.
 | Tracker OAuth dialogs | None | ❌ | Separate integration. |
 | Android notifications | TUI status bar/queue markers | ➖ | No background daemon notifications. |
 | WebView-dependent source | None | ➖ | The host has no browser engine, so these sources stay unsupported. |
+| Mihon database categories | Portable `categories.json` sidecar | ➖ | A filesystem library cannot share the Android app database; the sidecar keeps categories portable. |
 
 ## Verification snapshot
 
