@@ -10,7 +10,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 24 | 1 | 0 | 1 | 98.0% |
-| [Library](#library) | 26 | 1 | 0 | 0 | 98.1% |
+| [Library](#library) | 27 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
@@ -21,7 +21,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 7 | 0 | 0 | 1 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 16 | 1 | 1 | 0 | 91.7% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **248** | **6** | **2** | **10** | **98.0%** |
+| **All categories** | **249** | **5** | **2** | **10** | **98.2%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -74,7 +74,7 @@ table below.
 | Categories | Category tabs/filtering | Yes | ✅ | ✅ | `[`/`]`; default category. |
 | Categories | Edit categories from story | Yes | ✅ | ✅ | Local and saved source manga; local assignments write `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
-| Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, unread, recently read, recently added, tracker score, last update, and random. Per-chapter fetch dates remain. |
+| Sorting | Other Mihon sort fields | Yes | ✅ | ✅ | Chapter count, latest chapter, unread, recently read, recently added, tracker score, last update, chapter fetch date, and random. |
 | Sorting | Per-category sort and display settings | Yes | ✅ | ✅ | More → Categories cycles each category’s sort (`s`) and layout (`v`); unset inherits the global setting. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
 | Filters | Library filter dialog | Yes | ✅ | ✅ | `z` toggles unread, in-progress, bookmarked, tracked, missing, and downloaded filters. |

@@ -67,6 +67,8 @@ pub struct BackupChapter {
     pub read: bool,
     pub bookmark: bool,
     pub last_page_read: i64,
+    /// Milliseconds since the epoch when the chapter was fetched.
+    pub date_fetch: i64,
     pub date_upload: i64,
     pub chapter_number: f32,
 }
@@ -212,6 +214,7 @@ fn parse_chapter(data: &[u8]) -> Option<BackupChapter> {
             (4, 0) => chapter.read = varint(value) != 0,
             (5, 0) => chapter.bookmark = varint(value) != 0,
             (6, 0) => chapter.last_page_read = varint(value) as i64,
+            (7, 0) => chapter.date_fetch = varint(value) as i64,
             (8, 0) => chapter.date_upload = varint(value) as i64,
             (9, 5) if value.len() >= 4 => {
                 chapter.chapter_number =
@@ -482,6 +485,9 @@ pub fn encode_mihon_backup(backup: &MihonBackup) -> Vec<u8> {
             if chapter.last_page_read > 0 {
                 put_varint(&mut chapter_message, 6, chapter.last_page_read as u64);
             }
+            if chapter.date_fetch > 0 {
+                put_varint(&mut chapter_message, 7, chapter.date_fetch as u64);
+            }
             if chapter.date_upload != 0 {
                 put_varint(&mut chapter_message, 8, chapter.date_upload.max(0) as u64);
             }
@@ -711,6 +717,7 @@ mod tests {
                     read: true,
                     bookmark: true,
                     last_page_read: 9,
+                    date_fetch: 1_650_000_000_000,
                     chapter_number: 1.0,
                     ..BackupChapter::default()
                 }],

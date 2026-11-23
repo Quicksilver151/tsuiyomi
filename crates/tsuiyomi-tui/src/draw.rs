@@ -6873,6 +6873,7 @@ fn library_sort_label(sort: LibrarySort) -> &'static str {
         LibrarySort::UnreadDesc => "Most unread",
         LibrarySort::LastReadDesc => "Recently read",
         LibrarySort::DateAddedDesc => "Recently added",
+        LibrarySort::ChapterFetchDesc => "Chapter fetch date",
         LibrarySort::TrackerScoreDesc => "Tracker score",
         LibrarySort::LastUpdateDesc => "Last update",
         LibrarySort::Random => "Random",

@@ -88,7 +88,7 @@ Goal: match Mihon’s library controls without Android gestures.
       - [x] Missing chapters.
       - [x] Combine filters and preserve them while navigating.
 - [x] Add unread, download, and language badges to tiles.
-- [x] Add sort modes: tracker score, last update, and random; per-chapter fetch dates remain.
+- [x] Add sort modes: tracker score, last update, chapter fetch date, and random.
 - [x] Add a continue-reading shelf or pinned row.
 - [x] Add random-manga action.
 - [x] Add downloaded-only library view.

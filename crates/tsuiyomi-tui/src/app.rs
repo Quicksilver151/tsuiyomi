@@ -7079,6 +7079,13 @@ impl AppState {
                     read,
                     bookmark,
                     last_page_read: last_page,
+                    date_fetch: self
+                        .config
+                        .chapter_fetched_at
+                        .get(&progress.to_string_lossy().into_owned())
+                        .copied()
+                        .unwrap_or(0)
+                        .saturating_mul(1000) as i64,
                     date_upload: chapter.upload_date,
                     chapter_number: chapter.chapter_number,
                 });
@@ -7203,6 +7210,13 @@ impl AppState {
                     read,
                     bookmark,
                     last_page_read: last_page,
+                    date_fetch: self
+                        .config
+                        .chapter_fetched_at
+                        .get(&chapter.path.to_string_lossy().into_owned())
+                        .copied()
+                        .unwrap_or(0)
+                        .saturating_mul(1000) as i64,
                     date_upload: 0,
                     chapter_number: chapter.number.unwrap_or(0.0),
                 });
@@ -7430,6 +7444,12 @@ impl AppState {
                 continue;
             };
             let local_chapter = &series.chapters[index];
+            if chapter.date_fetch > 0 {
+                self.config.chapter_fetched_at.insert(
+                    local_chapter.path.to_string_lossy().into_owned(),
+                    (chapter.date_fetch / 1000).max(0) as u64,
+                );
+            }
             let page = chapter.last_page_read.max(0) as usize;
             if chapter.read {
                 self.progress
@@ -7459,6 +7479,12 @@ impl AppState {
                 continue;
             };
             let local_chapter = &series.chapters[index];
+            if chapter.date_fetch > 0 {
+                self.config.chapter_fetched_at.insert(
+                    local_chapter.path.to_string_lossy().into_owned(),
+                    (chapter.date_fetch / 1000).max(0) as u64,
+                );
+            }
             let page = chapter.last_page_read.max(0) as usize;
             let mut history_entry = HistoryEntry::local(
                 series.title.clone(),
@@ -7646,6 +7672,12 @@ impl AppState {
                     continue;
                 }
                 let key = remote_progress_key(&source.id, &manga.url, &chapter.url);
+                if chapter.date_fetch > 0 {
+                    self.config.chapter_fetched_at.insert(
+                        key.to_string_lossy().into_owned(),
+                        (chapter.date_fetch / 1000).max(0) as u64,
+                    );
+                }
                 let last = chapter.last_page_read.max(0) as usize;
                 if chapter.read {
                     self.progress.update(&key, last, last.saturating_add(1));
@@ -10030,6 +10062,15 @@ impl AppState {
                             .cmp(&self.library.series[*right].title)
                     })
             }),
+            LibrarySort::ChapterFetchDesc => indices.sort_by(|left, right| {
+                self.series_latest_fetch(&self.library.series[*right])
+                    .cmp(&self.series_latest_fetch(&self.library.series[*left]))
+                    .then_with(|| {
+                        self.library.series[*left]
+                            .title
+                            .cmp(&self.library.series[*right].title)
+                    })
+            }),
             LibrarySort::DateAddedDesc => indices.sort_by(|left, right| {
                 let added = |index: usize| {
                     let series = &self.library.series[index];
@@ -10141,6 +10182,7 @@ impl AppState {
             Some(LibrarySort::UnreadDesc),
             Some(LibrarySort::LastReadDesc),
             Some(LibrarySort::DateAddedDesc),
+            Some(LibrarySort::ChapterFetchDesc),
             Some(LibrarySort::TrackerScoreDesc),
             Some(LibrarySort::LastUpdateDesc),
             Some(LibrarySort::Random),
@@ -10275,6 +10317,31 @@ impl AppState {
             .chapters
             .iter()
             .any(|chapter| self.bookmarks.is_bookmarked(&chapter.path))
+    }
+
+    fn series_latest_fetch(&self, series: &Series) -> u64 {
+        if let Some(remote) = &series.remote {
+            let prefix = progress_prefix(&remote.source_id, &remote.url);
+            return self
+                .config
+                .chapter_fetched_at
+                .iter()
+                .filter(|(key, _)| key.starts_with(&prefix))
+                .map(|(_, fetched)| *fetched)
+                .max()
+                .unwrap_or(0);
+        }
+        series
+            .chapters
+            .iter()
+            .filter_map(|chapter| {
+                self.config
+                    .chapter_fetched_at
+                    .get(&chapter.path.to_string_lossy().into_owned())
+            })
+            .copied()
+            .max()
+            .unwrap_or(0)
     }
 
     fn series_last_update(&self, series: &Series) -> u64 {
@@ -15708,6 +15775,7 @@ impl AppState {
                     LibrarySort::UnreadDesc,
                     LibrarySort::LastReadDesc,
                     LibrarySort::DateAddedDesc,
+                    LibrarySort::ChapterFetchDesc,
                     LibrarySort::TrackerScoreDesc,
                     LibrarySort::LastUpdateDesc,
                     LibrarySort::Random,
@@ -16924,6 +16992,16 @@ impl AppState {
         if self.removed_stories.contains(&key) {
             return;
         }
+        let now = current_unix_seconds();
+        for chapter in &chapters {
+            let chapter_key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url)
+                .to_string_lossy()
+                .into_owned();
+            self.config
+                .chapter_fetched_at
+                .entry(chapter_key)
+                .or_insert(now);
+        }
         if self.remote_chapter_cache.len() >= 24 {
             self.remote_chapter_cache.clear();
         }
@@ -17420,6 +17498,25 @@ impl AppState {
 
     fn apply_scanned_library(&mut self, library: Library, context: &ScanContext) {
         let new_chapters = self.updates.observe_now(&library).unwrap_or(0);
+        let now = current_unix_seconds();
+        let mut fetched = false;
+        for series in &library.series {
+            if series.remote.is_some() {
+                continue;
+            }
+            for chapter in &series.chapters {
+                let key = chapter.path.to_string_lossy().into_owned();
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    self.config.chapter_fetched_at.entry(key)
+                {
+                    entry.insert(now);
+                    fetched = true;
+                }
+            }
+        }
+        if fetched {
+            self.persist_settings();
+        }
         self.library = library;
         self.tile_covers.clear();
         self.apply_hidden_series();
@@ -19240,6 +19337,19 @@ mod tests {
             .is_some_and(|label| label.starts_with("paused")));
         app.toggle_download_pause();
         assert!(!app.download_queue.paused);
+    }
+
+    #[test]
+    fn chapter_fetch_sort_uses_recorded_times() {
+        let mut app = AppState::new(library(), None);
+        app.config
+            .chapter_fetched_at
+            .insert("Chapter 1".to_owned(), 100);
+        app.config
+            .chapter_fetched_at
+            .insert("Chapter 2".to_owned(), 200);
+        app.config.library_sort = LibrarySort::ChapterFetchDesc;
+        assert_eq!(app.visible_indices().first().copied(), Some(1));
     }
 
     #[test]
@@ -21908,6 +22018,7 @@ mod tests {
                     read: true,
                     bookmark: true,
                     last_page_read: 4,
+                    date_fetch: 0,
                     date_upload: 0,
                     chapter_number: 1.0,
                 },
@@ -21918,6 +22029,7 @@ mod tests {
                     read: false,
                     bookmark: false,
                     last_page_read: 2,
+                    date_fetch: 0,
                     date_upload: 0,
                     chapter_number: 2.0,
                 },

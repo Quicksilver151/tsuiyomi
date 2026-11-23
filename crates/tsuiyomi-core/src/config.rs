@@ -40,6 +40,8 @@ pub enum LibrarySort {
     LastReadDesc,
     /// Most recently added first.
     DateAddedDesc,
+    /// Most recently fetched chapter first.
+    ChapterFetchDesc,
     /// Highest tracker score first.
     TrackerScoreDesc,
     /// Saved-source cache or newest chapter date, newest first.
@@ -282,6 +284,8 @@ pub struct Config {
     pub library_display_mode: LibraryDisplayMode,
     /// Sort and layout overrides per category name.
     pub category_display: BTreeMap<String, CategoryDisplay>,
+    /// Unix seconds when a chapter was first seen, keyed by chapter path or remote key.
+    pub chapter_fetched_at: BTreeMap<String, u64>,
     /// Hide missing-chapter counts in the story header and details.
     pub hide_missing_chapters: bool,
     /// Mark chapters with the same number from other scanlators as read.
@@ -432,6 +436,7 @@ impl Default for Config {
             library_filters: LibraryFilters::default(),
             library_display_mode: LibraryDisplayMode::default(),
             category_display: BTreeMap::new(),
+            chapter_fetched_at: BTreeMap::new(),
             hide_missing_chapters: false,
             mark_duplicate_chapters_read: true,
             update_interval_hours: 12,

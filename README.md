@@ -106,7 +106,7 @@ The Library tab opens as a cover tile grid, like Mihon. Each tile shows the seri
 title; Esc clears the filter. More → Categories lets `s` cycle a category’s sort and `v`
 cycle its layout, with the global setting as the fallback. `z` opens library filters for unread, in-progress,
 bookmarked, tracked, missing, and downloaded series. `v` cycles comfortable, compact, and
-list layouts (sorts include tracker score, last update, and random), and `B` opens a random series. The Continue entry after the category names
+list layouts (sorts include tracker score, last update, chapter fetch date, and random), and `B` opens a random series. The Continue entry after the category names
 lists in-progress series by recency. Tiles show unread, download, and language badges.
 Covers are centered without a border or tile background. `↑↓` moves by grid row, `←→` by one tile, `Enter` opens
 the chapter list, and `C` continues the selected series at its next in-progress/unread
