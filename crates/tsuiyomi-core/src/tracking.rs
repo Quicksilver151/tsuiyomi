@@ -416,6 +416,7 @@ pub fn login_mangaupdates(username: &str, password: &str) -> Result<TrackerAuth,
         access_token: token.to_owned(),
         refresh_token: None,
         expires_at: None,
+        account_id: None,
     })
 }
 
@@ -485,6 +486,191 @@ fn mangaupdates_request(
         Ok(value) => Ok(value),
         Err(_) => Ok(Value::Null),
     }
+}
+
+const SHIKIMORI: &str = "https://shikimori.one/api";
+
+fn shikimori_status(status: TrackerStatus) -> &'static str {
+    match status {
+        TrackerStatus::Reading => "watching",
+        TrackerStatus::Completed => "completed",
+        TrackerStatus::OnHold => "on_hold",
+        TrackerStatus::Dropped => "dropped",
+        TrackerStatus::Planning => "planned",
+    }
+}
+
+/// Search Shikimori's public manga catalog.
+pub fn search_shikimori(query: &str) -> Result<Vec<TrackerMedia>, CoreError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let path = format!("/mangas?search={}&limit=10", encode_query(query));
+    let value = shikimori_request("GET", &path, None, None)?;
+    Ok(parse_shikimori_search(&value))
+}
+
+fn parse_shikimori_search(value: &Value) -> Vec<TrackerMedia> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let id = item.get("id")?.as_u64()?;
+                    let title = item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .filter(|title| !title.trim().is_empty())
+                        .or_else(|| item.get("russian").and_then(Value::as_str))?
+                        .to_owned();
+                    let chapters = item
+                        .get("chapters")
+                        .and_then(Value::as_u64)
+                        .and_then(|chapters| u32::try_from(chapters).ok());
+                    Some(TrackerMedia {
+                        service: "shikimori".to_owned(),
+                        id,
+                        title,
+                        chapters,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Verify a pasted Shikimori access token and remember the account id.
+pub fn login_shikimori(token: &str) -> Result<TrackerAuth, CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: SHIKIMORI.to_owned(),
+            message: "a Shikimori access token is required".to_owned(),
+        });
+    }
+    let value = shikimori_request("GET", "/users/whoami", None, Some(token))?;
+    let account_id = value
+        .get("id")
+        .and_then(Value::as_u64)
+        .map(|id| id.to_string())
+        .ok_or_else(|| CoreError::Network {
+            url: SHIKIMORI.to_owned(),
+            message: "Shikimori did not return the current user".to_owned(),
+        })?;
+    Ok(TrackerAuth {
+        access_token: token.to_owned(),
+        refresh_token: None,
+        expires_at: None,
+        account_id: Some(account_id),
+    })
+}
+
+/// Create or update a Shikimori manga list entry.
+pub fn update_shikimori_entry(
+    token: &str,
+    account_id: &str,
+    media_id: u64,
+    entry: &TrackerEntry<'_>,
+) -> Result<(), CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: SHIKIMORI.to_owned(),
+            message: "a Shikimori token is required".to_owned(),
+        });
+    }
+    let path = format!(
+        "/v2/user_rates?user_id={}&target_id={media_id}&target_type=Manga",
+        encode_query(account_id)
+    );
+    let rates = shikimori_request("GET", &path, None, Some(token))?;
+    let rate_id = rates
+        .as_array()
+        .and_then(|rates| rates.first())
+        .and_then(|rate| rate.get("id"))
+        .and_then(Value::as_u64);
+    let status = shikimori_status(entry.effective_status());
+    let score = entry.score.unwrap_or(0.0).clamp(0.0, 10.0).round() as i64;
+    let (method, path, body) = if let Some(rate_id) = rate_id {
+        (
+            "PUT",
+            format!("/v2/user_rates/{rate_id}"),
+            json!({
+                "user_rate": {
+                    "chapters": entry.progress,
+                    "score": score,
+                    "status": status,
+                }
+            }),
+        )
+    } else {
+        (
+            "POST",
+            "/v2/user_rates".to_owned(),
+            json!({
+                "user_rate": {
+                    "user_id": account_id.parse::<u64>().unwrap_or(0),
+                    "target_id": media_id,
+                    "target_type": "Manga",
+                    "chapters": entry.progress,
+                    "score": score,
+                    "status": status,
+                }
+            }),
+        )
+    };
+    shikimori_request(method, &path, Some(&body), Some(token))?;
+    Ok(())
+}
+
+fn shikimori_request(
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    token: Option<&str>,
+) -> Result<Value, CoreError> {
+    let url = format!("{SHIKIMORI}{path}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut request = match method {
+        "PUT" => agent.put(&url),
+        "POST" => agent.post(&url),
+        _ => agent.get(&url),
+    };
+    request = request.set("Accept", "application/json");
+    if let Some(token) = token.filter(|token| !token.trim().is_empty()) {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+    let response = if let Some(body) = body {
+        request
+            .set("Content-Type", "application/json")
+            .send_json(body.clone())
+    } else {
+        request.call()
+    }
+    .map_err(|error| CoreError::Network {
+        url: url.clone(),
+        message: error.to_string(),
+    })?;
+    match response.into_json::<Value>() {
+        Ok(value) => Ok(value),
+        Err(_) => Ok(Value::Null),
+    }
+}
+
+fn encode_query(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 fn post(body: Value, token: Option<&str>) -> Result<Value, CoreError> {
@@ -674,6 +860,29 @@ mod tests {
         assert_eq!(mangaupdates_list_id(TrackerStatus::Completed), 2);
         assert_eq!(mangaupdates_list_id(TrackerStatus::Dropped), 3);
         assert_eq!(mangaupdates_list_id(TrackerStatus::OnHold), 4);
+    }
+
+    #[test]
+    fn parses_shikimori_search_results() {
+        let value = json!([
+            { "id": 5, "name": "Berserk", "russian": "Берсерк", "chapters": 380 },
+            { "id": 6, "russian": "Только русский" }
+        ]);
+        let results = parse_shikimori_search(&value);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, 5);
+        assert_eq!(results[0].service, "shikimori");
+        assert_eq!(results[0].chapters, Some(380));
+        assert_eq!(results[1].title, "Только русский");
+    }
+
+    #[test]
+    fn maps_shikimori_statuses() {
+        assert_eq!(shikimori_status(TrackerStatus::Reading), "watching");
+        assert_eq!(shikimori_status(TrackerStatus::Completed), "completed");
+        assert_eq!(shikimori_status(TrackerStatus::OnHold), "on_hold");
+        assert_eq!(shikimori_status(TrackerStatus::Dropped), "dropped");
+        assert_eq!(shikimori_status(TrackerStatus::Planning), "planned");
     }
 
     #[test]

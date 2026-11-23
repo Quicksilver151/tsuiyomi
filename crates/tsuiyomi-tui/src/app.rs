@@ -27,9 +27,9 @@ use tsuiyomi_core::{
     save_config, scan_library, search_anilist, series_dir_name, set_default_user_agent,
     source_dir_name, story_cache_path, title_similarity, today_key, update_anilist_entry,
     update_anilist_progress, update_mal_entry, update_mal_progress, update_mangaupdates_entry,
-    visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
-    BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore,
-    CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
+    update_shikimori_entry, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
+    BackupChapter, BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking,
+    BookmarkStore, CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
     ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
     HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
     LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
@@ -337,6 +337,7 @@ pub enum TextAction {
     TrackerFinishDate,
     MangaUpdatesUsername,
     MangaUpdatesPassword,
+    ShikimoriToken,
     UserAgent,
 }
 
@@ -504,6 +505,7 @@ pub enum SettingId {
     MangaUpdatesUsername,
     MangaUpdatesPassword,
     MangaUpdatesLogin,
+    ShikimoriToken,
     TrackerLogout,
     Theme,
     Accent,
@@ -642,7 +644,7 @@ const NOTIFICATION_ROWS: [MoreRow; 5] = [
     MoreRow::Note("Uses notify-send on Linux and Notification Center on macOS."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 14] = [
+const TRACKING_ROWS: [MoreRow; 16] = [
     MoreRow::Divider("AniList"),
     MoreRow::Setting(SettingId::AniListLogin),
     MoreRow::Setting(SettingId::AniListClientId),
@@ -655,6 +657,8 @@ const TRACKING_ROWS: [MoreRow; 14] = [
     MoreRow::Setting(SettingId::MangaUpdatesUsername),
     MoreRow::Setting(SettingId::MangaUpdatesPassword),
     MoreRow::Setting(SettingId::MangaUpdatesLogin),
+    MoreRow::Divider("Shikimori"),
+    MoreRow::Setting(SettingId::ShikimoriToken),
     MoreRow::Divider("Account"),
     MoreRow::Setting(SettingId::TrackerLogout),
 ];
@@ -6127,6 +6131,7 @@ impl AppState {
             TextAction::TrackerFinishDate => self.set_tracker_date(true, &input.value),
             TextAction::MangaUpdatesUsername => self.set_mangaupdates_username(&input.value),
             TextAction::MangaUpdatesPassword => self.set_mangaupdates_password(&input.value),
+            TextAction::ShikimoriToken => self.set_shikimori_token(&input.value),
             TextAction::UserAgent => self.set_user_agent(&input.value),
         }
     }
@@ -11752,6 +11757,7 @@ impl AppState {
         match service {
             "mal" => "MyAnimeList",
             "mangaupdates" => "MangaUpdates",
+            "shikimori" => "Shikimori",
             _ => "AniList",
         }
     }
@@ -11977,6 +11983,7 @@ impl AppState {
                 start_date: link.start_date.clone(),
                 finish_date: link.finish_date.clone(),
                 private: link.private,
+                account_id: self.tracker_account_id(&link.service),
             });
         } else {
             let entry = TrackerEntry {
@@ -11991,6 +11998,14 @@ impl AppState {
             let _ = match link.service.as_str() {
                 "mal" => update_mal_entry(&token, link.media_id, &entry),
                 "mangaupdates" => update_mangaupdates_entry(&token, link.media_id, &entry),
+                "shikimori" => update_shikimori_entry(
+                    &token,
+                    self.tracker_account_id("shikimori")
+                        .as_deref()
+                        .unwrap_or_default(),
+                    link.media_id,
+                    &entry,
+                ),
                 _ => update_anilist_entry(&token, link.media_id, &entry),
             };
         }
@@ -12121,6 +12136,7 @@ impl AppState {
                 query: query.to_owned(),
                 mal_client_id: self.config.mal_client_id.clone(),
                 mangaupdates: self.tracker_token_for("mangaupdates").is_some(),
+                shikimori: self.tracker_token_for("shikimori").is_some(),
             });
             self.set_tracker_message("Searching trackers…".to_owned(), false);
             return;
@@ -12288,6 +12304,31 @@ impl AppState {
         self.open_mangaupdates_password();
     }
 
+    fn tracker_account_id(&self, service: &str) -> Option<String> {
+        self.config
+            .tracker_auth
+            .get(service)
+            .and_then(|auth| auth.account_id.clone())
+    }
+
+    fn open_shikimori_token(&mut self) {
+        self.open_text_input(TextAction::ShikimoriToken, "Shikimori access token", "");
+    }
+
+    fn set_shikimori_token(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            return;
+        }
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        worker.request(TrackerRequest::ShikimoriLogin {
+            token: value.to_owned(),
+        });
+        self.set_tracker_message("Verifying Shikimori token…".to_owned(), false);
+    }
+
     fn start_tracker_login(&mut self, service: &str) {
         let Some((client_id, client_secret)) = self.tracker_client(service) else {
             self.set_tracker_message(
@@ -12374,6 +12415,7 @@ impl AppState {
                 start_date: link.start_date.clone(),
                 finish_date: link.finish_date.clone(),
                 private: link.private,
+                account_id: self.tracker_account_id(&link.service),
             });
         }
     }
@@ -12548,10 +12590,27 @@ impl AppState {
                 start_date: link.start_date.clone(),
                 finish_date: link.finish_date.clone(),
                 private: link.private,
+                account_id: self.tracker_account_id(&link.service),
             });
         } else {
             let _ = match link.service.as_str() {
                 "mal" => update_mal_progress(&token, link.media_id, progress, total),
+                "shikimori" => update_shikimori_entry(
+                    &token,
+                    self.tracker_account_id("shikimori")
+                        .as_deref()
+                        .unwrap_or_default(),
+                    link.media_id,
+                    &TrackerEntry {
+                        progress,
+                        total,
+                        status: link.status.as_deref().and_then(TrackerStatus::parse),
+                        score: link.score,
+                        start_date: link.start_date.as_deref(),
+                        finish_date: link.finish_date.as_deref(),
+                        private: link.private,
+                    },
+                ),
                 "mangaupdates" => update_mangaupdates_entry(
                     &token,
                     link.media_id,
@@ -13311,6 +13370,7 @@ impl AppState {
                     access_token: token,
                     refresh_token: None,
                     expires_at: None,
+                    account_id: None,
                 });
         }
         if let Some(token) = config
@@ -13325,6 +13385,7 @@ impl AppState {
                     access_token: token,
                     refresh_token: None,
                     expires_at: None,
+                    account_id: None,
                 });
         }
         config.thumbnail_width = config.thumbnail_width.clamp(8, 28);
@@ -15032,6 +15093,7 @@ impl AppState {
             SettingId::MangaUpdatesUsername => self.open_mangaupdates_username(),
             SettingId::MangaUpdatesPassword => self.open_mangaupdates_password(),
             SettingId::MangaUpdatesLogin => self.start_mangaupdates_login(),
+            SettingId::ShikimoriToken => self.open_shikimori_token(),
             SettingId::TrackerLogout => self.logout_trackers(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
@@ -15944,6 +16006,7 @@ impl AppState {
             | SettingId::MangaUpdatesUsername
             | SettingId::MangaUpdatesPassword
             | SettingId::MangaUpdatesLogin
+            | SettingId::ShikimoriToken
             | SettingId::TrackerLogout
             | SettingId::RescanLibrary
             | SettingId::HostUrl
@@ -18342,7 +18405,7 @@ fn tracker_status_from_code(service: &str, code: i64) -> Option<TrackerStatus> {
         2 => Some(TrackerStatus::Completed),
         3 => Some(TrackerStatus::OnHold),
         4 => Some(TrackerStatus::Dropped),
-        5 if service == "anilist" => Some(TrackerStatus::Planning),
+        5 if matches!(service, "anilist" | "shikimori") => Some(TrackerStatus::Planning),
         6 if service == "mal" => Some(TrackerStatus::Planning),
         _ => None,
     }
@@ -18352,6 +18415,7 @@ fn tracker_service_from_sync_id(sync_id: i64) -> Option<&'static str> {
     match sync_id {
         1 => Some("mal"),
         2 => Some("anilist"),
+        4 => Some("shikimori"),
         7 => Some("mangaupdates"),
         _ => None,
     }
@@ -18361,6 +18425,7 @@ fn backup_tracking_from_link(link: &TrackerLink) -> Option<BackupTracking> {
     let sync_id = match link.service.as_str() {
         "mal" => 1,
         "anilist" => 2,
+        "shikimori" => 4,
         "mangaupdates" => 7,
         _ => return None,
     };
@@ -20095,6 +20160,33 @@ mod tests {
         let restored = tracker_link_from_backup(&tracking).expect("link");
         assert_eq!(restored.service, "mangaupdates");
         assert_eq!(restored.status.as_deref(), Some("reading"));
+    }
+
+    #[test]
+    fn shikimori_status_and_backup_mapping() {
+        for status in [
+            TrackerStatus::Reading,
+            TrackerStatus::Completed,
+            TrackerStatus::OnHold,
+            TrackerStatus::Dropped,
+            TrackerStatus::Planning,
+        ] {
+            let code = tracker_status_code("shikimori", status);
+            assert_eq!(tracker_status_from_code("shikimori", code), Some(status));
+        }
+        let link = TrackerLink {
+            service: "shikimori".to_owned(),
+            media_id: 42,
+            title: "Berserk".to_owned(),
+            status: Some("on_hold".to_owned()),
+            ..TrackerLink::default()
+        };
+        let tracking = backup_tracking_from_link(&link).expect("tracking");
+        assert_eq!(tracking.sync_id, 4);
+        assert_eq!(tracking.status, 3);
+        let restored = tracker_link_from_backup(&tracking).expect("link");
+        assert_eq!(restored.service, "shikimori");
+        assert_eq!(restored.status.as_deref(), Some("on_hold"));
     }
 
     #[test]

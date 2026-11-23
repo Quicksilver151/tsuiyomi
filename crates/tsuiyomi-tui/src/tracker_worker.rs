@@ -4,9 +4,10 @@ use std::{
 };
 
 use tsuiyomi_core::{
-    login_mangaupdates, search_anilist, search_mal, search_mangaupdates, tracker_login,
-    tracker_refresh, update_anilist_entry, update_mal_entry, update_mangaupdates_entry,
-    TrackerAuth, TrackerEntry, TrackerMedia, TrackerService, TrackerStatus,
+    login_mangaupdates, login_shikimori, search_anilist, search_mal, search_mangaupdates,
+    search_shikimori, tracker_login, tracker_refresh, update_anilist_entry, update_mal_entry,
+    update_mangaupdates_entry, update_shikimori_entry, TrackerAuth, TrackerEntry, TrackerMedia,
+    TrackerService, TrackerStatus,
 };
 
 pub(crate) enum TrackerRequest {
@@ -26,10 +27,14 @@ pub(crate) enum TrackerRequest {
         query: String,
         mal_client_id: Option<String>,
         mangaupdates: bool,
+        shikimori: bool,
     },
     MangaUpdatesLogin {
         username: String,
         password: String,
+    },
+    ShikimoriLogin {
+        token: String,
     },
     Update {
         service: String,
@@ -42,6 +47,7 @@ pub(crate) enum TrackerRequest {
         start_date: Option<String>,
         finish_date: Option<String>,
         private: Option<bool>,
+        account_id: Option<String>,
     },
 }
 
@@ -110,6 +116,7 @@ impl TrackerWorker {
                         query,
                         mal_client_id,
                         mangaupdates,
+                        shikimori,
                     } => {
                         let mut results = search_anilist(&query);
                         if let Some(client_id) = mal_client_id.filter(|id| !id.trim().is_empty()) {
@@ -138,6 +145,19 @@ impl TrackerWorker {
                                 }
                             }
                         }
+                        if shikimori {
+                            match search_shikimori(&query) {
+                                Ok(mut found) => match results.as_mut() {
+                                    Ok(all) => all.append(&mut found),
+                                    Err(_) => results = Ok(found),
+                                },
+                                Err(error) => {
+                                    if results.is_err() {
+                                        results = Err(error);
+                                    }
+                                }
+                            }
+                        }
                         TrackerEvent::Search {
                             generation,
                             result: results.map_err(|error| error.to_string()),
@@ -148,6 +168,13 @@ impl TrackerWorker {
                             .map_err(|error| error.to_string());
                         TrackerEvent::Auth {
                             service: "mangaupdates".to_owned(),
+                            result,
+                        }
+                    }
+                    TrackerRequest::ShikimoriLogin { token } => {
+                        let result = login_shikimori(&token).map_err(|error| error.to_string());
+                        TrackerEvent::Auth {
+                            service: "shikimori".to_owned(),
                             result,
                         }
                     }
@@ -162,6 +189,7 @@ impl TrackerWorker {
                         start_date,
                         finish_date,
                         private,
+                        account_id,
                     } => {
                         let entry = TrackerEntry {
                             progress,
@@ -175,6 +203,12 @@ impl TrackerWorker {
                         let result = match service.as_str() {
                             "mal" => update_mal_entry(&token, media_id, &entry),
                             "mangaupdates" => update_mangaupdates_entry(&token, media_id, &entry),
+                            "shikimori" => update_shikimori_entry(
+                                &token,
+                                account_id.as_deref().unwrap_or_default(),
+                                media_id,
+                                &entry,
+                            ),
                             _ => update_anilist_entry(&token, media_id, &entry),
                         };
                         TrackerEvent::Update {

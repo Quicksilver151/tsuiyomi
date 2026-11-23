@@ -203,6 +203,7 @@ fn parse_tokens(value: &Value) -> Result<TrackerAuth, CoreError> {
         access_token,
         refresh_token,
         expires_at: expires_in.map(|seconds| unix_seconds().saturating_add(seconds)),
+        account_id: None,
     })
 }
 

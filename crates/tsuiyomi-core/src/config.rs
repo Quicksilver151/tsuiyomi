@@ -122,6 +122,9 @@ pub struct TrackerAuth {
     /// Unix seconds. `None` means the tracker did not provide an expiry.
     #[serde(default)]
     pub expires_at: Option<u64>,
+    /// Tracker account id when the service needs it for list updates.
+    #[serde(default)]
+    pub account_id: Option<String>,
 }
 
 /// Library grid layout.
