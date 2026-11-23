@@ -34,7 +34,7 @@ pub mod updates;
 
 pub use backup::{
     encode_mihon_backup, parse_mihon_backup, write_mihon_backup, BackupCategory, BackupChapter,
-    BackupHistory, BackupManga, BackupSource, MihonBackup,
+    BackupHistory, BackupManga, BackupSource, BackupTracking, MihonBackup,
 };
 pub use bookmarks::BookmarkStore;
 pub use browse::normalized_title;
@@ -45,9 +45,9 @@ pub use chapter_view::{
 };
 pub use comic_info::{parse_comic_info, write_comic_info, ChapterDate, ComicInfo};
 pub use config::{
-    load_config, save_config, Config, GlobalSearchScope, LibraryDisplayMode, LibraryFilters,
-    LibrarySort, LocalSourceOrder, ReaderFit, ReadingMode, SourceDisplayMode, Theme, TrackerAuth,
-    TrackerLink,
+    load_config, save_config, BackupSeriesExtra, Config, GlobalSearchScope, LibraryDisplayMode,
+    LibraryFilters, LibrarySort, LocalSourceOrder, ReaderFit, ReadingMode, SourceDisplayMode,
+    Theme, TrackerAuth, TrackerLink,
 };
 pub use downloads::{
     chapter_archive_path, chapter_dir, chapter_dir_name, download_chapter,

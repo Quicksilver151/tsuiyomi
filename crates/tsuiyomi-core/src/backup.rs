@@ -37,6 +37,26 @@ pub struct BackupManga {
     pub date_added: i64,
     /// Seconds since the epoch, the legacy fallback for `dateAdded`.
     pub favorite_modified_at: Option<i64>,
+    /// Mihon status enum value.
+    pub status: i64,
+    /// Legacy viewer value; `viewer_flags` wins when present.
+    pub viewer: i64,
+    /// Mihon viewer flags (reading mode masks).
+    pub viewer_flags: Option<i64>,
+    /// Mihon chapter list flags (filters and sorting).
+    pub chapter_flags: i64,
+    /// Mihon update strategy enum.
+    pub update_strategy: i64,
+    /// Scanlators excluded from the chapter list.
+    pub excluded_scanlators: Vec<String>,
+    /// Milliseconds since the epoch of the next scheduled update.
+    pub next_update: i64,
+    /// Whether the source has been initialized.
+    pub initialized: bool,
+    /// Opaque source memo bytes.
+    pub memo: Vec<u8>,
+    /// Tracker links stored inside the manga entry.
+    pub tracking: Vec<BackupTracking>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -49,6 +69,27 @@ pub struct BackupChapter {
     pub last_page_read: i64,
     pub date_upload: i64,
     pub chapter_number: f32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BackupTracking {
+    /// Mihon tracker id: 1 = MyAnimeList, 2 = AniList, 3 = Kitsu, and so on.
+    pub sync_id: i64,
+    pub library_id: i64,
+    /// Legacy 32-bit media id.
+    pub media_id_int: i64,
+    pub media_id: i64,
+    pub tracking_url: String,
+    pub title: String,
+    pub last_chapter_read: f32,
+    pub total_chapters: i64,
+    pub score: f32,
+    pub status: i64,
+    /// Milliseconds since the epoch.
+    pub started_reading_date: i64,
+    /// Milliseconds since the epoch.
+    pub finished_reading_date: i64,
+    pub private: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -139,8 +180,22 @@ fn parse_manga(data: &[u8]) -> Option<BackupManga> {
                     manga.history.push(history);
                 }
             }
+            (8, 0) => manga.status = varint(value) as i64,
+            (14, 0) => manga.viewer = varint(value) as i64,
+            (18, 2) => {
+                if let Some(tracking) = parse_tracking(value) {
+                    manga.tracking.push(tracking);
+                }
+            }
+            (101, 0) => manga.chapter_flags = varint(value) as i64,
+            (103, 0) => manga.viewer_flags = Some(varint(value) as i64),
+            (105, 0) => manga.update_strategy = varint(value) as i64,
             (107, 0) => manga.favorite_modified_at = Some(varint(value) as i64),
+            (108, 2) => manga.excluded_scanlators.push(text(value)),
             (110, 2) => manga.notes = text(value),
+            (111, 0) => manga.initialized = varint(value) != 0,
+            (112, 2) => manga.memo = value.to_vec(),
+            (113, 0) => manga.next_update = varint(value) as i64,
             _ => {}
         }
     }
@@ -166,6 +221,34 @@ fn parse_chapter(data: &[u8]) -> Option<BackupChapter> {
         }
     }
     Some(chapter)
+}
+
+fn parse_tracking(data: &[u8]) -> Option<BackupTracking> {
+    let mut tracking = BackupTracking::default();
+    for (field, wire, value) in fields(data).ok()? {
+        match (field, wire) {
+            (1, 0) => tracking.sync_id = varint(value) as i64,
+            (2, 0) => tracking.library_id = varint(value) as i64,
+            (3, 0) => tracking.media_id_int = varint(value) as i64,
+            (4, 2) => tracking.tracking_url = text(value),
+            (5, 2) => tracking.title = text(value),
+            (6, 5) if value.len() >= 4 => {
+                tracking.last_chapter_read =
+                    f32::from_le_bytes([value[0], value[1], value[2], value[3]]);
+            }
+            (7, 0) => tracking.total_chapters = varint(value) as i64,
+            (8, 5) if value.len() >= 4 => {
+                tracking.score = f32::from_le_bytes([value[0], value[1], value[2], value[3]]);
+            }
+            (9, 0) => tracking.status = varint(value) as i64,
+            (10, 0) => tracking.started_reading_date = varint(value) as i64,
+            (11, 0) => tracking.finished_reading_date = varint(value) as i64,
+            (12, 0) => tracking.private = varint(value) != 0,
+            (100, 0) => tracking.media_id = varint(value) as i64,
+            _ => {}
+        }
+    }
+    Some(tracking)
 }
 
 fn parse_history(data: &[u8]) -> Option<BackupHistory> {
@@ -320,6 +403,69 @@ pub fn encode_mihon_backup(backup: &MihonBackup) -> Vec<u8> {
         if manga.date_added > 0 {
             put_varint(&mut message, 13, manga.date_added as u64);
         }
+        if manga.status != 0 {
+            put_varint(&mut message, 8, manga.status as u64);
+        }
+        if manga.viewer != 0 {
+            put_varint(&mut message, 14, manga.viewer as u64);
+        }
+        for tracking in &manga.tracking {
+            let mut tracking_message = Vec::new();
+            put_varint(&mut tracking_message, 1, tracking.sync_id.max(0) as u64);
+            if tracking.library_id != 0 {
+                put_varint(&mut tracking_message, 2, tracking.library_id.max(0) as u64);
+            }
+            if tracking.media_id_int != 0 {
+                put_varint(
+                    &mut tracking_message,
+                    3,
+                    tracking.media_id_int.max(0) as u64,
+                );
+            }
+            if !tracking.tracking_url.is_empty() {
+                put_bytes(&mut tracking_message, 4, tracking.tracking_url.as_bytes());
+            }
+            if !tracking.title.is_empty() {
+                put_bytes(&mut tracking_message, 5, tracking.title.as_bytes());
+            }
+            if tracking.last_chapter_read != 0.0 {
+                put_fixed32(&mut tracking_message, 6, tracking.last_chapter_read);
+            }
+            if tracking.total_chapters != 0 {
+                put_varint(
+                    &mut tracking_message,
+                    7,
+                    tracking.total_chapters.max(0) as u64,
+                );
+            }
+            if tracking.score != 0.0 {
+                put_fixed32(&mut tracking_message, 8, tracking.score);
+            }
+            if tracking.status != 0 {
+                put_varint(&mut tracking_message, 9, tracking.status.max(0) as u64);
+            }
+            if tracking.started_reading_date != 0 {
+                put_varint(
+                    &mut tracking_message,
+                    10,
+                    tracking.started_reading_date.max(0) as u64,
+                );
+            }
+            if tracking.finished_reading_date != 0 {
+                put_varint(
+                    &mut tracking_message,
+                    11,
+                    tracking.finished_reading_date.max(0) as u64,
+                );
+            }
+            if tracking.private {
+                put_varint(&mut tracking_message, 12, 1);
+            }
+            if tracking.media_id != 0 {
+                put_varint(&mut tracking_message, 100, tracking.media_id as u64);
+            }
+            put_bytes(&mut message, 18, &tracking_message);
+        }
         for chapter in &manga.chapters {
             let mut chapter_message = Vec::new();
             put_bytes(&mut chapter_message, 1, chapter.url.as_bytes());
@@ -358,6 +504,27 @@ pub fn encode_mihon_backup(backup: &MihonBackup) -> Vec<u8> {
         }
         if manga.favorite {
             put_varint(&mut message, 100, 1);
+        }
+        if manga.chapter_flags != 0 {
+            put_varint(&mut message, 101, manga.chapter_flags as u64);
+        }
+        if let Some(viewer_flags) = manga.viewer_flags.filter(|flags| *flags != 0) {
+            put_varint(&mut message, 103, viewer_flags as u64);
+        }
+        if manga.update_strategy != 0 {
+            put_varint(&mut message, 105, manga.update_strategy.max(0) as u64);
+        }
+        for scanlator in &manga.excluded_scanlators {
+            put_bytes(&mut message, 108, scanlator.as_bytes());
+        }
+        if manga.initialized {
+            put_varint(&mut message, 111, 1);
+        }
+        if !manga.memo.is_empty() {
+            put_bytes(&mut message, 112, &manga.memo);
+        }
+        if manga.next_update != 0 {
+            put_varint(&mut message, 113, manga.next_update.max(0) as u64);
         }
         if let Some(modified) = manga.favorite_modified_at.filter(|value| *value > 0) {
             put_varint(&mut message, 107, modified as u64);
@@ -555,6 +722,28 @@ mod tests {
                 }],
                 date_added: 1_600_000_000_000,
                 favorite_modified_at: Some(1_600_000_000),
+                viewer_flags: Some(4),
+                chapter_flags: 0x22,
+                update_strategy: 1,
+                excluded_scanlators: vec!["Old Scan".to_owned()],
+                next_update: 1_700_000_000_000,
+                initialized: true,
+                memo: b"{}".to_vec(),
+                tracking: vec![BackupTracking {
+                    sync_id: 2,
+                    library_id: 0,
+                    media_id_int: 0,
+                    media_id: 99,
+                    tracking_url: String::new(),
+                    title: "Alpha".to_owned(),
+                    last_chapter_read: 3.0,
+                    total_chapters: 10,
+                    score: 8.5,
+                    status: 1,
+                    started_reading_date: 1_600_000_000_000,
+                    finished_reading_date: 0,
+                    private: true,
+                }],
                 ..BackupManga::default()
             }],
             categories: vec![BackupCategory {

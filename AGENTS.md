@@ -388,7 +388,8 @@ Rules:
   `reader_chapter_transitions`, `reader_crop_borders`, `reader_grayscale`,
   `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
-  `tracker_auth`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,
+  `tracker_auth`, `backup_series_extra`, `trusted_extensions`, `series_added_at`,
+  `update_interval_hours`,
   `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,

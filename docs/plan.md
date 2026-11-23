@@ -185,12 +185,12 @@ and a working fallback.
 
 ### Phase 7 — Backup completeness and verification
 
-- [ ] Parse and export `BackupTracking` entries.
-- [ ] Preserve viewer flags, chapter flags, update strategy, excluded scanlators, and
+- [x] Parse and export `BackupTracking` entries.
+- [x] Preserve viewer flags, chapter flags, update strategy, excluded scanlators, and
       `nextUpdate`.
-- [ ] Confirm which custom-cover fields current Mihon actually stores; do not invent a
-      field.
-- [ ] Add fixture-based protobuf tests for every new field.
+- [x] Confirm which custom-cover fields current Mihon actually stores; no custom-cover
+      byte field exists in backup manga entries, so none is invented.
+- [x] Add fixture-based protobuf tests for every new field.
 - [ ] Verify a full round-trip with an Android Mihon build, or document the exact manual
       verification steps and mark the row accordingly.
 - [ ] Tests: tolerant parsing, unknown fields, missing fields, local/remote entries.

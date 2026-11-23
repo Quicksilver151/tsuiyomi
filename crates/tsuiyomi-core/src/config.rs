@@ -178,6 +178,26 @@ pub struct TrackerLink {
     pub private: Option<bool>,
 }
 
+/// Raw Mihon per-series flags preserved across backup round-trips.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupSeriesExtra {
+    /// Mihon viewer flags; the low three bits are the reading mode.
+    #[serde(default)]
+    pub viewer_flags: Option<i64>,
+    /// Mihon chapter flags (tri-state filters, sorting, direction).
+    #[serde(default)]
+    pub chapter_flags: i64,
+    /// Mihon update strategy enum.
+    #[serde(default)]
+    pub update_strategy: i64,
+    /// Scanlators excluded from the chapter list.
+    #[serde(default)]
+    pub excluded_scanlators: Vec<String>,
+    /// Milliseconds since the epoch of the next scheduled update.
+    #[serde(default)]
+    pub next_update: i64,
+}
+
 /// Application config, stored as TOML under the XDG config directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -304,6 +324,8 @@ pub struct Config {
     pub mal_token: Option<String>,
     /// OAuth bundles keyed by service (`anilist`, `mal`).
     pub tracker_auth: BTreeMap<String, TrackerAuth>,
+    /// Mihon flags retained for lossless backup export, keyed by story key.
+    pub backup_series_extra: BTreeMap<String, BackupSeriesExtra>,
     /// Linked tracker entries, keyed by the history series key.
     pub tracking: BTreeMap<String, TrackerLink>,
     /// Trusted extension file fingerprints, keyed by package name.
@@ -412,6 +434,7 @@ impl Default for Config {
             mal_client_secret: None,
             mal_token: None,
             tracker_auth: BTreeMap::new(),
+            backup_series_extra: BTreeMap::new(),
             tracking: BTreeMap::new(),
             trusted_extensions: BTreeMap::new(),
             remote_library: Vec::new(),

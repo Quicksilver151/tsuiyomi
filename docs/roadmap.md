@@ -9,7 +9,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 3 | 1 | 86.0% |
+| [On-disk compatibility](#on-disk-compatibility) | 24 | 1 | 0 | 1 | 98.0% |
 | [Library](#library) | 24 | 2 | 1 | 0 | 92.6% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
@@ -21,7 +21,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 0 | 1 | 1 | 85.7% |
 | [Settings, security, and data](#settings-security-and-data) | 16 | 0 | 2 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **241** | **6** | **9** | **10** | **95.3%** |
+| **All categories** | **244** | **6** | **6** | **10** | **96.5%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -57,9 +57,9 @@ table below.
 | Metadata writes | Mihon-readable metadata export | Yes | ✅ | ✅ | `E` writes `ComicInfo.xml` for a local series; existing files are kept. Legacy `details.json` is not rewritten. |
 | Backups | Import `.tachibk` / `.proto.gz` | Yes | ✅ | ✅ | Local and remote favorites, categories, notes, chapter state, bookmarks, and history. Local entries work without the extension host. |
 | Backups | Export Mihon-restorable backups | Yes | ✅ | ✅ | Local and remote library, categories, chapter state, history, notes, and date-added fields. Protobuf fields match current upstream models and round-trip in tests. |
-| Backups | Tracking entries | Yes | ❌ | ❌ | `BackupTracking` (field 18) is not imported or exported. |
-| Backups | Viewer/chapter flags and update strategy | Yes | ❌ | ❌ | `BackupManga` viewer flags, chapter flags, and update strategy are not preserved. |
-| Backups | Excluded scanlators and next update | Yes | ❌ | ❌ | Fields 108 and 113 are not preserved. |
+| Backups | Tracking entries | Yes | ✅ | ✅ | Field 18 is parsed and exported for AniList and MyAnimeList links. |
+| Backups | Viewer/chapter flags and update strategy | Yes | ✅ | ✅ | Viewer mode, chapter filters/sort, update strategy, and next update are preserved; the first two also apply to chapter settings. |
+| Backups | Excluded scanlators and next update | Yes | ✅ | ✅ | Fields 108 and 113 are parsed, applied, and exported. |
 | Backups | Real Mihon restore verification | Yes | 🟡 | 🟡 | Protobuf round-trip passes; no Android Mihon restore has been performed. |
 
 ### Library

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -27,16 +27,16 @@ use tsuiyomi_core::{
     save_config, scan_library, search_anilist, series_dir_name, source_dir_name, story_cache_path,
     title_similarity, today_key, update_anilist_entry, update_anilist_progress, update_mal_entry,
     update_mal_progress, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
-    BackupChapter, BackupHistory, BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter,
-    ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config,
-    ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
-    InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort, LocalSourceOrder,
-    MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState,
-    ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage,
-    RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode,
-    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
-    Theme, TrackerAuth, TrackerEntry, TrackerLink, TrackerMedia, TrackerStatus, TriState,
-    UpdateEntry, UpdateStore,
+    BackupChapter, BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking,
+    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
+    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
+    HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort,
+    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
+    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
+    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerEntry, TrackerLink,
+    TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -7073,6 +7073,20 @@ impl AppState {
                 .iter()
                 .filter_map(|name| category_ids.get(name).copied())
                 .collect();
+            let settings = self
+                .config
+                .chapter_settings
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| self.config.chapter_defaults.clone());
+            let extra = self.backup_series_extra_for(&key, &settings);
+            let tracking = self
+                .config
+                .tracking
+                .get(&key)
+                .and_then(backup_tracking_from_link)
+                .into_iter()
+                .collect();
             mangas.push(BackupManga {
                 source_id,
                 url: favorite.url.clone(),
@@ -7102,6 +7116,13 @@ impl AppState {
                     .copied()
                     .unwrap_or(0) as i64,
                 favorite_modified_at: None,
+                viewer_flags: extra.viewer_flags,
+                chapter_flags: extra.chapter_flags,
+                update_strategy: extra.update_strategy,
+                excluded_scanlators: extra.excluded_scanlators,
+                next_update: extra.next_update,
+                tracking,
+                ..BackupManga::default()
             });
         }
 
@@ -7176,6 +7197,13 @@ impl AppState {
                 .iter()
                 .filter_map(|name| category_ids.get(name).copied())
                 .collect();
+            let settings = self
+                .config
+                .chapter_settings
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| self.config.chapter_defaults.clone());
+            let extra = self.backup_series_extra_for(&key, &settings);
             mangas.push(BackupManga {
                 source_id,
                 url: series
@@ -7202,6 +7230,12 @@ impl AppState {
                 history,
                 date_added: self.config.series_added_at.get(&key).copied().unwrap_or(0) as i64,
                 favorite_modified_at: None,
+                viewer_flags: extra.viewer_flags,
+                chapter_flags: extra.chapter_flags,
+                update_strategy: extra.update_strategy,
+                excluded_scanlators: extra.excluded_scanlators,
+                next_update: extra.next_update,
+                ..BackupManga::default()
             });
         }
 
@@ -7262,6 +7296,64 @@ impl AppState {
     ///
     /// Returns `(progress, bookmarks, history, categories_changed)` when a library
     /// series matches, or `None` when it is not in the library.
+    /// Preserve raw Mihon flags and apply the ones the TUI models.
+    fn apply_backup_series_fields(&mut self, key: &str, manga: &BackupManga) {
+        let excluded: BTreeSet<String> = manga.excluded_scanlators.iter().cloned().collect();
+        if manga.viewer_flags.is_some()
+            || manga.chapter_flags != 0
+            || manga.update_strategy != 0
+            || !excluded.is_empty()
+            || manga.next_update != 0
+        {
+            self.config.backup_series_extra.insert(
+                key.to_owned(),
+                BackupSeriesExtra {
+                    viewer_flags: manga.viewer_flags,
+                    chapter_flags: manga.chapter_flags,
+                    update_strategy: manga.update_strategy,
+                    excluded_scanlators: manga.excluded_scanlators.clone(),
+                    next_update: manga.next_update,
+                },
+            );
+        }
+        let mut settings = self
+            .config
+            .chapter_settings
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| self.config.chapter_defaults.clone());
+        if let Some(flags) = manga.viewer_flags {
+            settings.viewer = reading_mode_from_flag(flags);
+        }
+        if manga.chapter_flags != 0 {
+            apply_chapter_flags(&mut settings, manga.chapter_flags);
+        }
+        if !excluded.is_empty() {
+            settings.excluded_scanlators = excluded;
+        }
+        self.config
+            .chapter_settings
+            .insert(key.to_owned(), settings);
+
+        if let Some(link) = manga.tracking.iter().find_map(tracker_link_from_backup) {
+            self.config.tracking.insert(key.to_owned(), link);
+        }
+    }
+
+    fn backup_series_extra_for(&self, key: &str, settings: &ChapterSettings) -> BackupSeriesExtra {
+        let stored = self.config.backup_series_extra.get(key);
+        BackupSeriesExtra {
+            viewer_flags: settings
+                .viewer
+                .map(reading_mode_flag)
+                .or_else(|| stored.and_then(|extra| extra.viewer_flags)),
+            chapter_flags: chapter_flags_from_settings(settings),
+            update_strategy: stored.map(|extra| extra.update_strategy).unwrap_or(0),
+            excluded_scanlators: settings.excluded_scanlators.iter().cloned().collect(),
+            next_update: stored.map(|extra| extra.next_update).unwrap_or(0),
+        }
+    }
+
     fn import_local_backup_manga(
         &mut self,
         manga: &BackupManga,
@@ -7301,8 +7393,9 @@ impl AppState {
         if !manga.notes.trim().is_empty() {
             self.config
                 .story_notes
-                .insert(story_key, manga.notes.clone());
+                .insert(story_key.clone(), manga.notes.clone());
         }
+        self.apply_backup_series_fields(&story_key, manga);
 
         let chapter_index = |url: &str, name: &str| {
             series.chapters.iter().position(|chapter| {
@@ -7522,6 +7615,7 @@ impl AppState {
                     .story_notes
                     .insert(story_key.clone(), manga.notes.clone());
             }
+            self.apply_backup_series_fields(&story_key, manga);
 
             let chapters: std::collections::HashMap<&str, &tsuiyomi_core::BackupChapter> = manga
                 .chapters
@@ -17625,6 +17719,188 @@ fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
 
+fn reading_mode_flag(mode: ReadingMode) -> i64 {
+    match mode {
+        ReadingMode::Default => 0,
+        ReadingMode::LeftToRight => 1,
+        ReadingMode::RightToLeft => 2,
+        ReadingMode::Vertical => 3,
+        ReadingMode::Webtoon => 4,
+        ReadingMode::ContinuousVertical => 5,
+    }
+}
+
+fn reading_mode_from_flag(flags: i64) -> Option<ReadingMode> {
+    match flags & 0x7 {
+        0 => None,
+        1 => Some(ReadingMode::LeftToRight),
+        2 => Some(ReadingMode::RightToLeft),
+        3 => Some(ReadingMode::Vertical),
+        4 => Some(ReadingMode::Webtoon),
+        _ => Some(ReadingMode::ContinuousVertical),
+    }
+}
+
+fn chapter_flags_from_settings(settings: &ChapterSettings) -> i64 {
+    let mut flags = 0i64;
+    flags |= match settings.unread {
+        TriState::Ignore => 0,
+        TriState::Include => 0x2,
+        TriState::Exclude => 0x4,
+    };
+    flags |= match settings.downloaded {
+        TriState::Ignore => 0,
+        TriState::Include => 0x8,
+        TriState::Exclude => 0x10,
+    };
+    flags |= match settings.bookmarked {
+        TriState::Ignore => 0,
+        TriState::Include => 0x20,
+        TriState::Exclude => 0x40,
+    };
+    flags |= match settings.sort {
+        ChapterSort::Source => 0,
+        ChapterSort::Number => 0x100,
+        ChapterSort::UploadDate => 0x200,
+        ChapterSort::Alphabet => 0x300,
+    };
+    if settings.descending {
+        flags |= 0x1;
+    }
+    flags
+}
+
+fn apply_chapter_flags(settings: &mut ChapterSettings, flags: i64) {
+    settings.unread = match flags & 0x6 {
+        0x2 => TriState::Include,
+        0x4 => TriState::Exclude,
+        _ => TriState::Ignore,
+    };
+    settings.downloaded = match flags & 0x18 {
+        0x8 => TriState::Include,
+        0x10 => TriState::Exclude,
+        _ => TriState::Ignore,
+    };
+    settings.bookmarked = match flags & 0x60 {
+        0x20 => TriState::Include,
+        0x40 => TriState::Exclude,
+        _ => TriState::Ignore,
+    };
+    settings.sort = match flags & 0x300 {
+        0x100 => ChapterSort::Number,
+        0x200 => ChapterSort::UploadDate,
+        0x300 => ChapterSort::Alphabet,
+        _ => ChapterSort::Source,
+    };
+    settings.descending = flags & 0x1 == 1;
+}
+
+fn tracker_status_code(service: &str, status: TrackerStatus) -> i64 {
+    match status {
+        TrackerStatus::Reading => 1,
+        TrackerStatus::Completed => 2,
+        TrackerStatus::OnHold => 3,
+        TrackerStatus::Dropped => 4,
+        TrackerStatus::Planning => {
+            if service == "mal" {
+                6
+            } else {
+                5
+            }
+        }
+    }
+}
+
+fn tracker_status_from_code(service: &str, code: i64) -> Option<TrackerStatus> {
+    match code {
+        1 => Some(TrackerStatus::Reading),
+        2 => Some(TrackerStatus::Completed),
+        3 => Some(TrackerStatus::OnHold),
+        4 => Some(TrackerStatus::Dropped),
+        5 if service == "anilist" => Some(TrackerStatus::Planning),
+        6 if service == "mal" => Some(TrackerStatus::Planning),
+        _ => None,
+    }
+}
+
+fn tracker_service_from_sync_id(sync_id: i64) -> Option<&'static str> {
+    match sync_id {
+        1 => Some("mal"),
+        2 => Some("anilist"),
+        _ => None,
+    }
+}
+
+fn backup_tracking_from_link(link: &TrackerLink) -> Option<BackupTracking> {
+    let sync_id = match link.service.as_str() {
+        "mal" => 1,
+        "anilist" => 2,
+        _ => return None,
+    };
+    let status = link
+        .status
+        .as_deref()
+        .and_then(TrackerStatus::parse)
+        .map(|status| tracker_status_code(&link.service, status))
+        .unwrap_or(0);
+    let date = |value: &Option<String>| -> i64 {
+        value.as_deref().and_then(tracker_date_millis).unwrap_or(0)
+    };
+    Some(BackupTracking {
+        sync_id,
+        library_id: 0,
+        media_id_int: i32::try_from(link.media_id).unwrap_or(0) as i64,
+        media_id: link.media_id as i64,
+        tracking_url: String::new(),
+        title: link.title.clone(),
+        last_chapter_read: link.progress as f32,
+        total_chapters: link.total_chapters.unwrap_or(0) as i64,
+        score: link.score.unwrap_or(0.0),
+        status,
+        started_reading_date: date(&link.start_date),
+        finished_reading_date: date(&link.finish_date),
+        private: link.private.unwrap_or(false),
+    })
+}
+
+fn tracker_link_from_backup(tracking: &BackupTracking) -> Option<TrackerLink> {
+    let service = tracker_service_from_sync_id(tracking.sync_id)?;
+    let media_id = if tracking.media_id != 0 {
+        tracking.media_id as u64
+    } else {
+        tracking.media_id_int as u64
+    };
+    let status = tracker_status_from_code(service, tracking.status)
+        .map(TrackerStatus::id)
+        .map(str::to_owned);
+    Some(TrackerLink {
+        service: service.to_owned(),
+        media_id,
+        title: tracking.title.clone(),
+        total_chapters: (tracking.total_chapters > 0).then_some(tracking.total_chapters as u32),
+        progress: tracking.last_chapter_read.max(0.0).round() as u32,
+        status,
+        score: (tracking.score > 0.0).then_some(tracking.score),
+        start_date: tracker_date_string(tracking.started_reading_date),
+        finish_date: tracker_date_string(tracking.finished_reading_date),
+        private: (service == "anilist").then_some(tracking.private),
+    })
+}
+
+fn tracker_date_millis(value: &str) -> Option<i64> {
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .ok()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+        .map(|date| date.and_utc().timestamp_millis())
+}
+
+fn tracker_date_string(millis: i64) -> Option<String> {
+    (millis > 0)
+        .then(|| chrono::DateTime::from_timestamp_millis(millis))
+        .flatten()
+        .map(|date| date.date_naive().format("%Y-%m-%d").to_string())
+}
+
 fn plural_chapters(count: usize) -> String {
     if count == 1 {
         "1 chapter".to_owned()
@@ -21014,6 +21290,74 @@ mod tests {
     }
 
     #[test]
+    fn backup_tracking_and_series_flags_round_trip() {
+        let mut app = AppState::new(library(), None);
+        app.config.tracking.insert(
+            "1\n/manga/alpha".to_owned(),
+            TrackerLink {
+                service: "anilist".to_owned(),
+                media_id: 99,
+                title: "Alpha".to_owned(),
+                total_chapters: Some(10),
+                progress: 3,
+                status: Some("reading".to_owned()),
+                score: Some(8.5),
+                start_date: Some("2024-02-03".to_owned()),
+                finish_date: None,
+                private: Some(true),
+            },
+        );
+        let link = app.config.tracking["1\n/manga/alpha"].clone();
+        let tracking = backup_tracking_from_link(&link).expect("tracking");
+        assert_eq!(tracking.sync_id, 2);
+        assert_eq!(tracking.media_id, 99);
+        assert_eq!(tracking.status, 1);
+        assert!(tracking.private);
+        let restored = tracker_link_from_backup(&tracking).expect("link");
+        assert_eq!(restored.service, "anilist");
+        assert_eq!(restored.progress, 3);
+        assert_eq!(restored.score, Some(8.5));
+        assert_eq!(restored.start_date.as_deref(), Some("2024-02-03"));
+        assert_eq!(restored.private, Some(true));
+
+        let settings = ChapterSettings {
+            viewer: Some(ReadingMode::RightToLeft),
+            unread: TriState::Include,
+            downloaded: TriState::Exclude,
+            bookmarked: TriState::Include,
+            sort: ChapterSort::Alphabet,
+            descending: true,
+            ..ChapterSettings::default()
+        };
+        let flags = chapter_flags_from_settings(&settings);
+        let mut restored_settings = ChapterSettings::default();
+        apply_chapter_flags(&mut restored_settings, flags);
+        assert_eq!(restored_settings.unread, TriState::Include);
+        assert_eq!(restored_settings.downloaded, TriState::Exclude);
+        assert_eq!(restored_settings.bookmarked, TriState::Include);
+        assert_eq!(restored_settings.sort, ChapterSort::Alphabet);
+        assert!(restored_settings.descending);
+        assert_eq!(reading_mode_from_flag(2), Some(ReadingMode::RightToLeft));
+
+        let manga = BackupManga {
+            viewer_flags: Some(3),
+            chapter_flags: flags,
+            excluded_scanlators: vec!["Old Scan".to_owned()],
+            update_strategy: 1,
+            next_update: 1_700_000_000_000,
+            tracking: vec![tracking],
+            ..BackupManga::default()
+        };
+        app.apply_backup_series_fields("1\n/manga/alpha", &manga);
+        let extra = app.config.backup_series_extra["1\n/manga/alpha"].clone();
+        assert_eq!(extra.update_strategy, 1);
+        assert_eq!(extra.next_update, 1_700_000_000_000);
+        let settings = app.config.chapter_settings["1\n/manga/alpha"].clone();
+        assert_eq!(settings.viewer, Some(ReadingMode::Vertical));
+        assert!(settings.excluded_scanlators.contains("Old Scan"));
+    }
+
+    #[test]
     fn local_backup_entries_restore_state() {
         let mut app = AppState::new(library(), None);
         let manga = BackupManga {
@@ -21057,6 +21401,7 @@ mod tests {
             }],
             date_added: 1_600_000_000_000,
             favorite_modified_at: None,
+            ..BackupManga::default()
         };
         let categories = std::collections::HashMap::from([(7, "Reading".to_owned())]);
 
