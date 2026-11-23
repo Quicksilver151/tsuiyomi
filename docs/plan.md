@@ -79,14 +79,15 @@ Goal: match Mihon’s library controls without Android gestures.
 
 - [ ] Add comfortable grid, compact grid, and list layouts; persist the choice.
 - [ ] Add per-category display and sort settings, with the global setting as fallback.
-- [ ] Add the library filter dialog:
-      - [ ] Unread / in-progress / read.
+- [x] Add the library filter dialog:
+      - [x] Unread.
+      - [ ] In-progress / read.
       - [ ] Downloaded / not downloaded.
-      - [ ] Bookmarked.
-      - [ ] Tracked / untracked.
-      - [ ] Missing chapters.
-      - [ ] Combine filters and preserve them while navigating.
-- [ ] Add unread, download, and language/source badges to tiles.
+      - [x] Bookmarked.
+      - [x] Tracked.
+      - [x] Missing chapters.
+      - [x] Combine filters and preserve them while navigating.
+- [x] Add unread badges to tiles; download and language/source badges remain.
 - [ ] Add sort modes: tracker score, last update, chapter fetch date, random.
 - [ ] Add a continue-reading shelf or pinned row.
 - [ ] Add random-manga action.

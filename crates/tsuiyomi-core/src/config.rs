@@ -112,6 +112,19 @@ pub struct TrackerAuth {
     pub expires_at: Option<u64>,
 }
 
+/// Library-wide filters. Each flag is an include-only constraint.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LibraryFilters {
+    #[serde(default)]
+    pub unread: bool,
+    #[serde(default)]
+    pub bookmarked: bool,
+    #[serde(default)]
+    pub tracked: bool,
+    #[serde(default)]
+    pub missing_chapters: bool,
+}
+
 /// A story's link to an external tracker.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrackerLink {
@@ -156,6 +169,8 @@ pub struct Config {
     pub thumbnail_width: u16,
     /// Library list ordering.
     pub library_sort: LibrarySort,
+    /// Active library-wide filters.
+    pub library_filters: LibraryFilters,
     /// Hours between automatic saved-source chapter checks. Zero disables them.
     pub update_interval_hours: u64,
     /// Category selected on startup. `None` keeps the scanner's first category.
@@ -253,6 +268,7 @@ impl Default for Config {
             fullscreen: false,
             thumbnail_width: 14,
             library_sort: LibrarySort::default(),
+            library_filters: LibraryFilters::default(),
             update_interval_hours: 12,
             default_category: None,
             incognito: false,

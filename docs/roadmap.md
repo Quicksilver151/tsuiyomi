@@ -10,7 +10,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 3 | 1 | 86.0% |
-| [Library](#library) | 15 | 4 | 8 | 0 | 63.0% |
+| [Library](#library) | 15 | 6 | 6 | 0 | 66.7% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
@@ -21,7 +21,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 1 | 2 | 4 | 1 | 28.6% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **212** | **13** | **30** | **11** | **85.7%** |
+| **All categories** | **212** | **15** | **28** | **11** | **86.1%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -70,14 +70,14 @@ table below.
 | Grid | Generated/placeholder covers | Yes | Yes | ✅ | Initials placeholder when no image. |
 | Grid | Saved source manga merged in | Yes | Yes | ✅ | Mirrored in `remote_library`. |
 | Grid | Comfortable grid / compact grid / list layouts | Yes | ❌ | ❌ | Tile grid with adjustable width only. |
-| Grid | Unread / download / language badges | Yes | ❌ | ❌ | Tiles show title and chapter count. |
+| Grid | Unread / download / language badges | Yes | 🟡 | 🟡 | Unread count badge exists; download and language badges remain. |
 | Categories | Category tabs/filtering | Yes | ✅ | ✅ | `[`/`]`; default category. |
 | Categories | Edit categories from story | Yes | ✅ | ✅ | Local and saved source manga; local assignments write `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
 | Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, unread, recently read, and recently added. Tracker score, last update, chapter fetch date, and random remain. |
 | Sorting | Per-category sort and display settings | Yes | ❌ | ❌ | Sort and display are global. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
-| Filters | Library filter dialog | Yes | ❌ | ❌ | Planned unread/downloaded/bookmarked/tracked/missing filters. |
+| Filters | Library filter dialog | Yes | 🟡 | 🟡 | `z` toggles unread/bookmarked/tracked/missing filters; downloaded and read-state filters remain. |
 | Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan and newly discovered saved-source chapters, kept 30 days; Enter reads, `x` dismisses, `X` clears. |
 | Updates | Update settings and smart-update rules | Yes | ❌ | ❌ | Planned unread-only, started/completed/release-period restrictions. |
 | Updates | Category-only update and tab-badge setting | Yes | 🟡 | 🟡 | Global saved-story refresh and tab badge exist; no category scope or badge toggle. |

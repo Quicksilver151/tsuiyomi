@@ -359,6 +359,8 @@ Rules:
   per-extension Incognito suppress history and time.
 - `C` on the Library grid opens the selected series at its next in-progress or unread
   chapter, matching Mihon's continue-reading action.
+- Library has title filtering, unread/bookmarked/tracked/missing filters (`z`), and unread
+  count badges on tiles. Downloaded/read-state filters and download/language badges remain.
 - Library title filtering and backup import/export are implemented. Import restores local
   entries without the host; remote entries need a matching extension source. Exported
   backups still need a real Mihon restore check.

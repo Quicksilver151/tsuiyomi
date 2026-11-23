@@ -29,12 +29,12 @@ use tsuiyomi_core::{
     write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
     BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
     ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
-    HostClient, HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch,
-    MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode,
-    ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState,
-    RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode, SourceFilter,
-    SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme,
-    TrackerAuth, TrackerLink, TrackerMedia, TriState, UpdateEntry, UpdateStore,
+    HostClient, HostProcess, InstallJob, Library, LibraryFilters, LibrarySort, LocalSourceOrder,
+    MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState,
+    ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage,
+    RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode,
+    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
+    Theme, TrackerAuth, TrackerLink, TrackerMedia, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -901,6 +901,11 @@ pub struct TagPicker {
 }
 
 #[derive(Debug, Default)]
+pub struct LibraryFilterPicker {
+    pub selected: usize,
+}
+
+#[derive(Debug, Default)]
 pub struct TrackerPicker {
     pub results: Vec<TrackerMedia>,
     pub selected: usize,
@@ -1189,6 +1194,7 @@ pub struct AppState {
     pub category_picker: Option<CategoryPicker>,
     pub save_categories: Option<SaveCategories>,
     pub tag_picker: Option<TagPicker>,
+    pub library_filter_picker: Option<LibraryFilterPicker>,
     pub tracker_picker: Option<TrackerPicker>,
     pub tracker_unlink_confirm: bool,
     pub migration_source_picker: Option<MigrationSourcePicker>,
@@ -1345,6 +1351,7 @@ impl AppState {
             category_picker: None,
             save_categories: None,
             tag_picker: None,
+            library_filter_picker: None,
             tracker_picker: None,
             tracker_unlink_confirm: false,
             migration_source_picker: None,
@@ -9147,6 +9154,16 @@ impl AppState {
             .enumerate()
             .filter(|(_, series)| in_category(series, category))
             .filter(|(_, series)| query.is_empty() || series.title.to_lowercase().contains(&query))
+            .filter(|(_, series)| {
+                let filters = self.config.library_filters;
+                (!filters.unread || self.series_unread_count(series) > 0)
+                    && (!filters.bookmarked || self.series_has_bookmark(series))
+                    && (!filters.tracked || self.series_is_tracked(series))
+                    && (!filters.missing_chapters
+                        || missing_chapter_count(
+                            series.chapters.iter().map(|chapter| chapter.number),
+                        ) > 0)
+            })
             .map(|(index, _)| index)
             .collect();
 
@@ -9253,6 +9270,89 @@ impl AppState {
             }),
         }
         indices
+    }
+
+    pub fn library_filters_active(&self) -> bool {
+        let filters = self.config.library_filters;
+        filters.unread || filters.bookmarked || filters.tracked || filters.missing_chapters
+    }
+
+    pub fn open_library_filters(&mut self) {
+        if self.tab == 0 && self.view == LibraryView::Series {
+            self.library_filter_picker = Some(LibraryFilterPicker::default());
+        }
+    }
+
+    pub fn library_filter_previous(&mut self) {
+        if let Some(picker) = self.library_filter_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn library_filter_next(&mut self) {
+        if let Some(picker) = self.library_filter_picker.as_mut() {
+            picker.selected = (picker.selected + 1).min(3);
+        }
+    }
+
+    pub fn library_filter_toggle(&mut self) {
+        let Some(picker) = self.library_filter_picker.as_ref() else {
+            return;
+        };
+        match picker.selected {
+            0 => self.config.library_filters.unread = !self.config.library_filters.unread,
+            1 => self.config.library_filters.bookmarked = !self.config.library_filters.bookmarked,
+            2 => self.config.library_filters.tracked = !self.config.library_filters.tracked,
+            _ => {
+                self.config.library_filters.missing_chapters =
+                    !self.config.library_filters.missing_chapters
+            }
+        }
+        self.persist_settings();
+        self.clamp_selection();
+    }
+
+    pub fn library_filter_reset(&mut self) {
+        self.config.library_filters = LibraryFilters::default();
+        self.persist_settings();
+        self.clamp_selection();
+    }
+
+    pub fn close_library_filters(&mut self) {
+        self.library_filter_picker = None;
+    }
+
+    fn series_is_tracked(&self, series: &Series) -> bool {
+        let key = if let Some(remote) = &series.remote {
+            remote_story_key(&remote.source_id, &remote.url)
+        } else {
+            format!("local:{}", series.path.display())
+        };
+        self.config.tracking.contains_key(&key)
+    }
+
+    pub fn series_unread_count(&self, series: &Series) -> usize {
+        series
+            .chapters
+            .iter()
+            .filter(|chapter| {
+                !matches!(
+                    read_state(
+                        self.progress
+                            .entry(&chapter.path)
+                            .map(|entry| (entry.page, entry.pages))
+                    ),
+                    ReadState::Read
+                )
+            })
+            .count()
+    }
+
+    fn series_has_bookmark(&self, series: &Series) -> bool {
+        series
+            .chapters
+            .iter()
+            .any(|chapter| self.bookmarks.is_bookmarked(&chapter.path))
     }
 
     pub fn library_filter_active(&self) -> bool {
@@ -16697,6 +16797,47 @@ mod tests {
                 .and_then(|index| app.library.series.get(*index))
                 .map(|series| series.title.as_str()),
             Some("Berserk")
+        );
+    }
+
+    #[test]
+    fn library_filters_apply_unread_bookmarked_tracked_and_missing() {
+        let mut app = AppState::new(library(), None);
+        app.config.library_filters.unread = true;
+        assert_eq!(
+            app.visible_indices()
+                .into_iter()
+                .map(|index| app.library.series[index].title.as_str())
+                .collect::<Vec<_>>(),
+            ["Berserk"]
+        );
+
+        app.config.library_filters = LibraryFilters::default();
+        app.bookmarks.set(Path::new("Chapter 1"), true);
+        app.config.library_filters.bookmarked = true;
+        assert_eq!(app.visible_indices().len(), 1);
+
+        app.config.library_filters = LibraryFilters::default();
+        app.config.tracking.insert(
+            "local:Berserk".to_owned(),
+            TrackerLink {
+                service: "anilist".to_owned(),
+                media_id: 1,
+                title: "Berserk".to_owned(),
+                total_chapters: None,
+                progress: 0,
+            },
+        );
+        app.config.library_filters.tracked = true;
+        assert_eq!(app.visible_indices().len(), 1);
+
+        app.config.library_filters = LibraryFilters::default();
+        app.library.series[1].chapters[0].number = Some(4.0);
+        app.config.library_filters.missing_chapters = true;
+        assert_eq!(app.visible_indices().len(), 1);
+        assert_eq!(
+            app.library.series[app.visible_indices()[0]].title,
+            "Berserk"
         );
     }
 

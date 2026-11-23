@@ -324,6 +324,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.library_filter_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.library_filter_previous(),
+                Action::Next => app.library_filter_next(),
+                Action::Open | Action::Confirm | Action::Select => app.library_filter_toggle(),
+                Action::Refresh => app.library_filter_reset(),
+                Action::Back => app.close_library_filters(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.tracker_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -1026,7 +1040,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::Filters => {
-                if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
+                if app.tab == 0 && app.view == LibraryView::Series {
+                    app.open_library_filters();
+                } else if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     app.open_filters();
                 }
             }

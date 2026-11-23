@@ -91,6 +91,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_category_picker(frame, app);
     draw_save_categories(frame, app);
     draw_tag_picker(frame, app);
+    draw_library_filters(frame, app);
     draw_tracker_picker(frame, app);
     draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
@@ -378,6 +379,75 @@ fn draw_migration_sources(frame: &mut Frame, app: &AppState) {
         .collect();
     let mut state = ListState::default();
     state.select(Some(picker.selected.min(sources.len().saturating_sub(1))));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_library_filters(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.library_filter_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 58.min(area.width).max(24);
+    let height = 8.min(area.height);
+    if width < 20 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Library filters ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Space toggle · r reset · Esc close ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let filters = app.config.library_filters;
+    let rows = [
+        ("Unread", filters.unread),
+        ("Bookmarked", filters.bookmarked),
+        ("Tracked", filters.tracked),
+        ("Missing chapters", filters.missing_chapters),
+    ];
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (label, enabled))| {
+            let selected = index == picker.selected;
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    if *enabled { "[x] " } else { "[ ] " },
+                    Style::default().fg(if *enabled { c_green() } else { c_overlay1() }),
+                ),
+                Span::styled(
+                    (*label).to_owned(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(picker.selected.min(items.len().saturating_sub(1))));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
@@ -1746,6 +1816,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("C", "continue"),
                 ("/", "search"),
                 ("i", "import"),
+                ("z", "filter"),
                 ("r", "rescan"),
                 ("U", "update saved"),
                 ("c", "config"),
@@ -2210,6 +2281,7 @@ fn draw_series_grid(
         } else {
             format!("{chapter_count} ch")
         };
+        let unread = app.series_unread_count(&app.library.series[*series_index]);
         let tile = grid_tile_rect(area, columns, offset, index, tile_height);
         let is_selected = index == selected;
         if is_selected {
@@ -2232,6 +2304,14 @@ fn draw_series_grid(
                 render_centered_image(frame, cover_area, protocol);
                 rendered_cover = true;
             }
+        }
+        if unread > 0 && cover_area.width >= 4 && cover_area.height > 0 {
+            frame.render_widget(
+                Paragraph::new(format!("●{unread}"))
+                    .alignment(Alignment::Right)
+                    .style(Style::default().fg(c_accent()).bg(c_surface0())),
+                Rect::new(cover_area.x, cover_area.y, cover_area.width, 1),
+            );
         }
         if !rendered_cover {
             let initial = title
