@@ -176,8 +176,9 @@ Rules:
   reverses the left/right keys; paged vertical mode uses up/down page turns. Page images
   support Fit, Fill/crop, and Stretch modes. Page-mode zoom crops/pads the decoded page,
   pans with `h`/`l` and `j`/`k`, and re-encodes it. `o` opens the current chapter page or
-  local chapter folder. Placement-only Kitty scaling is a planned opt-in with a re-encode
-  fallback.
+  local chapter folder; `S`/`Y`/`E`/`W` open, copy, save, or cover the page. Reader settings
+  skip read/duplicate chapters, transition at page edges, crop borders, and render
+  grayscale. Placement-only Kitty scaling is a planned opt-in with a re-encode fallback.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
@@ -382,7 +383,9 @@ Rules:
   `smart_update_skip_unstarted`, `smart_update_skip_completed`,
   `smart_update_release_days`, `update_categories`, `updates_tab_badge`,
   `library_display_mode`, `hide_missing_chapters`,
-  `mark_duplicate_chapters_read`, `anilist_token`, `anilist_client_id`,
+  `mark_duplicate_chapters_read`, `reader_skip_read`, `reader_skip_duplicates`,
+  `reader_chapter_transitions`, `reader_crop_borders`, `reader_grayscale`,
+  `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
   `tracker_auth`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,
   `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.

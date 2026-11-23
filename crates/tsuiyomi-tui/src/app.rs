@@ -473,6 +473,11 @@ pub enum SettingId {
     PrefetchBehind,
     PrefetchAhead,
     CacheMargin,
+    ReaderSkipRead,
+    ReaderSkipDuplicates,
+    ReaderChapterTransitions,
+    ReaderCropBorders,
+    ReaderGrayscale,
     LibraryPath,
     LibraryDisplay,
     DefaultCategory,
@@ -576,10 +581,15 @@ const LIBRARY_ROWS: [MoreRow; 17] = [
     MoreRow::Setting(SettingId::UpdatesTabBadge),
 ];
 
-const READER_ROWS: [MoreRow; 8] = [
+const READER_ROWS: [MoreRow; 13] = [
     MoreRow::Divider("Reading"),
     MoreRow::Setting(SettingId::ReadingMode),
     MoreRow::Setting(SettingId::ReaderFit),
+    MoreRow::Setting(SettingId::ReaderSkipRead),
+    MoreRow::Setting(SettingId::ReaderSkipDuplicates),
+    MoreRow::Setting(SettingId::ReaderChapterTransitions),
+    MoreRow::Setting(SettingId::ReaderCropBorders),
+    MoreRow::Setting(SettingId::ReaderGrayscale),
     MoreRow::Divider("Continuous scroll"),
     MoreRow::Setting(SettingId::Zoom),
     MoreRow::Setting(SettingId::PrefetchBehind),
@@ -10758,6 +10768,201 @@ impl AppState {
         }
     }
 
+    fn reader_page(&self) -> Option<&Page> {
+        let reader = self.reader.as_ref()?;
+        reader.pages.get(reader.page_index)
+    }
+
+    /// Open the current reader page through the system image viewer.
+    pub fn open_reader_page(&mut self) {
+        let Some(page) = self.reader_page().cloned() else {
+            return;
+        };
+        let target = match &page.source {
+            PageSource::Remote { url } => Some(url.clone()),
+            PageSource::File(path) => Some(path.display().to_string()),
+            PageSource::Archive { .. } => match read_page(&page) {
+                Ok(bytes) => {
+                    let path = std::env::temp_dir().join(format!(
+                        "tsuiyomi-{}.{}",
+                        page.name.replace(['/', '\\'], "_"),
+                        page_extension(&bytes)
+                    ));
+                    match std::fs::write(&path, bytes) {
+                        Ok(()) => Some(path.display().to_string()),
+                        Err(error) => {
+                            self.status = Some(format!("Could not save the page: {error}"));
+                            None
+                        }
+                    }
+                }
+                Err(error) => {
+                    self.status = Some(format!("Could not read the page: {error}"));
+                    None
+                }
+            },
+        };
+        let Some(target) = target else {
+            return;
+        };
+        match open_external_target(&target) {
+            Ok(()) => self.status = Some(format!("Opened {target}")),
+            Err(error) => self.status = Some(format!("Could not open {target}: {error}")),
+        }
+    }
+
+    /// Copy the current page URL or path through OSC 52.
+    pub fn copy_reader_page(&mut self) {
+        let Some(page) = self.reader_page() else {
+            return;
+        };
+        let value = match &page.source {
+            PageSource::Remote { url } => url.clone(),
+            PageSource::File(path) => path.display().to_string(),
+            PageSource::Archive { path, name, .. } => {
+                format!("{}!{name}", path.display())
+            }
+        };
+        match write_osc52_clipboard(&value) {
+            Ok(()) => self.status = Some(format!("Copied {value}")),
+            Err(error) => self.status = Some(format!("Could not copy: {error}")),
+        }
+    }
+
+    /// Write the current page image under `$XDG_DATA_HOME/tsuiyomi/exports`.
+    pub fn save_reader_page(&mut self) {
+        let Some(page) = self.reader_page().cloned() else {
+            return;
+        };
+        let bytes = match read_page(&page) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.status = Some(format!("Could not read the page: {error}"));
+                return;
+            }
+        };
+        let Some(dir) = remote_cover_path("x", "x")
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .map(|dir| dir.join("exports"))
+        else {
+            self.status = Some("Cannot resolve the export directory.".to_owned());
+            return;
+        };
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            self.status = Some(format!("Cannot create the export directory: {error}"));
+            return;
+        }
+        let (series, chapter, index) = {
+            let Some(reader) = self.reader.as_ref() else {
+                return;
+            };
+            (
+                sanitize_export(&reader.series_title),
+                sanitize_export(&reader.chapter_title),
+                reader.page_index + 1,
+            )
+        };
+        let target = dir.join(format!(
+            "{series}_{chapter}_p{index:03}.{}",
+            page_extension(&bytes)
+        ));
+        match std::fs::write(&target, bytes) {
+            Ok(()) => self.status = Some(format!("Saved page to {}", target.display())),
+            Err(error) => self.status = Some(format!("Could not save the page: {error}")),
+        }
+    }
+
+    /// Use the current page image as the story cover.
+    pub fn set_reader_page_as_cover(&mut self) {
+        let Some(page) = self.reader_page().cloned() else {
+            return;
+        };
+        let bytes = match read_page(&page) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.status = Some(format!("Could not read the page: {error}"));
+                return;
+            }
+        };
+        match self.reader_origin {
+            ReaderOrigin::Library | ReaderOrigin::BrowseLocal => {
+                let path = if self.reader_origin == ReaderOrigin::Library {
+                    self.selected_series().map(|series| series.path.clone())
+                } else {
+                    self.selected_browse_local_series()
+                        .map(|series| series.path.clone())
+                };
+                let Some(path) = path else {
+                    self.status = Some("The series is no longer available.".to_owned());
+                    return;
+                };
+                let cover = path.join("cover.jpg");
+                let written = image::load_from_memory(&bytes)
+                    .map_err(|error| error.to_string())
+                    .and_then(|image| {
+                        image
+                            .to_rgb8()
+                            .save(&cover)
+                            .map_err(|error| error.to_string())
+                    });
+                match written {
+                    Ok(()) => {
+                        if let Some(series) = self
+                            .library
+                            .series
+                            .iter_mut()
+                            .find(|series| series.path == path)
+                        {
+                            series.cover = Some(cover.clone());
+                        }
+                        self.tile_covers.remove(&cover);
+                        let _ = self.ensure_local_series_cover(
+                            self.library
+                                .series
+                                .iter()
+                                .position(|series| series.path == path)
+                                .unwrap_or(0),
+                        );
+                        self.status = Some(format!("Set cover from page {}", page.name));
+                    }
+                    Err(error) => self.status = Some(format!("Could not write the cover: {error}")),
+                }
+            }
+            ReaderOrigin::LibraryRemote | ReaderOrigin::Remote => {
+                let manga = if self.reader_origin == ReaderOrigin::Remote {
+                    self.remote.manga.clone()
+                } else {
+                    self.library_remote.manga.clone()
+                };
+                let Some(manga) = manga else {
+                    return;
+                };
+                let Some(target) = remote_cover_path(&manga.source_id, &manga.url) else {
+                    self.status = Some("Cannot resolve the cover cache path.".to_owned());
+                    return;
+                };
+                if let Some(parent) = target.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match std::fs::write(&target, bytes) {
+                    Ok(()) => {
+                        self.tile_covers.remove(&target);
+                        let _ = self.ensure_remote_cover(
+                            &manga.source_id,
+                            &manga.url,
+                            manga.thumbnail_url.as_deref(),
+                        );
+                        self.status = Some(format!("Set cover from page {}", page.name));
+                    }
+                    Err(error) => self.status = Some(format!("Could not write the cover: {error}")),
+                }
+            }
+            ReaderOrigin::Updates | ReaderOrigin::History => {
+                self.status = Some("Open the story before setting a page as its cover.".to_owned());
+            }
+        }
+    }
+
     /// Open a local series folder or an absolute source URL in the system handler.
     pub fn open_story_source(&mut self) {
         let Some(value) = self.story_reference() else {
@@ -14236,6 +14441,11 @@ impl AppState {
             }
             SettingId::ReadingMode
             | SettingId::ReaderFit
+            | SettingId::ReaderSkipRead
+            | SettingId::ReaderSkipDuplicates
+            | SettingId::ReaderChapterTransitions
+            | SettingId::ReaderCropBorders
+            | SettingId::ReaderGrayscale
             | SettingId::LibraryDisplay
             | SettingId::LibrarySort
             | SettingId::DefaultCategory
@@ -14853,6 +15063,33 @@ impl AppState {
         };
 
         match setting {
+            SettingId::ReaderSkipRead => {
+                self.config.reader_skip_read = !self.config.reader_skip_read;
+            }
+            SettingId::ReaderSkipDuplicates => {
+                self.config.reader_skip_duplicates = !self.config.reader_skip_duplicates;
+            }
+            SettingId::ReaderChapterTransitions => {
+                self.config.reader_chapter_transitions = !self.config.reader_chapter_transitions;
+            }
+            SettingId::ReaderCropBorders => {
+                self.config.reader_crop_borders = !self.config.reader_crop_borders;
+                if self.reader.is_some() {
+                    match self.reader_mode {
+                        ReaderMode::Page => self.load_page(),
+                        ReaderMode::Scroll => self.build_scroll(terminal_width()),
+                    }
+                }
+            }
+            SettingId::ReaderGrayscale => {
+                self.config.reader_grayscale = !self.config.reader_grayscale;
+                if self.reader.is_some() {
+                    match self.reader_mode {
+                        ReaderMode::Page => self.load_page(),
+                        ReaderMode::Scroll => self.build_scroll(terminal_width()),
+                    }
+                }
+            }
             SettingId::ReaderFit => {
                 let fits = [
                     tsuiyomi_core::ReaderFit::Fit,
@@ -15264,6 +15501,30 @@ impl AppState {
 
     fn change_page(&mut self, forward: bool) {
         self.page_pan = (0.0, 0.0);
+        let at_edge = {
+            let Some(reader) = self.reader.as_ref() else {
+                return;
+            };
+            if forward {
+                reader.page_index + 1 >= reader.pages.len()
+            } else {
+                reader.page_index == 0
+            }
+        };
+        if at_edge && self.config.reader_chapter_transitions {
+            let before = self
+                .reader
+                .as_ref()
+                .map(|reader| reader.chapter_path.clone());
+            self.step_reader_chapter(if forward { -1 } else { 1 });
+            let after = self
+                .reader
+                .as_ref()
+                .map(|reader| reader.chapter_path.clone());
+            if before != after {
+                return;
+            }
+        }
         {
             let Some(reader) = self.reader.as_mut() else {
                 return;
@@ -15299,6 +15560,34 @@ impl AppState {
         self.step_reader_chapter(1);
     }
 
+    /// Next chapter in reader order after applying skip-read and duplicate rules.
+    fn reader_chapter_target(
+        &self,
+        indices: &[usize],
+        position: usize,
+        current: usize,
+        delta: isize,
+    ) -> Option<usize> {
+        let current_number = self.story_chapter_number(current);
+        let mut position = position;
+        loop {
+            position = position.checked_add_signed(delta)?;
+            let target = *indices.get(position)?;
+            if self.config.reader_skip_read
+                && self.story_chapter_read_state(target) == ReadState::Read
+            {
+                continue;
+            }
+            if self.config.reader_skip_duplicates
+                && current_number.is_some()
+                && self.story_chapter_number(target) == current_number
+            {
+                continue;
+            }
+            return Some(target);
+        }
+    }
+
     /// Move through the filtered chapter list in reader order (newest first).
     fn step_reader_chapter(&mut self, delta: isize) {
         if self.reader.is_none()
@@ -15321,10 +15610,7 @@ impl AppState {
         let Some(position) = indices.iter().position(|index| *index == current) else {
             return;
         };
-        let Some(target) = position
-            .checked_add_signed(delta)
-            .and_then(|next| indices.get(next).copied())
-        else {
+        let Some(target) = self.reader_chapter_target(&indices, position, current, delta) else {
             return;
         };
         match origin {
@@ -15375,6 +15661,11 @@ impl AppState {
                 return;
             }
         };
+        let image = prepare_page_image(
+            image,
+            self.config.reader_crop_borders,
+            self.config.reader_grayscale,
+        );
         let image = zoomed_page_image(image, self.zoom, self.page_pan);
 
         let Some(picker) = self.image_picker.as_ref() else {
@@ -15737,6 +16028,8 @@ impl AppState {
                             page,
                             layout,
                             picker: picker.clone(),
+                            crop_borders: self.config.reader_crop_borders,
+                            grayscale: self.config.reader_grayscale,
                         });
                     }
                 }
@@ -15802,7 +16095,13 @@ impl AppState {
             return;
         };
 
-        let result = build_scroll_protocol(&picker, &page, layout);
+        let result = build_scroll_protocol(
+            &picker,
+            &page,
+            layout,
+            self.config.reader_crop_borders,
+            self.config.reader_grayscale,
+        );
         if let Some(reader) = self.reader.as_mut() {
             let scroll = if pending {
                 reader.pending_scroll.as_mut()
@@ -16776,6 +17075,8 @@ pub(crate) fn build_scroll_protocol(
     picker: &Picker,
     page: &Page,
     layout: ScrollPageLayout,
+    crop_borders: bool,
+    grayscale: bool,
 ) -> Result<SlicedProtocol, String> {
     let started = std::time::Instant::now();
     scroll_debug(&format!(
@@ -16785,6 +17086,7 @@ pub(crate) fn build_scroll_protocol(
     let bytes = read_page(page).map_err(|error| error.to_string())?;
     let image =
         image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?;
+    let image = prepare_page_image(image, crop_borders, grayscale);
     let result = build_scroll_block(picker, &image, &page.name, layout);
     scroll_debug(&format!(
         "build end {} {:?} ok={}",
@@ -17171,6 +17473,108 @@ fn cycle_tri_state(state: TriState, delta: i32) -> TriState {
 
 fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
+}
+
+/// Apply the reader's display transforms before zoom or block slicing.
+pub(crate) fn prepare_page_image(
+    image: image::DynamicImage,
+    crop_borders: bool,
+    grayscale: bool,
+) -> image::DynamicImage {
+    let image = if crop_borders {
+        crop_uniform_borders(&image)
+    } else {
+        image
+    };
+    if grayscale {
+        image.grayscale()
+    } else {
+        image
+    }
+}
+
+/// Trim near-uniform borders, capped at a quarter of each edge.
+fn crop_uniform_borders(image: &image::DynamicImage) -> image::DynamicImage {
+    let rgba = image.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    if width < 8 || height < 8 {
+        return image.clone();
+    }
+    let corner = |x: u32, y: u32| rgba.get_pixel(x, y).0;
+    let corners = [
+        corner(0, 0),
+        corner(width - 1, 0),
+        corner(0, height - 1),
+        corner(width - 1, height - 1),
+    ];
+    let near = |a: [u8; 4], b: [u8; 4]| {
+        a.iter()
+            .zip(b.iter())
+            .all(|(left, right)| left.abs_diff(*right) <= 24)
+    };
+    if !corners.iter().all(|corner| near(*corner, corners[0])) {
+        return image.clone();
+    }
+    let border = corners[0];
+    let matches = |x: u32, y: u32| near(rgba.get_pixel(x, y).0, border);
+    let row_uniform = |y: u32| (0..width).all(|x| matches(x, y));
+    let column_uniform = |x: u32| (0..height).all(|y| matches(x, y));
+
+    let max_top = height / 4;
+    let max_left = width / 4;
+    let mut top = 0;
+    while top < max_top && row_uniform(top) {
+        top += 1;
+    }
+    let mut bottom = 0;
+    while bottom < max_top && row_uniform(height - 1 - bottom) {
+        bottom += 1;
+    }
+    let mut left = 0;
+    while left < max_left && column_uniform(left) {
+        left += 1;
+    }
+    let mut right = 0;
+    while right < max_left && column_uniform(width - 1 - right) {
+        right += 1;
+    }
+    if top == 0 && bottom == 0 && left == 0 && right == 0 {
+        return image.clone();
+    }
+    let cropped_width = width.saturating_sub(left + right).max(1);
+    let cropped_height = height.saturating_sub(top + bottom).max(1);
+    image.crop_imm(left, top, cropped_width, cropped_height)
+}
+
+fn page_extension(bytes: &[u8]) -> &'static str {
+    match image::guess_format(bytes) {
+        Ok(image::ImageFormat::Png) => "png",
+        Ok(image::ImageFormat::Jpeg) => "jpg",
+        Ok(image::ImageFormat::WebP) => "webp",
+        Ok(image::ImageFormat::Gif) => "gif",
+        Ok(image::ImageFormat::Avif) => "avif",
+        Ok(image::ImageFormat::Bmp) => "bmp",
+        _ => "jpg",
+    }
+}
+
+fn sanitize_export(value: &str) -> String {
+    let value: String = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let value = value.trim_matches('_');
+    if value.is_empty() {
+        "page".to_owned()
+    } else {
+        value.chars().take(60).collect()
+    }
 }
 
 /// Validate a `YYYY-MM-DD` tracker date.
@@ -18339,6 +18743,57 @@ mod tests {
         app.mark_selected_read(true);
         assert_eq!(app.story_chapter_read_state(0), ReadState::Read);
         assert_eq!(app.story_chapter_read_state(1), ReadState::Unread);
+    }
+
+    #[test]
+    fn reader_image_transforms_crop_and_recolor() {
+        let mut page = image::RgbaImage::from_pixel(40, 40, image::Rgba([255, 255, 255, 255]));
+        for x in 10..30 {
+            for y in 10..30 {
+                page.put_pixel(x, y, image::Rgba([0, 0, 0, 255]));
+            }
+        }
+        let cropped = prepare_page_image(image::DynamicImage::ImageRgba8(page), true, false);
+        assert_eq!((cropped.width(), cropped.height()), (20, 20));
+
+        let red = image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255]));
+        let gray = prepare_page_image(image::DynamicImage::ImageRgba8(red), false, true);
+        let pixel = gray.to_rgba8().get_pixel(0, 0).0;
+        assert_eq!(pixel[0], pixel[1]);
+        assert_eq!(pixel[1], pixel[2]);
+    }
+
+    #[test]
+    fn reader_skips_read_and_duplicate_chapters() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.view = LibraryView::Chapters;
+        app.library.series[1].chapters[1].number = Some(2.0);
+        app.progress.update(Path::new("Chapter 2"), 9, 10);
+        let indices = vec![0, 1];
+        app.config.reader_skip_read = true;
+        app.config.reader_skip_duplicates = false;
+        assert_eq!(app.reader_chapter_target(&indices, 0, 0, 1), None);
+
+        app.library.series[1].chapters = vec![
+            Chapter {
+                number: Some(1.0),
+                ..chapter("Chapter 1")
+            },
+            Chapter {
+                number: Some(1.0),
+                ..chapter("Chapter 1b")
+            },
+            Chapter {
+                number: Some(2.0),
+                ..chapter("Chapter 2")
+            },
+        ];
+        app.config.reader_skip_read = false;
+        app.config.reader_skip_duplicates = true;
+        assert_eq!(app.reader_chapter_target(&[0, 1, 2], 0, 0, 1), Some(2));
+        app.config.reader_skip_duplicates = false;
+        assert_eq!(app.reader_chapter_target(&[0, 1, 2], 0, 0, 1), Some(1));
     }
 
     #[test]

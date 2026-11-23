@@ -20,6 +20,8 @@ pub(crate) struct BuildRequest {
     pub page: Page,
     pub layout: ScrollPageLayout,
     pub picker: Picker,
+    pub crop_borders: bool,
+    pub grayscale: bool,
 }
 
 pub(crate) struct BuildResult {
@@ -47,8 +49,13 @@ impl PageCache {
         }
     }
 
-    fn get(&mut self, page: &Page) -> Result<Arc<DynamicImage>, String> {
-        let key = page_cache_key(page);
+    fn get(
+        &mut self,
+        page: &Page,
+        crop_borders: bool,
+        grayscale: bool,
+    ) -> Result<Arc<DynamicImage>, String> {
+        let key = format!("{crop_borders}:{grayscale}:{}", page_cache_key(page));
         if let Some(position) = self.entries.iter().position(|(entry, _)| entry == &key) {
             // Refresh the entry's position so it is the last one evicted.
             let entry = self.entries.remove(position);
@@ -58,9 +65,13 @@ impl PageCache {
         }
 
         let bytes = read_page(page).map_err(|error| error.to_string())?;
-        let image = Arc::new(
-            image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?,
-        );
+        let image =
+            image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?;
+        let image = Arc::new(crate::app::prepare_page_image(
+            image,
+            crop_borders,
+            grayscale,
+        ));
         if self.entries.len() >= self.capacity {
             self.entries.remove(0);
         }
@@ -111,7 +122,8 @@ impl ScrollWorker {
                 if !in_window(&request, &worker_generation, &worker_window) {
                     continue;
                 }
-                let Ok(image) = cache.get(&request.page) else {
+                let Ok(image) = cache.get(&request.page, request.crop_borders, request.grayscale)
+                else {
                     // Report the failure only if the request is still relevant.
                     if in_window(&request, &worker_generation, &worker_window) {
                         let _ = result_tx.send(BuildResult {

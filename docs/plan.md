@@ -167,10 +167,10 @@ Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
       - [x] Local series/chapters open their folder/file-manager location.
       - [x] Resolve relative source URLs through extension metadata; fall back to copied
             text when no base URL exists.
-- [ ] Add reader page actions: copy/save page, set as cover, open externally.
-- [ ] Add skip rules: read, filtered, duplicate chapters, and chapter transitions.
-- [ ] Add display extras: crop borders, color filter/grayscale, dual-page, split/rotate
-      wide pages.
+- [x] Add reader page actions: copy/save page, set as cover, open externally.
+- [x] Add skip rules: read, filtered, duplicate chapters, and chapter transitions.
+- [ ] Add display extras: crop borders and grayscale are done; dual-page and split/rotate
+      wide pages remain.
 - [ ] Kitty placement-only zoom:
       - [ ] Explain: Kitty can reposition/resize an already transmitted image without
             resending pixels. The current page zoom crops/pads and re-encodes.

@@ -321,6 +321,16 @@ pub struct Config {
     pub story_notes: BTreeMap<String, String>,
     /// Scroll-mode zoom, 50–300%.
     pub reader_zoom: u16,
+    /// Skip already-read chapters when moving between chapters.
+    pub reader_skip_read: bool,
+    /// Skip chapters with the same number as the current one.
+    pub reader_skip_duplicates: bool,
+    /// Advance to the next chapter at the last page and back at the first.
+    pub reader_chapter_transitions: bool,
+    /// Trim uniform page borders before display.
+    pub reader_crop_borders: bool,
+    /// Render pages in grayscale.
+    pub reader_grayscale: bool,
     /// Page-mode image fit.
     pub reader_fit: ReaderFit,
     /// Pages prepared before the viewport.
@@ -402,6 +412,11 @@ impl Default for Config {
             chapter_settings: BTreeMap::new(),
             story_notes: BTreeMap::new(),
             reader_zoom: 100,
+            reader_skip_read: false,
+            reader_skip_duplicates: true,
+            reader_chapter_transitions: true,
+            reader_crop_borders: false,
+            reader_grayscale: false,
             reader_fit: ReaderFit::Fit,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,

@@ -14,14 +14,14 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
-| [Reader](#reader) | 18 | 1 | 5 | 0 | 77.1% |
+| [Reader](#reader) | 22 | 1 | 1 | 0 | 93.8% |
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 4 | 2 | 1 | 0 | 71.4% |
 | [Downloads](#downloads) | 6 | 0 | 1 | 1 | 85.7% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **233** | **7** | **15** | **11** | **92.7%** |
+| **All categories** | **237** | **7** | **11** | **11** | **94.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -221,22 +221,22 @@ table below.
 | Formats | Image EPUB | Yes | ✅ | ✅ | Prose ignored. |
 | Images | Kitty / Sixel / iTerm2 | Yes | ✅ | ✅ | Auto-detected. |
 | Images | Unicode halfblock fallback | Yes | ✅ | ✅ | |
-| Actions | Page actions: copy/save page, set cover, open externally | Yes | ❌ | ❌ | Cover actions exist elsewhere; page-level actions are planned. |
+| Actions | Page actions: copy/save page, set cover, open externally | Yes | ✅ | ✅ | Reader `S` opens the page, `Y` copies it, `E` saves it, and `W` sets it as the cover. |
 | Modes | Page mode | Yes | ✅ | ✅ | |
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
 | Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
 | Modes | Per-series viewer mode and reset to global | Yes | ✅ | ✅ | Chapter settings store a viewer override; “Reset viewer to global” clears it. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads and pans with `h/l`/`j/k`, scroll zoom rebuilds rows, no upscaling at 100%. |
-| Display | Crop borders | Yes | ❌ | ❌ | Planned. |
-| Display | Color filters / grayscale | Yes | ❌ | ❌ | Planned. |
-| Display | Dual-page, split wide pages, rotate wide pages | Yes | ❌ | ❌ | Planned. |
+| Display | Crop borders | Yes | ✅ | ✅ | Uniform borders are trimmed; Reader setting. |
+| Display | Color filters / grayscale | Yes | ✅ | ✅ | Grayscale toggle; custom color filters remain. |
+| Display | Dual-page, split wide pages, rotate wide pages | Yes | ❌ | ❌ | Still planned. |
 | Zoom | Kitty placement-only zoom with disable toggle | Yes | 🟡 | 🟡 | Page zoom works by re-encoding; placement-only scaling and its disable setting are planned. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |
 | Progress | Read-state derivation | Yes | ✅ | ✅ | Page/pages. |
 | Progress | Host read-state mirror | Yes | ✅ | ✅ | Remote progress/bookmarks upload in batches and merge back when local state is missing. |
 | Navigation | Previous/next chapter | Yes | ✅ | ✅ | Follows filtered list. |
-| Navigation | Skip read/filtered/duplicate chapters and chapter transitions | Yes | ❌ | ❌ | Planned. |
+| Navigation | Skip read/filtered/duplicate chapters and chapter transitions | Yes | ✅ | ✅ | Skip-read and duplicate toggles, filtered navigation, and edge transitions. |
 | Navigation | Open chapter page in browser | Yes | ✅ | ✅ | Reader `o` opens the remote chapter page; local chapters open their folder. |
 | Bookmarks | Toggle bookmark | Yes | ✅ | ✅ | `b`. |
 | Downloads | Download current chapter | Yes | ✅ | ✅ | `D`, active cancellation now works. |

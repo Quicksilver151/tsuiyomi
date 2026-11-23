@@ -2251,9 +2251,16 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
         ]
     };
 
+    if app.reader.is_some() {
+        let at = items.len().saturating_sub(1);
+        items.insert(at, ("S", "open page"));
+        items.insert(at, ("E", "save page"));
+        items.insert(at, ("W", "cover"));
+        items.insert(at, ("b", "bookmark"));
+    }
     if app.has_downloadable_chapter() && !items.iter().any(|(key, _)| *key == "D") {
         let at = items.len().saturating_sub(1);
-        items.insert(at, ("D", "downloads"));
+        items.insert(at, ("D", "download"));
     }
     if app.story_screen_active()
         && app.has_downloadable_chapter()
@@ -6412,6 +6419,46 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
             .to_owned(),
         ),
         SettingId::Zoom => ("Zoom".to_owned(), format!("{}%", app.zoom)),
+        SettingId::ReaderCropBorders => (
+            "Crop borders".to_owned(),
+            if app.config.reader_crop_borders {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::ReaderGrayscale => (
+            "Grayscale".to_owned(),
+            if app.config.reader_grayscale {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::ReaderSkipRead => (
+            "Skip read chapters".to_owned(),
+            if app.config.reader_skip_read {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::ReaderSkipDuplicates => (
+            "Skip duplicate chapters".to_owned(),
+            if app.config.reader_skip_duplicates {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::ReaderChapterTransitions => (
+            "Chapter transitions".to_owned(),
+            if app.config.reader_chapter_transitions {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
         SettingId::PrefetchBehind => (
             "Prefetch behind".to_owned(),
             app.scroll_cache.prefetch_behind.to_string(),
