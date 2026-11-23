@@ -26,19 +26,19 @@ use tsuiyomi_core::{
     read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
     save_config, scan_library, search_anilist, series_dir_name, set_default_user_agent,
     source_dir_name, story_cache_path, title_similarity, today_key, update_anilist_entry,
-    update_anilist_progress, update_bangumi_entry, update_mal_entry, update_mal_progress,
-    update_mangaupdates_entry, update_shikimori_entry, visible_chapters, write_comic_info,
-    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga,
-    BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore, CachedStory, CategoryDisplay,
-    Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, ComicInfo,
-    Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
-    InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort, LocalSourceOrder,
-    MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState,
-    ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage,
-    RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode,
-    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
-    Theme, TrackerAuth, TrackerEntry, TrackerLink, TrackerMedia, TrackerStatus, TriState,
-    UpdateEntry, UpdateStore,
+    update_anilist_progress, update_bangumi_entry, update_kitsu_entry, update_mal_entry,
+    update_mal_progress, update_mangabaka_entry, update_mangaupdates_entry, update_shikimori_entry,
+    visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
+    BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore,
+    CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
+    ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
+    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
+    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
+    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
+    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerEntry, TrackerLink,
+    TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -340,6 +340,8 @@ pub enum TextAction {
     MangaUpdatesPassword,
     ShikimoriToken,
     BangumiToken,
+    KitsuToken,
+    MangaBakaToken,
     UserAgent,
 }
 
@@ -509,6 +511,8 @@ pub enum SettingId {
     MangaUpdatesLogin,
     ShikimoriToken,
     BangumiToken,
+    KitsuToken,
+    MangaBakaToken,
     TrackerLogout,
     Theme,
     Accent,
@@ -647,7 +651,7 @@ const NOTIFICATION_ROWS: [MoreRow; 5] = [
     MoreRow::Note("Uses notify-send on Linux and Notification Center on macOS."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 18] = [
+const TRACKING_ROWS: [MoreRow; 22] = [
     MoreRow::Divider("AniList"),
     MoreRow::Setting(SettingId::AniListLogin),
     MoreRow::Setting(SettingId::AniListClientId),
@@ -664,6 +668,10 @@ const TRACKING_ROWS: [MoreRow; 18] = [
     MoreRow::Setting(SettingId::ShikimoriToken),
     MoreRow::Divider("Bangumi"),
     MoreRow::Setting(SettingId::BangumiToken),
+    MoreRow::Divider("Kitsu"),
+    MoreRow::Setting(SettingId::KitsuToken),
+    MoreRow::Divider("MangaBaka"),
+    MoreRow::Setting(SettingId::MangaBakaToken),
     MoreRow::Divider("Account"),
     MoreRow::Setting(SettingId::TrackerLogout),
 ];
@@ -6138,6 +6146,8 @@ impl AppState {
             TextAction::MangaUpdatesPassword => self.set_mangaupdates_password(&input.value),
             TextAction::ShikimoriToken => self.set_shikimori_token(&input.value),
             TextAction::BangumiToken => self.set_bangumi_token(&input.value),
+            TextAction::KitsuToken => self.set_kitsu_token(&input.value),
+            TextAction::MangaBakaToken => self.set_mangabaka_token(&input.value),
             TextAction::UserAgent => self.set_user_agent(&input.value),
         }
     }
@@ -11765,6 +11775,8 @@ impl AppState {
             "mangaupdates" => "MangaUpdates",
             "shikimori" => "Shikimori",
             "bangumi" => "Bangumi",
+            "kitsu" => "Kitsu",
+            "mangabaka" => "MangaBaka",
             _ => "AniList",
         }
     }
@@ -12014,6 +12026,15 @@ impl AppState {
                     &entry,
                 ),
                 "bangumi" => update_bangumi_entry(&token, link.media_id, &entry),
+                "kitsu" => update_kitsu_entry(
+                    &token,
+                    self.tracker_account_id("kitsu")
+                        .as_deref()
+                        .unwrap_or_default(),
+                    link.media_id,
+                    &entry,
+                ),
+                "mangabaka" => update_mangabaka_entry(&token, link.media_id, &entry),
                 _ => update_anilist_entry(&token, link.media_id, &entry),
             };
         }
@@ -12146,6 +12167,8 @@ impl AppState {
                 mangaupdates: self.tracker_token_for("mangaupdates").is_some(),
                 shikimori: self.tracker_token_for("shikimori").is_some(),
                 bangumi: self.tracker_token_for("bangumi").is_some(),
+                kitsu: self.tracker_token_for("kitsu").is_some(),
+                mangabaka: self.tracker_token_for("mangabaka").is_some(),
             });
             self.set_tracker_message("Searching trackers…".to_owned(), false);
             return;
@@ -12354,6 +12377,42 @@ impl AppState {
             token: value.to_owned(),
         });
         self.set_tracker_message("Verifying Bangumi token…".to_owned(), false);
+    }
+
+    fn open_kitsu_token(&mut self) {
+        self.open_text_input(TextAction::KitsuToken, "Kitsu access token", "");
+    }
+
+    fn set_kitsu_token(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            return;
+        }
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        worker.request(TrackerRequest::KitsuLogin {
+            token: value.to_owned(),
+        });
+        self.set_tracker_message("Verifying Kitsu token…".to_owned(), false);
+    }
+
+    fn open_mangabaka_token(&mut self) {
+        self.open_text_input(TextAction::MangaBakaToken, "MangaBaka access token", "");
+    }
+
+    fn set_mangabaka_token(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            return;
+        }
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        worker.request(TrackerRequest::MangaBakaLogin {
+            token: value.to_owned(),
+        });
+        self.set_tracker_message("Verifying MangaBaka token…".to_owned(), false);
     }
 
     fn start_tracker_login(&mut self, service: &str) {
@@ -12641,6 +12700,15 @@ impl AppState {
                     &entry,
                 ),
                 "bangumi" => update_bangumi_entry(&token, link.media_id, &entry),
+                "kitsu" => update_kitsu_entry(
+                    &token,
+                    self.tracker_account_id("kitsu")
+                        .as_deref()
+                        .unwrap_or_default(),
+                    link.media_id,
+                    &entry,
+                ),
+                "mangabaka" => update_mangabaka_entry(&token, link.media_id, &entry),
                 _ => update_anilist_progress(&token, link.media_id, progress, total),
             };
         }
@@ -15112,6 +15180,8 @@ impl AppState {
             SettingId::MangaUpdatesLogin => self.start_mangaupdates_login(),
             SettingId::ShikimoriToken => self.open_shikimori_token(),
             SettingId::BangumiToken => self.open_bangumi_token(),
+            SettingId::KitsuToken => self.open_kitsu_token(),
+            SettingId::MangaBakaToken => self.open_mangabaka_token(),
             SettingId::TrackerLogout => self.logout_trackers(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
@@ -16026,6 +16096,8 @@ impl AppState {
             | SettingId::MangaUpdatesLogin
             | SettingId::ShikimoriToken
             | SettingId::BangumiToken
+            | SettingId::KitsuToken
+            | SettingId::MangaBakaToken
             | SettingId::TrackerLogout
             | SettingId::RescanLibrary
             | SettingId::HostUrl
@@ -18443,7 +18515,9 @@ fn tracker_status_from_code(service: &str, code: i64) -> Option<TrackerStatus> {
         2 => Some(TrackerStatus::Completed),
         3 => Some(TrackerStatus::OnHold),
         4 => Some(TrackerStatus::Dropped),
-        5 if matches!(service, "anilist" | "shikimori") => Some(TrackerStatus::Planning),
+        5 if matches!(service, "anilist" | "shikimori" | "kitsu" | "mangabaka") => {
+            Some(TrackerStatus::Planning)
+        }
         6 if service == "mal" => Some(TrackerStatus::Planning),
         _ => None,
     }
@@ -18454,8 +18528,10 @@ fn tracker_service_from_sync_id(sync_id: i64) -> Option<&'static str> {
         1 => Some("mal"),
         2 => Some("anilist"),
         4 => Some("shikimori"),
+        3 => Some("kitsu"),
         5 => Some("bangumi"),
         7 => Some("mangaupdates"),
+        11 => Some("mangabaka"),
         _ => None,
     }
 }
@@ -18466,7 +18542,9 @@ fn backup_tracking_from_link(link: &TrackerLink) -> Option<BackupTracking> {
         "anilist" => 2,
         "shikimori" => 4,
         "bangumi" => 5,
+        "kitsu" => 3,
         "mangaupdates" => 7,
+        "mangabaka" => 11,
         _ => return None,
     };
     let status = link
@@ -20254,6 +20332,59 @@ mod tests {
         let restored = tracker_link_from_backup(&tracking).expect("link");
         assert_eq!(restored.service, "bangumi");
         assert_eq!(restored.status.as_deref(), Some("planning"));
+    }
+
+    #[test]
+    fn kitsu_status_and_backup_mapping() {
+        for status in [
+            TrackerStatus::Reading,
+            TrackerStatus::Completed,
+            TrackerStatus::OnHold,
+            TrackerStatus::Dropped,
+            TrackerStatus::Planning,
+        ] {
+            let code = tracker_status_code("kitsu", status);
+            assert_eq!(tracker_status_from_code("kitsu", code), Some(status));
+        }
+        let link = TrackerLink {
+            service: "kitsu".to_owned(),
+            media_id: 42,
+            title: "Berserk".to_owned(),
+            status: Some("on_hold".to_owned()),
+            ..TrackerLink::default()
+        };
+        let tracking = backup_tracking_from_link(&link).expect("tracking");
+        assert_eq!(tracking.sync_id, 3);
+        assert_eq!(tracking.status, 3);
+        let restored = tracker_link_from_backup(&tracking).expect("link");
+        assert_eq!(restored.service, "kitsu");
+        assert_eq!(restored.status.as_deref(), Some("on_hold"));
+    }
+
+    #[test]
+    fn mangabaka_status_and_backup_mapping() {
+        for status in [
+            TrackerStatus::Reading,
+            TrackerStatus::Completed,
+            TrackerStatus::OnHold,
+            TrackerStatus::Dropped,
+            TrackerStatus::Planning,
+        ] {
+            let code = tracker_status_code("mangabaka", status);
+            assert_eq!(tracker_status_from_code("mangabaka", code), Some(status));
+        }
+        let link = TrackerLink {
+            service: "mangabaka".to_owned(),
+            media_id: 42,
+            title: "Berserk".to_owned(),
+            status: Some("planning".to_owned()),
+            ..TrackerLink::default()
+        };
+        let tracking = backup_tracking_from_link(&link).expect("tracking");
+        assert_eq!(tracking.sync_id, 11);
+        assert_eq!(tracking.status, 5);
+        let restored = tracker_link_from_backup(&tracking).expect("link");
+        assert_eq!(restored.service, "mangabaka");
     }
 
     #[test]

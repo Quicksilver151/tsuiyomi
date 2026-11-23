@@ -834,6 +834,369 @@ fn bangumi_json(
     }
 }
 
+const KITSU: &str = "https://kitsu.io/api/edge";
+
+fn kitsu_status(status: TrackerStatus) -> &'static str {
+    match status {
+        TrackerStatus::Reading => "current",
+        TrackerStatus::Completed => "completed",
+        TrackerStatus::OnHold => "on_hold",
+        TrackerStatus::Dropped => "dropped",
+        TrackerStatus::Planning => "planned",
+    }
+}
+
+/// Search Kitsu's manga catalog.
+pub fn search_kitsu(query: &str) -> Result<Vec<TrackerMedia>, CoreError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let path = format!("/manga?filter[text]={}&page[limit]=10", encode_query(query));
+    let value = kitsu_request("GET", &path, None, None)?;
+    Ok(parse_kitsu_search(&value))
+}
+
+fn parse_kitsu_search(value: &Value) -> Vec<TrackerMedia> {
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| {
+                    item.pointer("/attributes/subtype")
+                        .and_then(Value::as_str)
+                        .is_none_or(|subtype| subtype != "novel")
+                })
+                .filter_map(|item| {
+                    let id = item.get("id")?.as_str()?.parse::<u64>().ok()?;
+                    let attributes = item.get("attributes")?;
+                    let title = attributes
+                        .get("canonicalTitle")
+                        .and_then(Value::as_str)
+                        .filter(|title| !title.trim().is_empty())
+                        .or_else(|| attributes.pointer("/titles/en").and_then(Value::as_str))
+                        .or_else(|| attributes.pointer("/titles/en_jp").and_then(Value::as_str))?
+                        .to_owned();
+                    let chapters = attributes
+                        .get("chapterCount")
+                        .and_then(Value::as_u64)
+                        .and_then(|chapters| u32::try_from(chapters).ok());
+                    Some(TrackerMedia {
+                        service: "kitsu".to_owned(),
+                        id,
+                        title,
+                        chapters,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Verify a pasted Kitsu access token and remember the account id.
+pub fn login_kitsu(token: &str) -> Result<TrackerAuth, CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: KITSU.to_owned(),
+            message: "a Kitsu access token is required".to_owned(),
+        });
+    }
+    let value = kitsu_request("GET", "/users?filter[self]=true", None, Some(token))?;
+    let account_id = value
+        .pointer("/data/0/id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| CoreError::Network {
+            url: KITSU.to_owned(),
+            message: "Kitsu did not return the current user".to_owned(),
+        })?;
+    Ok(TrackerAuth {
+        access_token: token.to_owned(),
+        refresh_token: None,
+        expires_at: None,
+        account_id: Some(account_id),
+    })
+}
+
+/// Create or update a Kitsu library entry.
+pub fn update_kitsu_entry(
+    token: &str,
+    account_id: &str,
+    media_id: u64,
+    entry: &TrackerEntry<'_>,
+) -> Result<(), CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: KITSU.to_owned(),
+            message: "a Kitsu token is required".to_owned(),
+        });
+    }
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return Err(CoreError::Network {
+            url: KITSU.to_owned(),
+            message: "Kitsu needs the account id from login".to_owned(),
+        });
+    }
+    let path = format!(
+        "/library-entries?filter[userId]={}&filter[mangaId]={media_id}",
+        encode_query(account_id)
+    );
+    let existing = kitsu_request("GET", &path, None, Some(token))?;
+    let entry_id = existing
+        .pointer("/data/0/id")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let payload = kitsu_entry_payload(account_id, media_id, entry, entry_id.is_none());
+    if let Some(entry_id) = entry_id {
+        kitsu_request(
+            "PATCH",
+            &format!("/library-entries/{entry_id}"),
+            Some(&payload),
+            Some(token),
+        )
+        .map(|_| ())
+    } else {
+        kitsu_request("POST", "/library-entries", Some(&payload), Some(token)).map(|_| ())
+    }
+}
+
+fn kitsu_entry_payload(
+    account_id: &str,
+    media_id: u64,
+    entry: &TrackerEntry<'_>,
+    include_relationships: bool,
+) -> Value {
+    let mut attributes = json!({
+        "status": kitsu_status(entry.effective_status()),
+        "progress": entry.progress,
+    });
+    if let Some(score) = entry.score.filter(|score| *score > 0.0) {
+        attributes["ratingTwenty"] = json!((score.clamp(0.0, 10.0) * 2.0).round() as i64);
+    }
+    if let Some(private) = entry.private {
+        attributes["private"] = json!(private);
+    }
+    let mut data = json!({
+        "type": "libraryEntries",
+        "attributes": attributes,
+    });
+    if include_relationships {
+        data["relationships"] = json!({
+            "user": { "data": { "type": "users", "id": account_id } },
+            "manga": { "data": { "type": "manga", "id": media_id.to_string() } }
+        });
+    }
+    json!({ "data": data })
+}
+
+fn kitsu_request(
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    token: Option<&str>,
+) -> Result<Value, CoreError> {
+    let url = format!("{KITSU}{path}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut request = match method {
+        "POST" => agent.post(&url),
+        "PATCH" => agent.patch(&url),
+        _ => agent.get(&url),
+    };
+    request = request
+        .set("Accept", "application/vnd.api+json")
+        .set("Content-Type", "application/vnd.api+json");
+    if let Some(token) = token.filter(|token| !token.trim().is_empty()) {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+    let response = if let Some(body) = body {
+        request.send_json(body.clone())
+    } else {
+        request.call()
+    }
+    .map_err(|error| CoreError::Network {
+        url: url.clone(),
+        message: error.to_string(),
+    })?;
+    match response.into_json::<Value>() {
+        Ok(value) => Ok(value),
+        Err(_) => Ok(Value::Null),
+    }
+}
+
+const MANGABAKA: &str = "https://api.mangabaka.org";
+
+fn mangabaka_status(status: TrackerStatus) -> &'static str {
+    match status {
+        TrackerStatus::Reading => "reading",
+        TrackerStatus::Completed => "completed",
+        TrackerStatus::OnHold => "paused",
+        TrackerStatus::Dropped => "dropped",
+        TrackerStatus::Planning => "plan_to_read",
+    }
+}
+
+/// Search MangaBaka's public series catalog.
+pub fn search_mangabaka(query: &str) -> Result<Vec<TrackerMedia>, CoreError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let path = format!("/v1/series/search?q={}&type_not=novel", encode_query(query));
+    let value = mangabaka_request("GET", &path, None, None)?;
+    Ok(parse_mangabaka_search(&value))
+}
+
+fn parse_mangabaka_search(value: &Value) -> Vec<TrackerMedia> {
+    let priorities = ["en", "ja-Latn", "ja", "ko-Latn", "ko", "zh-Latn", "zh"];
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let id = item.get("id")?.as_u64()?;
+                    let title = priorities
+                        .iter()
+                        .find_map(|language| {
+                            item.get("titles")?
+                                .as_array()?
+                                .iter()
+                                .find(|title| {
+                                    title.get("language").and_then(Value::as_str) == Some(*language)
+                                })
+                                .and_then(|title| title.get("title"))
+                                .and_then(Value::as_str)
+                        })
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            item.pointer("/titles/0/title")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                        })?;
+                    Some(TrackerMedia {
+                        service: "mangabaka".to_owned(),
+                        id,
+                        title,
+                        chapters: None,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Verify a pasted MangaBaka access token.
+pub fn login_mangabaka(token: &str) -> Result<TrackerAuth, CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: MANGABAKA.to_owned(),
+            message: "a MangaBaka access token is required".to_owned(),
+        });
+    }
+    let value = mangabaka_request("GET", "/v1/my/profile", None, Some(token))?;
+    let account_id = value
+        .pointer("/data/id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            value
+                .pointer("/data/id")
+                .and_then(Value::as_u64)
+                .map(|id| id.to_string())
+        })
+        .ok_or_else(|| CoreError::Network {
+            url: MANGABAKA.to_owned(),
+            message: "MangaBaka did not return a user profile".to_owned(),
+        })?;
+    Ok(TrackerAuth {
+        access_token: token.to_owned(),
+        refresh_token: None,
+        expires_at: None,
+        account_id: Some(account_id),
+    })
+}
+
+/// Update a MangaBaka library entry.
+pub fn update_mangabaka_entry(
+    token: &str,
+    media_id: u64,
+    entry: &TrackerEntry<'_>,
+) -> Result<(), CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: MANGABAKA.to_owned(),
+            message: "a MangaBaka token is required".to_owned(),
+        });
+    }
+    let mut body = json!({
+        "state": mangabaka_status(entry.effective_status()),
+        "is_private": entry.private.unwrap_or(false),
+        "progress_chapter": if entry.progress > 0 { Some(entry.progress) } else { None },
+    });
+    if let Some(score) = entry.score.filter(|score| *score > 0.0) {
+        body["rating"] = json!((score.clamp(0.0, 10.0) * 10.0).round() as i64);
+    }
+    if let Some(date) = entry.start_date {
+        body["start_date"] = json!(date);
+    }
+    if let Some(date) = entry.finish_date {
+        body["finish_date"] = json!(date);
+    }
+    mangabaka_request(
+        "PUT",
+        &format!("/v1/my/library/{media_id}"),
+        Some(&body),
+        Some(token),
+    )
+    .map(|_| ())
+}
+
+fn mangabaka_request(
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    token: Option<&str>,
+) -> Result<Value, CoreError> {
+    let url = format!("{MANGABAKA}{path}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut request = match method {
+        "PUT" => agent.put(&url),
+        "POST" => agent.post(&url),
+        _ => agent.get(&url),
+    };
+    request = request.set("Accept", "application/json");
+    if let Some(token) = token.filter(|token| !token.trim().is_empty()) {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+    let response = if let Some(body) = body {
+        request
+            .set("Content-Type", "application/json")
+            .send_json(body.clone())
+    } else {
+        request.call()
+    }
+    .map_err(|error| CoreError::Network {
+        url: url.clone(),
+        message: error.to_string(),
+    })?;
+    match response.into_json::<Value>() {
+        Ok(value) => Ok(value),
+        Err(_) => Ok(Value::Null),
+    }
+}
+
 fn post(body: Value, token: Option<&str>) -> Result<Value, CoreError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(30))
@@ -1070,6 +1433,73 @@ mod tests {
         assert_eq!(bangumi_status(TrackerStatus::Reading), 3);
         assert_eq!(bangumi_status(TrackerStatus::OnHold), 4);
         assert_eq!(bangumi_status(TrackerStatus::Dropped), 5);
+    }
+
+    #[test]
+    fn parses_kitsu_search_results() {
+        let value = json!({
+            "data": [
+                { "id": "5", "attributes": { "canonicalTitle": "Berserk", "chapterCount": 380, "subtype": "manga" } },
+                { "id": "6", "attributes": { "canonicalTitle": "Novel", "subtype": "novel" } },
+                { "id": "7", "attributes": { "titles": { "en": "English only" } } }
+            ]
+        });
+        let results = parse_kitsu_search(&value);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, 5);
+        assert_eq!(results[0].service, "kitsu");
+        assert_eq!(results[0].chapters, Some(380));
+        assert_eq!(results[1].title, "English only");
+    }
+
+    #[test]
+    fn builds_kitsu_library_payloads() {
+        let entry = TrackerEntry {
+            progress: 3,
+            status: Some(TrackerStatus::OnHold),
+            score: Some(8.5),
+            private: Some(true),
+            ..TrackerEntry::default()
+        };
+        let create = kitsu_entry_payload("9", 42, &entry, true);
+        assert_eq!(create["data"]["attributes"]["status"], "on_hold");
+        assert_eq!(create["data"]["attributes"]["progress"], 3);
+        assert_eq!(create["data"]["attributes"]["ratingTwenty"], 17);
+        assert_eq!(create["data"]["attributes"]["private"], true);
+        assert_eq!(create["data"]["relationships"]["user"]["data"]["id"], "9");
+        assert_eq!(create["data"]["relationships"]["manga"]["data"]["id"], "42");
+
+        let update = kitsu_entry_payload("9", 42, &entry, false);
+        assert!(update["data"].get("relationships").is_none());
+    }
+
+    #[test]
+    fn parses_mangabaka_search_results() {
+        let value = json!({
+            "data": [
+                { "id": 5, "titles": [
+                    { "language": "ja", "title": "Berserk JP" },
+                    { "language": "en", "title": "Berserk" }
+                ] },
+                { "id": 6, "titles": [ { "language": "ja", "title": "Only JP" } ] },
+                { "id": 7 }
+            ]
+        });
+        let results = parse_mangabaka_search(&value);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, 5);
+        assert_eq!(results[0].title, "Berserk");
+        assert_eq!(results[1].title, "Only JP");
+        assert_eq!(results[0].service, "mangabaka");
+    }
+
+    #[test]
+    fn maps_mangabaka_statuses() {
+        assert_eq!(mangabaka_status(TrackerStatus::Reading), "reading");
+        assert_eq!(mangabaka_status(TrackerStatus::Completed), "completed");
+        assert_eq!(mangabaka_status(TrackerStatus::OnHold), "paused");
+        assert_eq!(mangabaka_status(TrackerStatus::Dropped), "dropped");
+        assert_eq!(mangabaka_status(TrackerStatus::Planning), "plan_to_read");
     }
 
     #[test]

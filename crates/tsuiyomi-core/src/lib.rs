@@ -87,9 +87,11 @@ pub use source_prefs::{
 };
 pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};
 pub use tracking::{
-    login_bangumi, login_mangaupdates, login_shikimori, search_anilist, search_bangumi, search_mal,
+    login_bangumi, login_kitsu, login_mangabaka, login_mangaupdates, login_shikimori,
+    search_anilist, search_bangumi, search_kitsu, search_mal, search_mangabaka,
     search_mangaupdates, search_shikimori, update_anilist_entry, update_anilist_progress,
-    update_bangumi_entry, update_mal_entry, update_mal_progress, update_mangaupdates_entry,
-    update_shikimori_entry, TrackerEntry, TrackerMedia, TrackerStatus,
+    update_bangumi_entry, update_kitsu_entry, update_mal_entry, update_mal_progress,
+    update_mangabaka_entry, update_mangaupdates_entry, update_shikimori_entry, TrackerEntry,
+    TrackerMedia, TrackerStatus,
 };
 pub use updates::{RemoteUpdate, UpdateEntry, UpdateStore};
