@@ -9606,6 +9606,16 @@ impl AppState {
     }
 
     /// Open the in-progress chapter, else the first unread chapter, in display order.
+    /// Open the next in-progress/unread chapter for the selected Library series.
+    pub fn continue_selected_series(&mut self) {
+        if self.tab != 0 || self.view != LibraryView::Series || self.selected_series().is_none() {
+            return;
+        }
+        self.view = LibraryView::Chapters;
+        self.chapter_index = 0;
+        self.continue_reading();
+    }
+
     pub fn continue_reading(&mut self) {
         let indices = self.story_chapter_indices();
         if indices.is_empty() {
@@ -16020,6 +16030,15 @@ mod tests {
         app.progress.remove(Path::new("Chapter 2"));
         app.chapter_index = 1;
         app.continue_reading();
+        assert_eq!(app.chapter_index, 0);
+    }
+
+    #[test]
+    fn continue_from_the_library_grid_enters_the_chapter_list() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.continue_selected_series();
+        assert_eq!(app.view, LibraryView::Chapters);
         assert_eq!(app.chapter_index, 0);
     }
 

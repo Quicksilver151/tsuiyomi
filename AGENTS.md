@@ -351,6 +351,8 @@ Rules:
   than two minutes are discarded. The duplicate-save dialog can open Migrate for the
   existing entry with `M`. `record_progress` flushes history with progress; global and
   per-extension Incognito suppress history and time.
+- `C` on the Library grid opens the selected series at its next in-progress or unread
+  chapter, matching Mihon's continue-reading action.
 - Library title filtering and backup import/export are implemented. Import restores local
   entries without the host; remote entries need a matching extension source. Exported
   backups still need a real Mihon restore check.

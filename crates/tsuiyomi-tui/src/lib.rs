@@ -972,6 +972,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::SourcePrefs => {
                 if app.story_screen_active() {
                     app.copy_story_reference();
+                } else if app.tab == 0 && app.view == LibraryView::Series {
+                    app.continue_selected_series();
                 } else if app.tab == 3 && app.browse_view == BrowseView::Stores {
                     app.copy_store_url();
                 } else if app.tab == 3 {

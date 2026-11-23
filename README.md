@@ -104,8 +104,9 @@ and bookmark apply to the whole selection.
 The Library tab opens as a cover tile grid, like Mihon. Each tile shows the series cover
 (or an initial placeholder), title, and chapter count. `/` or `s` filters the grid by
 title; Esc clears the filter. Covers are centered without a
-border or tile background. `↑↓` moves by grid row, `←→` by one tile, and `Enter` opens
-the chapter list. Saved manga from sources open the same details screen as Browse: cover,
+border or tile background. `↑↓` moves by grid row, `←→` by one tile, `Enter` opens
+the chapter list, and `C` continues the selected series at its next in-progress/unread
+chapter. Saved manga from sources open the same details screen as Browse: cover,
 source, author/artist, status, tags, description, chapters, and how long ago the cached
 story was refreshed and when the next check is due. Saved stories refresh in the
 background while the host is running when their cache is older than the configured
