@@ -508,6 +508,7 @@ pub enum SettingId {
     DeleteAfterRead,
     KeepBookmarkedDownloads,
     SaveChaptersAsCbz,
+    DownloadConcurrency,
     DownloadExcludedCategories,
     AutoDownloadNewChapters,
     AutoDownloadCategories,
@@ -603,7 +604,7 @@ const READER_ROWS: [MoreRow; 13] = [
     MoreRow::Setting(SettingId::CacheMargin),
 ];
 
-const DOWNLOADS_ROWS: [MoreRow; 12] = [
+const DOWNLOADS_ROWS: [MoreRow; 13] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::DownloadsPath),
     MoreRow::Note("TSUIYOMI_DOWNLOADS overrides this for one session."),
@@ -613,6 +614,7 @@ const DOWNLOADS_ROWS: [MoreRow; 12] = [
     MoreRow::Setting(SettingId::DeleteAfterRead),
     MoreRow::Setting(SettingId::KeepBookmarkedDownloads),
     MoreRow::Setting(SettingId::SaveChaptersAsCbz),
+    MoreRow::Setting(SettingId::DownloadConcurrency),
     MoreRow::Setting(SettingId::DownloadExcludedCategories),
     MoreRow::Setting(SettingId::AutoDownloadNewChapters),
     MoreRow::Setting(SettingId::AutoDownloadCategories),
@@ -895,7 +897,7 @@ pub struct DownloadTask {
 #[derive(Default)]
 pub struct DownloadQueue {
     pub pending: VecDeque<DownloadTask>,
-    pub active: Option<(String, String, Arc<AtomicBool>)>,
+    pub active: Vec<(String, String, Arc<AtomicBool>)>,
     pub total: usize,
     pub completed: usize,
     pub failed: usize,
@@ -908,7 +910,7 @@ pub struct DownloadQueue {
 
 impl DownloadQueue {
     pub fn running(&self) -> bool {
-        self.active.is_some() || !self.pending.is_empty()
+        !self.active.is_empty() || !self.pending.is_empty()
     }
 
     pub fn pending_labels(&self) -> Vec<&str> {
@@ -8587,21 +8589,26 @@ impl AppState {
             .as_ref()
             .and_then(DownloadWorker::try_result)
         {
-            let active = self.download_queue.active.take();
             let worker_cancelled =
                 matches!(&result.result, Err(error) if error == "operation cancelled");
-            if let Some((key, _, _)) = &active {
-                let state = if result.result.is_ok() {
-                    self.download_queue.completed += 1;
-                    DownloadState::Done
-                } else if worker_cancelled {
-                    DownloadState::Cancelled
-                } else {
-                    self.download_queue.failed += 1;
-                    DownloadState::Error
-                };
-                self.download_states.insert(key.clone(), state);
+            if let Some(position) = self
+                .download_queue
+                .active
+                .iter()
+                .position(|(key, _, _)| *key == result.key)
+            {
+                self.download_queue.active.remove(position);
             }
+            let state = if result.result.is_ok() {
+                self.download_queue.completed += 1;
+                DownloadState::Done
+            } else if worker_cancelled {
+                DownloadState::Cancelled
+            } else {
+                self.download_queue.failed += 1;
+                DownloadState::Error
+            };
+            self.download_states.insert(result.key.clone(), state);
             let cancelled = self.download_queue.cancelling || worker_cancelled;
             if cancelled {
                 self.download_queue.pending.clear();
@@ -8629,7 +8636,7 @@ impl AppState {
                 }
                 Ok(_) if !cancelled => {
                     let finished = self.download_queue.pending.is_empty()
-                        && self.download_queue.active.is_none();
+                        && self.download_queue.active.is_empty();
                     if finished {
                         self.notify_download(false, &message);
                     }
@@ -8644,11 +8651,7 @@ impl AppState {
     }
 
     fn pump_download_queue(&mut self) {
-        if self.download_queue.active.is_some()
-            || self.download_queue.cancelling
-            || self.download_queue.paused
-            || self.download_queue.pending.is_empty()
-        {
+        if self.download_queue.cancelling || self.download_queue.paused {
             return;
         }
         let Some(worker) = self.download_worker.as_ref() else {
@@ -8656,11 +8659,17 @@ impl AppState {
             self.status = Some("The download worker is unavailable.".to_owned());
             return;
         };
-        if let Some(task) = self.download_queue.pending.pop_front() {
+        let concurrency = self.config.download_concurrency.clamp(1, 5);
+        while self.download_queue.active.len() < concurrency {
+            let Some(task) = self.download_queue.pending.pop_front() else {
+                break;
+            };
             self.download_states
                 .insert(task.key.clone(), DownloadState::Downloading);
             let cancel = task.request.cancel.clone();
-            self.download_queue.active = Some((task.key, task.request.label.clone(), cancel));
+            self.download_queue
+                .active
+                .push((task.key, task.request.label.clone(), cancel));
             worker.request(task.request);
         }
     }
@@ -8683,7 +8692,7 @@ impl AppState {
         self.download_queue.total = self.download_queue.pending.len()
             + self.download_queue.completed
             + self.download_queue.failed
-            + usize::from(self.download_queue.active.is_some());
+            + self.download_queue.active.len();
         self.pump_download_queue();
     }
 
@@ -9061,8 +9070,9 @@ impl AppState {
                 }
             };
             tasks.push(DownloadTask {
-                key,
+                key: key.clone(),
                 request: DownloadRequest {
+                    key,
                     label: format!("{} · {}", manga.title, chapter.name),
                     root: root.clone(),
                     source_name: source.clone(),
@@ -9108,13 +9118,15 @@ impl AppState {
         for task in self.download_queue.pending.drain(..) {
             self.download_states.remove(&task.key);
         }
-        if let Some((_, _, cancel)) = &self.download_queue.active {
-            cancel.store(true, Ordering::Relaxed);
-            self.download_queue.cancelling = true;
-            self.status = Some("Cancelling the download queue…".to_owned());
-        } else {
+        if self.download_queue.active.is_empty() {
             self.download_queue = DownloadQueue::default();
             self.status = Some("Download queue cancelled".to_owned());
+        } else {
+            for (_, _, cancel) in &self.download_queue.active {
+                cancel.store(true, Ordering::Relaxed);
+            }
+            self.download_queue.cancelling = true;
+            self.status = Some("Cancelling the download queue…".to_owned());
         }
     }
 
@@ -15384,6 +15396,11 @@ impl AppState {
             SettingId::SaveChaptersAsCbz => {
                 self.config.save_chapters_as_cbz = !self.config.save_chapters_as_cbz;
             }
+            SettingId::DownloadConcurrency => {
+                self.config.download_concurrency =
+                    (self.config.download_concurrency as i32 + delta).clamp(1, 5) as usize;
+                self.pump_download_queue();
+            }
             SettingId::DownloadExcludedCategories => {}
             SettingId::AutoDownloadNewChapters => {
                 self.config.auto_download_new_chapters = !self.config.auto_download_new_chapters;
@@ -18838,6 +18855,7 @@ mod tests {
         let task = |label: &str| DownloadTask {
             key: label.to_owned(),
             request: DownloadRequest {
+                key: label.to_owned(),
                 label: label.to_owned(),
                 root: PathBuf::from("/tmp"),
                 source_name: "Source".to_owned(),
@@ -20808,7 +20826,7 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut app = AppState::default();
         app.download_queue.active =
-            Some(("chapter".to_owned(), "label".to_owned(), cancel.clone()));
+            vec![("chapter".to_owned(), "label".to_owned(), cancel.clone())];
         app.cancel_downloads();
         assert!(cancel.load(Ordering::Relaxed));
         assert!(app.download_queue.cancelling);

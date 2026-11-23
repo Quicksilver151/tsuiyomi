@@ -6749,6 +6749,10 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                     .join(", ")
             },
         ),
+        SettingId::DownloadConcurrency => (
+            "Concurrent downloads".to_owned(),
+            format!("{}", app.config.download_concurrency),
+        ),
         SettingId::SaveChaptersAsCbz => (
             "Save as CBZ".to_owned(),
             if app.config.save_chapters_as_cbz {
@@ -6881,7 +6885,7 @@ fn draw_more_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
     if let Some(label) = app.download_queue.label() {
         lines.push(field("Queue", &label, c_yellow()));
     }
-    if let Some((_, title, _)) = &app.download_queue.active {
+    for (_, title, _) in app.download_queue.active.iter().take(3) {
         lines.push(field("Active", title, c_teal()));
     }
     let pending = app.download_queue.pending_labels();

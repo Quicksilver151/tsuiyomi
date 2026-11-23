@@ -11,6 +11,7 @@ use std::{
 use tsuiyomi_core::{download_chapter_with_cancel, ChapterDownload, Page};
 
 pub(crate) struct DownloadRequest {
+    pub key: String,
     pub label: String,
     pub root: PathBuf,
     pub source_name: String,
@@ -23,51 +24,50 @@ pub(crate) struct DownloadRequest {
 }
 
 pub(crate) struct DownloadResult {
+    pub key: String,
     pub label: String,
     pub result: Result<PathBuf, String>,
 }
 
 /// Downloads chapters off the UI thread so reading and scrolling stay responsive.
+///
+/// Each request runs on its own thread; the UI queue bounds how many are active.
 pub(crate) struct DownloadWorker {
-    requests: Sender<DownloadRequest>,
     results: Receiver<DownloadResult>,
+    _result_tx: Sender<DownloadResult>,
 }
 
 impl DownloadWorker {
     pub fn spawn() -> Self {
-        let (request_tx, request_rx) = mpsc::channel::<DownloadRequest>();
         let (result_tx, result_rx) = mpsc::channel::<DownloadResult>();
-
-        thread::spawn(move || {
-            for request in request_rx {
-                let result = download_chapter_with_cancel(
-                    ChapterDownload {
-                        root: &request.root,
-                        source_name: &request.source_name,
-                        series_title: &request.series_title,
-                        chapter_name: &request.chapter_name,
-                        scanlator: request.scanlator.as_deref(),
-                        pages: &request.pages,
-                        as_cbz: request.as_cbz,
-                    },
-                    || request.cancel.load(Ordering::Relaxed),
-                )
-                .map_err(|error| error.to_string());
-                let _ = result_tx.send(DownloadResult {
-                    label: request.label,
-                    result,
-                });
-            }
-        });
-
         Self {
-            requests: request_tx,
             results: result_rx,
+            _result_tx: result_tx,
         }
     }
 
     pub fn request(&self, request: DownloadRequest) {
-        let _ = self.requests.send(request);
+        let sender = self._result_tx.clone();
+        thread::spawn(move || {
+            let result = download_chapter_with_cancel(
+                ChapterDownload {
+                    root: &request.root,
+                    source_name: &request.source_name,
+                    series_title: &request.series_title,
+                    chapter_name: &request.chapter_name,
+                    scanlator: request.scanlator.as_deref(),
+                    pages: &request.pages,
+                    as_cbz: request.as_cbz,
+                },
+                || request.cancel.load(Ordering::Relaxed),
+            )
+            .map_err(|error| error.to_string());
+            let _ = sender.send(DownloadResult {
+                key: request.key,
+                label: request.label,
+                result,
+            });
+        });
     }
 
     pub fn try_result(&self) -> Option<DownloadResult> {

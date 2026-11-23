@@ -394,6 +394,7 @@ download_ahead = 0             # queue N following chapters while reading
 delete_after_read = false      # remove a downloaded chapter after its last page
 keep_bookmarked_downloads = true
 save_chapters_as_cbz = false   # save downloads as .cbz archives
+download_concurrency = 1       # simultaneous chapter downloads (1-5)
 auto_download_new_chapters = false  # download new chapters for saved series
 smart_update_unread_only = false   # smart update restrictions
 smart_update_skip_unstarted = false

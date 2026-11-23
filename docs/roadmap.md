@@ -18,10 +18,10 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 4 | 2 | 1 | 0 | 71.4% |
-| [Downloads](#downloads) | 6 | 0 | 1 | 1 | 85.7% |
+| [Downloads](#downloads) | 7 | 0 | 0 | 1 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 16 | 0 | 2 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **244** | **6** | **6** | **10** | **96.5%** |
+| **All categories** | **245** | **6** | **5** | **10** | **96.9%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -313,7 +313,7 @@ table below.
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
 | Management | Folder, queue, series list, cancel, delete | Yes | ✅ | ✅ | More → Downloads. |
-| Policies | Concurrent pages/sources settings | Yes | ❌ | ❌ | One chapter at a time. |
+| Policies | Concurrent pages/sources settings | Yes | ✅ | ✅ | 1–5 chapters download at once; pages inside a chapter stay sequential. |
 | Policies | Download ahead / auto-download while reading | Yes | ✅ | ✅ | Queues the next N chapters when a remote chapter opens. |
 | Policies | Delete after read/bookmarked/excluded categories | Yes | ✅ | ✅ | Delete-after-read, keep-bookmarked, and keep-category exceptions. |
 | Policies | Global/category new-chapter downloads | Yes | ✅ | ✅ | Per-series toggle plus a global policy scoped to chosen categories. |

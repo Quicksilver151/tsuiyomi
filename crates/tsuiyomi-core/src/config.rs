@@ -215,6 +215,8 @@ pub struct Config {
     pub keep_bookmarked_downloads: bool,
     /// Save downloaded chapters as CBZ archives instead of folders.
     pub save_chapters_as_cbz: bool,
+    /// Maximum chapters downloaded at the same time (1–5).
+    pub download_concurrency: usize,
     /// Categories whose downloaded chapters are kept when delete-after-read runs.
     pub download_excluded_categories: BTreeSet<String>,
     /// Download newly discovered chapters for every saved series.
@@ -381,6 +383,7 @@ impl Default for Config {
             delete_after_read: false,
             keep_bookmarked_downloads: true,
             save_chapters_as_cbz: false,
+            download_concurrency: 1,
             download_excluded_categories: BTreeSet::new(),
             auto_download_new_chapters: false,
             auto_download_categories: BTreeSet::new(),

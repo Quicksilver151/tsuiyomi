@@ -139,7 +139,8 @@ verification against a live source pair is still manual.
 
 ### Phase 5 — Downloads
 
-- [ ] Add page/source concurrency settings and respect them in the queue.
+- [x] Add chapter concurrency settings and respect them in the queue; page fetches inside
+      one chapter remain sequential.
 - [x] Add download-ahead and auto-download-while-reading settings.
 - [x] Add delete-after-read policies:
       - [x] After read.
