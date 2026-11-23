@@ -191,6 +191,27 @@ pub fn move_series_downloads(
     Ok(true)
 }
 
+/// Delete every downloaded chapter for one series. Returns whether the directory existed.
+pub fn remove_series_downloads(
+    root: &Path,
+    source_name: &str,
+    series_title: &str,
+) -> Result<bool, CoreError> {
+    let source_dir = root.join(source_dir_name(source_name));
+    let series_dir = source_dir.join(series_dir_name(series_title));
+    if !series_dir.is_dir() {
+        return Ok(false);
+    }
+    fs::remove_dir_all(&series_dir).map_err(|source| CoreError::WriteFile {
+        path: series_dir,
+        source,
+    })?;
+    if fs::read_dir(&source_dir).is_ok_and(|mut entries| entries.next().is_none()) {
+        let _ = fs::remove_dir(&source_dir);
+    }
+    Ok(true)
+}
+
 /// Whether a chapter already has a complete download directory.
 pub fn is_downloaded(
     root: &Path,
@@ -329,6 +350,19 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, CoreError::Cancelled));
         assert!(!chapter_dir(root.path(), "Source", "Series", "Chapter 1", None).exists());
+    }
+
+    #[test]
+    fn removes_a_series_download_tree() {
+        let root = tempfile::tempdir().unwrap();
+        let series = root.path().join("Source").join("Series");
+        std::fs::create_dir_all(series.join("Chapter 1")).unwrap();
+        std::fs::write(series.join("Chapter 1").join("001.jpg"), b"page").unwrap();
+
+        assert!(remove_series_downloads(root.path(), "Source", "Series").unwrap());
+        assert!(!series.exists());
+        assert!(!root.path().join("Source").exists());
+        assert!(!remove_series_downloads(root.path(), "Source", "Series").unwrap());
     }
 
     #[test]

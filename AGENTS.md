@@ -225,7 +225,9 @@ Rules:
   (`s`), hides unmatched rows (`h`), hides targets without newer chapters (`u`),
   prioritizes the source with the latest chapter (`p`),
   and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
-  Replace also moves downloaded chapters into the target source/series directory. Apply
+  Replace also moves—or, with the remove option, deletes—downloaded chapters in the old
+  source/series directory. `z` opens migration options for chapters, categories, notes,
+  custom cover, and old-download handling. Apply
   processes one match per event-loop tick with a progress status; Esc cancels between
   items and persists the migrations that already completed.
   `t` selects, reorders (`+`/`-`), and persists the enabled target sources. `/` on Sources
@@ -371,7 +373,9 @@ Rules:
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
   `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
-  `remote_library`, `store_names`, `tracking`, `download_ahead`, `delete_after_read`,
+  `remote_library`, `store_names`, `tracking`, `migration_transfer_chapters`,
+  `migration_transfer_categories`, `migration_transfer_notes`, `migration_transfer_cover`,
+  `migration_remove_downloads`, `download_ahead`, `delete_after_read`,
   `keep_bookmarked_downloads`, `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
   `tracker_auth`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,

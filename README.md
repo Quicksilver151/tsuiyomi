@@ -178,8 +178,9 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   without newer chapters, `p` prioritizes the source with the latest chapter, and
   `Enter`/`o` searches for a different target,
   `M` migrates included entries (removing the old favorite), or `C` copies them. Progress,
-  bookmarks, history, categories, and reading time move with the matched chapters, and
-  replace also moves downloaded chapters to the target source and series folder. Apply
+  bookmarks, history, categories, notes, custom cover, and reading time move with the
+  matched chapters, and replace moves or removes downloaded chapters according to the
+  `z` migration options. Apply
   shows a progress status and processes one manga per tick; `Esc` cancels between items
   while keeping the migrations that already completed.
 - **Global search** — `o` opens the selected source with the query filled in, `r`

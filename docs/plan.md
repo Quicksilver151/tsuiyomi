@@ -7,7 +7,7 @@ criteria.
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **84.9%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **87.6%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`.
 
 ## Scope
@@ -118,19 +118,20 @@ Acceptance: all Updates, History, and Stats rows are ✅.
 
 ### Phase 4 — Migrate completeness
 
-- [ ] Transfer per-story notes.
-- [ ] Transfer custom covers.
-- [ ] Add a migration options step with flags:
-      - [ ] Chapters/progress/bookmarks/history.
-      - [ ] Categories.
-      - [ ] Custom cover.
-      - [ ] Notes.
-      - [ ] Remove old downloads instead of moving them.
-- [ ] Persist flag defaults.
-- [ ] Tests: notes/cover transfer, flag combinations, remove-download behavior, and
+- [x] Transfer per-story notes.
+- [x] Transfer custom covers.
+- [x] Add a migration options step with flags:
+      - [x] Chapters/progress/bookmarks/history.
+      - [x] Categories.
+      - [x] Custom cover.
+      - [x] Notes.
+      - [x] Remove old downloads instead of moving them.
+- [x] Persist flag defaults.
+- [x] Tests: notes/cover transfer, flag combinations, remove-download behavior, and
       replace/copy modes.
 
-Acceptance: all Migrate rows are ✅.
+Acceptance: all Migrate rows are ✅. The Migrate category now scores 100%; end-to-end
+verification against a live source pair is still manual.
 
 ### Phase 5 — Downloads
 

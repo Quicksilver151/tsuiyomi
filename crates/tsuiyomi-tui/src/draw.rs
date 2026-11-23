@@ -92,6 +92,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_save_categories(frame, app);
     draw_tag_picker(frame, app);
     draw_library_filters(frame, app);
+    draw_migration_flags(frame, app);
     draw_tracker_picker(frame, app);
     draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
@@ -379,6 +380,81 @@ fn draw_migration_sources(frame: &mut Frame, app: &AppState) {
         .collect();
     let mut state = ListState::default();
     state.select(Some(picker.selected.min(sources.len().saturating_sub(1))));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_migration_flags(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.migration_flags_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 62.min(area.width).max(24);
+    let height = 9.min(area.height);
+    if width < 20 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Migration options ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Space toggle · r reset · Esc close ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let rows = [
+        (
+            "Chapters / progress / history",
+            app.config.migration_transfer_chapters,
+        ),
+        ("Categories", app.config.migration_transfer_categories),
+        ("Notes", app.config.migration_transfer_notes),
+        ("Custom cover", app.config.migration_transfer_cover),
+        (
+            "Remove old downloads",
+            app.config.migration_remove_downloads,
+        ),
+    ];
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (label, enabled))| {
+            let selected = index == picker.selected;
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    if *enabled { "[x] " } else { "[ ] " },
+                    Style::default().fg(if *enabled { c_green() } else { c_overlay1() }),
+                ),
+                Span::styled(
+                    (*label).to_owned(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(picker.selected.min(items.len().saturating_sub(1))));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
@@ -1696,6 +1772,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                     ("u", "updates"),
                     ("p", "chapters"),
                     ("t", "sources"),
+                    ("z", "options"),
                     ("M", "migrate"),
                     ("C", "copy"),
                     ("Esc", "back"),

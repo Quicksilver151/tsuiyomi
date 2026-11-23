@@ -324,6 +324,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.migration_flags_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.migration_flags_previous(),
+                Action::Next => app.migration_flags_next(),
+                Action::Open | Action::Confirm | Action::Select => app.migration_flags_toggle(),
+                Action::Refresh => app.migration_flags_reset(),
+                Action::Back => app.close_migration_flags(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.library_filter_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -1042,6 +1056,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Filters => {
                 if app.tab == 0 && app.view == LibraryView::Series {
                     app.open_library_filters();
+                } else if app.tab == 3
+                    && app.browse_view == BrowseView::Migrate
+                    && app.migrate.screen == app::MigrateScreen::Matches
+                {
+                    app.open_migration_flags();
                 } else if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     app.open_filters();
                 }

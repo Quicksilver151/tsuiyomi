@@ -23,18 +23,19 @@ use tsuiyomi_core::{
     host_data_dir, import_series, is_downloaded, latest_chapter_number, legacy_remote_cover_path,
     load_cached_story, merge_extensions, missing_chapter_count, move_series_downloads,
     normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
-    read_state, remote_cover_path, save_cached_story, save_config, scan_library, search_anilist,
-    series_dir_name, source_dir_name, story_cache_path, title_similarity, today_key,
-    update_anilist_progress, update_mal_progress, visible_chapters, write_comic_info,
-    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
-    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
-    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
-    HostClient, HostProcess, InstallJob, Library, LibraryFilters, LibrarySort, LocalSourceOrder,
-    MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState,
-    ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage,
-    RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode,
-    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
-    Theme, TrackerAuth, TrackerLink, TrackerMedia, TriState, UpdateEntry, UpdateStore,
+    read_state, remote_cover_path, remove_series_downloads, save_cached_story, save_config,
+    scan_library, search_anilist, series_dir_name, source_dir_name, story_cache_path,
+    title_similarity, today_key, update_anilist_progress, update_mal_progress, visible_chapters,
+    write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
+    BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
+    ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
+    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryFilters,
+    LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page,
+    PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
+    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerLink, TrackerMedia,
+    TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -792,6 +793,7 @@ pub struct MigrateState {
     apply_done: usize,
     apply_failed: usize,
     apply_downloads_moved: usize,
+    apply_downloads_removed: usize,
     apply_downloads_failed: usize,
     apply_categories: Vec<(String, String, Vec<String>)>,
 }
@@ -904,6 +906,11 @@ pub struct SaveCategories {
 #[derive(Debug, Default)]
 pub struct TagPicker {
     pub tags: Vec<String>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct MigrationFlagsPicker {
     pub selected: usize,
 }
 
@@ -1202,6 +1209,7 @@ pub struct AppState {
     pub save_categories: Option<SaveCategories>,
     pub tag_picker: Option<TagPicker>,
     pub library_filter_picker: Option<LibraryFilterPicker>,
+    pub migration_flags_picker: Option<MigrationFlagsPicker>,
     pub tracker_picker: Option<TrackerPicker>,
     pub tracker_unlink_confirm: bool,
     pub migration_source_picker: Option<MigrationSourcePicker>,
@@ -1359,6 +1367,7 @@ impl AppState {
             save_categories: None,
             tag_picker: None,
             library_filter_picker: None,
+            migration_flags_picker: None,
             tracker_picker: None,
             tracker_unlink_confirm: false,
             migration_source_picker: None,
@@ -2632,6 +2641,57 @@ impl AppState {
         }
     }
 
+    pub fn open_migration_flags(&mut self) {
+        if self.tab == 3
+            && self.browse_view == BrowseView::Migrate
+            && self.migrate.screen == MigrateScreen::Matches
+        {
+            self.migration_flags_picker = Some(MigrationFlagsPicker::default());
+        }
+    }
+
+    pub fn migration_flags_previous(&mut self) {
+        if let Some(picker) = self.migration_flags_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn migration_flags_next(&mut self) {
+        if let Some(picker) = self.migration_flags_picker.as_mut() {
+            picker.selected = (picker.selected + 1).min(4);
+        }
+    }
+
+    pub fn migration_flags_toggle(&mut self) {
+        let Some(picker) = self.migration_flags_picker.as_ref() else {
+            return;
+        };
+        match picker.selected {
+            0 => self.config.migration_transfer_chapters = !self.config.migration_transfer_chapters,
+            1 => {
+                self.config.migration_transfer_categories =
+                    !self.config.migration_transfer_categories
+            }
+            2 => self.config.migration_transfer_notes = !self.config.migration_transfer_notes,
+            3 => self.config.migration_transfer_cover = !self.config.migration_transfer_cover,
+            _ => self.config.migration_remove_downloads = !self.config.migration_remove_downloads,
+        }
+        self.persist_settings();
+    }
+
+    pub fn migration_flags_reset(&mut self) {
+        self.config.migration_transfer_chapters = true;
+        self.config.migration_transfer_categories = true;
+        self.config.migration_transfer_notes = true;
+        self.config.migration_transfer_cover = true;
+        self.config.migration_remove_downloads = false;
+        self.persist_settings();
+    }
+
+    pub fn close_migration_flags(&mut self) {
+        self.migration_flags_picker = None;
+    }
+
     pub fn migrate_apply(&mut self, replace: bool) {
         if self.migrate.matching
             || self.migrate.applying
@@ -2666,6 +2726,7 @@ impl AppState {
         self.migrate.apply_done = 0;
         self.migrate.apply_failed = 0;
         self.migrate.apply_downloads_moved = 0;
+        self.migrate.apply_downloads_removed = 0;
         self.migrate.apply_downloads_failed = 0;
         self.migrate.apply_categories.clear();
         self.remote.error = false;
@@ -2719,11 +2780,15 @@ impl AppState {
             .unwrap_or_default();
         if !self.is_favorite(&target.source_id, &target.url) {
             match client.add_favorite(&target) {
-                Ok(()) => self.migrate.apply_categories.push((
-                    target.source_id.clone(),
-                    target.url.clone(),
-                    old_categories,
-                )),
+                Ok(()) => {
+                    if self.config.migration_transfer_categories {
+                        self.migrate.apply_categories.push((
+                            target.source_id.clone(),
+                            target.url.clone(),
+                            old_categories,
+                        ));
+                    }
+                }
                 Err(_) => {
                     self.migrate.apply_failed += 1;
                     self.update_migration_apply_status();
@@ -2732,22 +2797,33 @@ impl AppState {
             }
         }
 
-        self.copy_migration_reading_state(&matched, self.migrate.apply_replace);
+        if self.config.migration_transfer_chapters {
+            self.copy_migration_reading_state(&matched, self.migrate.apply_replace);
+        }
+        self.copy_migration_metadata(&matched, self.migrate.apply_replace);
         if self.migrate.apply_replace {
             if let Some(root) = downloads_dir(&self.config) {
                 let old_source = self
                     .remote_source_display_name(&matched.old.source_id)
                     .unwrap_or_else(|| matched.old.source_id.clone());
-                match move_series_downloads(
-                    &root,
-                    &old_source,
-                    &matched.old.title,
-                    &target_source.display_name(),
-                    &target.title,
-                ) {
-                    Ok(true) => self.migrate.apply_downloads_moved += 1,
-                    Ok(false) => {}
-                    Err(_) => self.migrate.apply_downloads_failed += 1,
+                if self.config.migration_remove_downloads {
+                    match remove_series_downloads(&root, &old_source, &matched.old.title) {
+                        Ok(true) => self.migrate.apply_downloads_removed += 1,
+                        Ok(false) => {}
+                        Err(_) => self.migrate.apply_downloads_failed += 1,
+                    }
+                } else {
+                    match move_series_downloads(
+                        &root,
+                        &old_source,
+                        &matched.old.title,
+                        &target_source.display_name(),
+                        &target.title,
+                    ) {
+                        Ok(true) => self.migrate.apply_downloads_moved += 1,
+                        Ok(false) => {}
+                        Err(_) => self.migrate.apply_downloads_failed += 1,
+                    }
                 }
             }
             let _ = client.remove_favorite(&matched.old.source_id, &matched.old.url);
@@ -2789,6 +2865,7 @@ impl AppState {
         let failed = self.migrate.apply_failed;
         let total = self.migrate.apply_queue.len();
         let downloads_moved = self.migrate.apply_downloads_moved;
+        let downloads_removed = self.migrate.apply_downloads_removed;
         let downloads_failed = self.migrate.apply_downloads_failed;
         let categories = std::mem::take(&mut self.migrate.apply_categories);
         self.migrate.applying = false;
@@ -2835,6 +2912,9 @@ impl AppState {
         }
         if downloads_moved > 0 {
             status.push_str(&format!(" · {downloads_moved} download sets moved"));
+        }
+        if downloads_removed > 0 {
+            status.push_str(&format!(" · {downloads_removed} download sets removed"));
         }
         if downloads_failed > 0 {
             status.push_str(&format!(" · {downloads_failed} download moves failed"));
@@ -2918,6 +2998,37 @@ impl AppState {
                     remote_progress_key(&matched.old.source_id, &matched.old.url, &chapter.url);
                 self.progress.remove(&key);
                 self.bookmarks.set(&key, false);
+            }
+        }
+    }
+
+    fn copy_migration_metadata(&mut self, matched: &MigrationMatch, replace: bool) {
+        let Some(target) = &matched.target else {
+            return;
+        };
+        if self.config.migration_transfer_notes {
+            let old_key = format!("{}\n{}", matched.old.source_id, matched.old.url);
+            let new_key = format!("{}\n{}", target.source_id, target.url);
+            if let Some(note) = self.config.story_notes.get(&old_key).cloned() {
+                self.config.story_notes.insert(new_key, note);
+                if replace {
+                    self.config.story_notes.remove(&old_key);
+                }
+            }
+        }
+        if self.config.migration_transfer_cover {
+            if let (Some(old_cover), Some(new_cover)) = (
+                remote_cover_path(&matched.old.source_id, &matched.old.url),
+                remote_cover_path(&target.source_id, &target.url),
+            ) {
+                if old_cover.is_file() && !new_cover.exists() {
+                    if let Some(parent) = new_cover.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if std::fs::copy(&old_cover, &new_cover).is_ok() && replace {
+                        let _ = std::fs::remove_file(&old_cover);
+                    }
+                }
             }
         }
     }
@@ -19169,6 +19280,24 @@ mod tests {
     }
 
     #[test]
+    fn migration_flags_toggle_and_reset() {
+        let mut app = remote_app();
+        app.tab = 3;
+        app.browse_view = BrowseView::Migrate;
+        app.migrate.screen = MigrateScreen::Matches;
+        app.open_migration_flags();
+        assert!(app.migration_flags_picker.is_some());
+
+        app.migration_flags_toggle();
+        assert!(!app.config.migration_transfer_chapters);
+        app.migration_flags_reset();
+        assert!(app.config.migration_transfer_chapters);
+        assert!(!app.config.migration_remove_downloads);
+        app.close_migration_flags();
+        assert!(app.migration_flags_picker.is_none());
+    }
+
+    #[test]
     fn migrate_apply_reports_when_nothing_is_matched() {
         let mut app = remote_app();
         app.tab = 3;
@@ -19392,8 +19521,20 @@ mod tests {
             skipped: false,
         };
 
+        app.config
+            .story_notes
+            .insert("1\n/manga/old".to_owned(), "Keep this note".to_owned());
         app.copy_migration_reading_state(&matched, true);
+        app.copy_migration_metadata(&matched, true);
 
+        assert_eq!(
+            app.config
+                .story_notes
+                .get("2\n/manga/new")
+                .map(String::as_str),
+            Some("Keep this note")
+        );
+        assert!(!app.config.story_notes.contains_key("1\n/manga/old"));
         let new_entry = app
             .history
             .get(&new_key.to_string_lossy())

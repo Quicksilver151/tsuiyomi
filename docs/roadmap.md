@@ -16,12 +16,12 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
 | [Reader](#reader) | 18 | 1 | 5 | 0 | 77.1% |
 | [History and Stats](#history-and-stats) | 19 | 1 | 1 | 0 | 92.9% |
-| [Migrate](#migrate) | 20 | 1 | 2 | 0 | 89.1% |
+| [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 2 | 2 | 3 | 0 | 42.9% |
 | [Downloads](#downloads) | 2 | 3 | 2 | 1 | 50.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **213** | **16** | **26** | **11** | **86.7%** |
+| **All categories** | **216** | **15** | **24** | **11** | **87.6%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -285,9 +285,9 @@ table below.
 | Transfer | History | Yes | ✅ | ✅ | |
 | Transfer | Categories | Yes | ✅ | ✅ | |
 | Transfer | Reading duration | Yes | ✅ | ✅ | Replace mode. |
-| Transfer | Notes | Yes | ❌ | ❌ | Notes are not copied to the target story. |
-| Transfer | Custom cover | Yes | ❌ | ❌ | Custom cover is not copied to the target story. |
-| Apply | Per-migration flags/options | Yes | 🟡 | 🟡 | Always transfers the fixed subset; no chapters/categories/cover/notes/remove-downloads toggles. |
+| Transfer | Notes | Yes | ✅ | ✅ | Copied to the target story key; removable via migration options. |
+| Transfer | Custom cover | Yes | ✅ | ✅ | Cached cover is copied to the target when available. |
+| Apply | Per-migration flags/options | Yes | ✅ | ✅ | `z` toggles chapters, categories, notes, custom cover, and remove-old-downloads. |
 | Entry | Story-level Migrate | Yes | ✅ | ✅ | `M` on story. |
 | Entry | Duplicate-dialog Migrate | Yes | ✅ | ✅ | `M` in duplicate dialog. |
 | Config | Migration source configuration/order | Yes | ✅ | ✅ | Target sources are selectable, reorderable, and persisted. |

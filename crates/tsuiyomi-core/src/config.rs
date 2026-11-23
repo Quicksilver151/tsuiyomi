@@ -208,6 +208,16 @@ pub struct Config {
     /// Sources used for migration matching, keyed by `pkg|name|lang`. Empty
     /// means every enabled source.
     pub migration_sources: Vec<String>,
+    /// Migration transfers chapter progress/bookmarks/history.
+    pub migration_transfer_chapters: bool,
+    /// Migration transfers categories.
+    pub migration_transfer_categories: bool,
+    /// Migration transfers story notes.
+    pub migration_transfer_notes: bool,
+    /// Migration transfers the custom cover.
+    pub migration_transfer_cover: bool,
+    /// Replace migrations delete old downloads instead of moving them.
+    pub migration_remove_downloads: bool,
     /// Display names for extension repository URLs; missing entries use the URL host.
     pub store_names: BTreeMap<String, String>,
     /// Legacy AniList token, kept as a fallback and migrated into `tracker_auth`.
@@ -293,6 +303,11 @@ impl Default for Config {
             browse_hide_saved: false,
             show_nsfw_extensions: true,
             migration_sources: Vec::new(),
+            migration_transfer_chapters: true,
+            migration_transfer_categories: true,
+            migration_transfer_notes: true,
+            migration_transfer_cover: true,
+            migration_remove_downloads: false,
             store_names: BTreeMap::new(),
             anilist_token: None,
             anilist_client_id: None,
