@@ -1,5 +1,7 @@
 # History Parity and Reading-Time Stats Plan
 
+Current implementation plan: [`../plan.md`](../plan.md). Feature status: [`../roadmap.md`](../roadmap.md).
+
 ## 1. Goal
 
 Bring tsuiyomi's History tab to functional parity with Mihon, while adding

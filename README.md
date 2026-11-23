@@ -417,8 +417,8 @@ Page-turn modes open single pages and use the **Page fit** setting (Fit, Fill/cr
 Stretch); `webtoon` and `continuous_vertical` open in scroll mode. `m` switches between page and scroll for the current session. Scroll mode fits
 pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom from 50%
 to 300%. In page mode zoom crops into the page center (or pads it when zooming out); `h`/`l` and
-`j`/`k` pan the zoomed page. Page zoom re-encodes the image rather than using Kitty
-placement-only scaling. In scroll mode zooming rebuilds the scroll layout but keeps
+`j`/`k` pan the zoomed page. Page zoom currently re-encodes the image; placement-only
+Kitty scaling is planned as an opt-in with a fallback. In scroll mode zooming rebuilds the scroll layout but keeps
 the top of the viewport on the same point in the page, including inside very long webtoon
 strips. Only pages near the viewport
 are decoded and cached, and page preparation runs off the UI thread. `D` downloads the current chapter and `b` toggles its bookmark.

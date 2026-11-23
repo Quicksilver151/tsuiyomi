@@ -1,5 +1,7 @@
 # Browse Parity Plan
 
+Current implementation plan: [`../plan.md`](../plan.md). Feature status: [`../roadmap.md`](../roadmap.md).
+
 ## 1. Goal
 
 Bring tsuiyomi's Browse experience to functional parity with Mihon's Browse tab:

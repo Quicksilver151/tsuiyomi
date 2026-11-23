@@ -176,7 +176,7 @@ Rules:
   reverses the left/right keys; paged vertical mode uses up/down page turns. Page images
   support Fit, Fill/crop, and Stretch modes. Page-mode zoom crops/pads the decoded page,
   pans with `h`/`l` and `j`/`k`, and re-encodes it. Placement-only Kitty scaling is a
-  deliberate terminal tradeoff, not a custom graphics protocol.
+  planned opt-in with a re-encode fallback.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching

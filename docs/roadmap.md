@@ -9,17 +9,19 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
-| [On-disk compatibility](#on-disk-compatibility) | 21 | 0 | 0 | 1 | 100.0% |
-| [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
+| [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 3 | 1 | 86.0% |
+| [Library](#library) | 15 | 4 | 8 | 0 | 63.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
-| [Reader](#reader) | 16 | 0 | 0 | 1 | 100.0% |
-| [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
-| [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
-| [Settings, security, and data](#settings-security-and-data) | 14 | 0 | 0 | 0 | 100.0% |
-| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 6 | 100.0% |
-| **All categories** | **209** | **0** | **0** | **12** | **100.0%** |
+| [Reader](#reader) | 16 | 1 | 7 | 0 | 68.8% |
+| [History and Stats](#history-and-stats) | 19 | 1 | 1 | 0 | 92.9% |
+| [Migrate](#migrate) | 20 | 1 | 2 | 0 | 89.1% |
+| [Tracking](#tracking) | 2 | 0 | 5 | 0 | 28.6% |
+| [Downloads](#downloads) | 1 | 2 | 4 | 1 | 28.6% |
+| [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
+| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
+| **All categories** | **210** | **11** | **34** | **11** | **84.5%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -54,7 +56,11 @@ table below.
 | Categories | Mihon database categories | Yes | ➖ | ➖ | Mihon keeps categories in its Android database; tsuiyomi uses a portable `categories.json` sidecar, with unlisted series in `Default`. |
 | Metadata writes | Mihon-readable metadata export | Yes | ✅ | ✅ | `E` writes `ComicInfo.xml` for a local series; existing files are kept. Legacy `details.json` is not rewritten. |
 | Backups | Import `.tachibk` / `.proto.gz` | Yes | ✅ | ✅ | Local and remote favorites, categories, notes, chapter state, bookmarks, and history. Local entries work without the extension host. |
-| Backups | Export Mihon-restorable backups | Yes | ✅ | ✅ | Local and remote library, categories, chapter state, history, notes, and date-added fields. Protobuf fields match current upstream models and round-trip in tests; not exercised in an Android Mihon build. |
+| Backups | Export Mihon-restorable backups | Yes | ✅ | ✅ | Local and remote library, categories, chapter state, history, notes, and date-added fields. Protobuf fields match current upstream models and round-trip in tests. |
+| Backups | Tracking entries | Yes | ❌ | ❌ | `BackupTracking` (field 18) is not imported or exported. |
+| Backups | Viewer/chapter flags and update strategy | Yes | ❌ | ❌ | `BackupManga` viewer flags, chapter flags, and update strategy are not preserved. |
+| Backups | Excluded scanlators and next update | Yes | ❌ | ❌ | Fields 108 and 113 are not preserved. |
+| Backups | Real Mihon restore verification | Yes | 🟡 | 🟡 | Protobuf round-trip passes; no Android Mihon restore has been performed. |
 
 ### Library
 
@@ -63,17 +69,28 @@ table below.
 | Grid | Cover tile grid | Yes | Yes | ✅ | Adjustable tile width. |
 | Grid | Generated/placeholder covers | Yes | Yes | ✅ | Initials placeholder when no image. |
 | Grid | Saved source manga merged in | Yes | Yes | ✅ | Mirrored in `remote_library`. |
+| Grid | Comfortable grid / compact grid / list layouts | Yes | ❌ | ❌ | Tile grid with adjustable width only. |
+| Grid | Unread / download / language badges | Yes | ❌ | ❌ | Tiles show title and chapter count. |
 | Categories | Category tabs/filtering | Yes | ✅ | ✅ | `[`/`]`; default category. |
 | Categories | Edit categories from story | Yes | ✅ | ✅ | Local and saved source manga; local assignments write `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
-| Sorting | Other Mihon sort fields | Yes | ✅ | ✅ | Chapter count, latest chapter, unread, recently read, and recently added; add dates come from `series_added_at` or filesystem metadata. |
+| Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, unread, recently read, and recently added. Tracker score, last update, chapter fetch date, and random remain. |
+| Sorting | Per-category sort and display settings | Yes | ❌ | ❌ | Sort and display are global. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
+| Filters | Library filter dialog | Yes | ❌ | ❌ | Planned unread/downloaded/bookmarked/tracked/missing filters. |
 | Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan and newly discovered saved-source chapters, kept 30 days; Enter reads, `x` dismisses, `X` clears. |
+| Updates | Update settings and smart-update rules | Yes | ❌ | ❌ | Planned unread-only, started/completed/release-period restrictions. |
+| Updates | Category-only update and tab-badge setting | Yes | 🟡 | 🟡 | Global saved-story refresh and tab badge exist; no category scope or badge toggle. |
 | Removal | Remove local series, keep files | Yes | ✅ | ✅ | Path stored in `hidden_series`. |
 | Removal | Remove saved source manga + downloads | Yes | ✅ | ✅ | Delete dialog with optional downloads. |
 | Covers | Persistent cover cache | Yes | ✅ | ✅ | LRU, 512 px, atomic writes, Kitty reset. |
 | Covers | Automatic cover recovery | Yes | ✅ | ✅ | Missing saved covers trigger host refill. |
 | Selection | Multi-select and batch delete | Yes | ✅ | ✅ | Stable keys and command-bar count. |
+| Reading | Continue-reading shelf/button | Yes | 🟡 | 🟡 | `C` continues the selected series; no dedicated shelf. |
+| Discovery | Random manga action | Yes | ❌ | ❌ | Planned. |
+| Filters | Downloaded-only library view | Yes | ❌ | ❌ | More → Downloads manager exists, but Library has no downloaded-only filter. |
+| Display | Hide missing-chapter indicators | Yes | 🟡 | 🟡 | Missing count is shown; no hide setting. |
+| Reading | Mark duplicate chapters read | Yes | ❌ | ❌ | Planned new/existing duplicate rules. |
 | Scan | Background scan | Yes | ✅ | ✅ | Refresh, rescan, and the initial scan run on a worker after the UI opens. |
 | Scan | Import browser / file picker | Yes | ✅ | ✅ | `i` opens a path dialog and copies a folder into `local/`; name collisions get a suffix. |
 
@@ -204,16 +221,23 @@ table below.
 | Formats | Image EPUB | Yes | ✅ | ✅ | Prose ignored. |
 | Images | Kitty / Sixel / iTerm2 | Yes | ✅ | ✅ | Auto-detected. |
 | Images | Unicode halfblock fallback | Yes | ✅ | ✅ | |
+| Actions | Page actions: copy/save page, set cover, open externally | Yes | ❌ | ❌ | Cover actions exist elsewhere; page-level actions are planned. |
 | Modes | Page mode | Yes | ✅ | ✅ | |
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
 | Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
+| Modes | Per-series viewer mode and reset to global | Yes | ❌ | ❌ | Viewer mode is global only. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads and pans with `h/l`/`j/k`, scroll zoom rebuilds rows, no upscaling at 100%. |
-| Zoom | Retransmit-free Kitty placement zoom | Yes | ➖ | ➖ | Page zoom works by re-encoding; placement-only Kitty scaling is a deliberate terminal tradeoff. |
+| Display | Crop borders | Yes | ❌ | ❌ | Planned. |
+| Display | Color filters / grayscale | Yes | ❌ | ❌ | Planned. |
+| Display | Dual-page, split wide pages, rotate wide pages | Yes | ❌ | ❌ | Planned. |
+| Zoom | Kitty placement-only zoom with disable toggle | Yes | 🟡 | 🟡 | Page zoom works by re-encoding; placement-only scaling and its disable setting are planned. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |
 | Progress | Read-state derivation | Yes | ✅ | ✅ | Page/pages. |
 | Progress | Host read-state mirror | Yes | ✅ | ✅ | Remote progress/bookmarks upload in batches and merge back when local state is missing. |
 | Navigation | Previous/next chapter | Yes | ✅ | ✅ | Follows filtered list. |
+| Navigation | Skip read/filtered/duplicate chapters and chapter transitions | Yes | ❌ | ❌ | Planned. |
+| Navigation | Open chapter page in browser | Yes | ❌ | ❌ | Planned in the reader; local chapters open their folder. |
 | Bookmarks | Toggle bookmark | Yes | ✅ | ✅ | `b`. |
 | Downloads | Download current chapter | Yes | ✅ | ✅ | `D`, active cancellation now works. |
 | Privacy | Incognito suppresses history/time | Yes | ✅ | ✅ | Global and per-extension. |
@@ -237,6 +261,8 @@ table below.
 | Stats | 14-day chart | Yes | ✅ | ✅ | |
 | Stats | Top series, streak, active days | Yes | ✅ | ✅ | |
 | Stats | Unique series count | Yes | ✅ | ✅ | |
+| Stats | Tracker overview and mean score | Yes | ❌ | ❌ | Planned tracked-title, score, and status summaries. |
+| Stats | Local/downloaded/total title counts | Yes | 🟡 | 🟡 | Library/downloads counts exist; not a unified stats breakdown. |
 | Stats | Keyboard/wheel scrolling | Yes | ✅ | ✅ | |
 | Time | Per-chapter and per-day duration | Yes | ✅ | ✅ | |
 | Time | Idle cutoff | Yes | ✅ | ✅ | Two-minute inactivity cutoff. |
@@ -259,6 +285,9 @@ table below.
 | Transfer | History | Yes | ✅ | ✅ | |
 | Transfer | Categories | Yes | ✅ | ✅ | |
 | Transfer | Reading duration | Yes | ✅ | ✅ | Replace mode. |
+| Transfer | Notes | Yes | ❌ | ❌ | Notes are not copied to the target story. |
+| Transfer | Custom cover | Yes | ❌ | ❌ | Custom cover is not copied to the target story. |
+| Apply | Per-migration flags/options | Yes | 🟡 | 🟡 | Always transfers the fixed subset; no chapters/categories/cover/notes/remove-downloads toggles. |
 | Entry | Story-level Migrate | Yes | ✅ | ✅ | `M` on story. |
 | Entry | Duplicate-dialog Migrate | Yes | ✅ | ✅ | `M` in duplicate dialog. |
 | Config | Migration source configuration/order | Yes | ✅ | ✅ | Target sources are selectable, reorderable, and persisted. |
@@ -266,6 +295,31 @@ table below.
 | Apply | Manual search override / skip | Yes | ✅ | ✅ | `↵`/`o` searches target sources and replaces the match; `s` skips an item. |
 | Apply | Batch progress / cancel | Yes | ✅ | ✅ | Matching runs in the background; apply processes one manga per tick with a progress status, and Esc cancels between items while keeping completed migrations. |
 | Downloads | Move/delete old downloads | Yes | ✅ | ✅ | Replace moves the old series’ downloaded chapters to the target source/series; copy leaves them in place. |
+
+### Tracking
+
+| Area | Feature | Mihon | tsuiyomi | Status | Notes |
+|---|---|---|---|---|---|
+| Auth | AniList browser login, refresh, logout | Yes | ❌ | ❌ | Token paste only; proper OAuth with refresh/revoke is planned. |
+| Auth | MyAnimeList browser login, refresh, logout | Yes | ❌ | ❌ | Client ID and token paste only. |
+| Services | AniList / MyAnimeList | Yes | ✅ | ✅ | Search, link/unlink, and progress sync work. |
+| Services | Kitsu, MangaUpdates, Shikimori, Bangumi, Hikka, MangaBaka | Yes | ❌ | ❌ | Planned tracker adapters. |
+| Metadata | Status, score, start/end dates, private flag | Yes | ❌ | ❌ | Only progress and completed status are sent. |
+| Overview | Tracker stats and mean score | Yes | ❌ | ❌ | Planned in More → Statistics. |
+| Actions | Link/unlink/search and background progress sync | Yes | ✅ | ✅ | Worker-backed. |
+
+### Downloads
+
+| Area | Feature | Mihon | tsuiyomi | Status | Notes |
+|---|---|---|---|---|---|
+| Management | Folder, queue, series list, cancel, delete | Yes | ✅ | ✅ | More → Downloads. |
+| Policies | Concurrent pages/sources settings | Yes | ❌ | ❌ | One chapter at a time. |
+| Policies | Download ahead / auto-download while reading | Yes | ❌ | ❌ | Planned. |
+| Policies | Delete after read/bookmarked/excluded categories | Yes | ❌ | ❌ | Planned. |
+| Policies | Global/category new-chapter downloads | Yes | 🟡 | 🟡 | Per-series auto-download only. |
+| Format | Save chapters as CBZ | Yes | ❌ | ❌ | Folder downloads only. |
+| Queue | Pause, resume, reorder | Yes | 🟡 | 🟡 | Cancel only. |
+| Networking | Download only on Wi-Fi | Yes | ➖ | ➖ | Desktop has no metered-network concept. |
 
 ### Settings, security, and data
 
@@ -277,10 +331,14 @@ table below.
 | Reader | Mode / zoom / prefetch / cache | Yes | ✅ | ✅ | |
 | Browse | Host URL / NSFW extensions | Yes | ✅ | ✅ | |
 | Advanced | FlareSolverr URL | Yes | ✅ | ✅ | Validated, persisted, host restart. |
+| Advanced | Custom user agent | Yes | ❌ | ❌ | Planned. |
+| Advanced | DNS-over-HTTPS | Yes | ❌ | ❌ | Planned. |
+| Advanced | Diagnostics / verbose logging | Yes | 🟡 | 🟡 | Host logs exist; no in-app diagnostics view. |
+| Notifications | Update notifications | Yes | ❌ | ❌ | Planned desktop notifications. |
+| Notifications | Download and tracker-failure notifications | Yes | ❌ | ❌ | Planned desktop notifications. |
 | Security | Global Incognito | Yes | ✅ | ✅ | |
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Downloads | Download settings/management page | Yes | ✅ | ✅ | Folder setting plus a downloaded-series list with sizes and per-series deletion. |
-| Tracking | Tracker services | Yes | ✅ | ✅ | AniList and MyAnimeList work with pasted credentials; other tracker services remain optional future work. |
 | Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
 | Data | Storage statistics/cleanup | Yes | ✅ | ✅ | Sizes/counts, cover-cache cleanup, clear-all, and per-series deletion. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds, reorders with `+`/`-`, renames, and deletes; `Default` stays first. |
@@ -297,7 +355,6 @@ table below.
 | Android notifications | TUI status bar/queue markers | ➖ | No background daemon notifications. |
 | WebView-dependent source | None | ➖ | The host has no browser engine, so these sources stay unsupported. |
 | Mihon database categories | Portable `categories.json` sidecar | ➖ | A filesystem library cannot share the Android app database; the sidecar keeps categories portable. |
-| Kitty placement-only zoom | Re-encode on zoom | ➖ | Functional page zoom without a custom Kitty placement protocol. |
 | APK signature verification | TOFU file fingerprints | ➖ | The host cannot verify signing keys; the TUI records a SHA-256 fingerprint instead. |
 
 ## Verification snapshot
@@ -313,17 +370,23 @@ table below.
 
 ## Highest-impact remaining work
 
-1. Optional remote-WebView bridge for WebView-only sources.
-2. Additional tracker services beyond AniList.
-3. Extension shared/signature states and richer store metadata.
-4. Background migration apply and remaining synchronous mutations.
-5. Real Mihon restore verification for exported backups.
-6. Reader retransmit-free Kitty placement zoom.
-7. Per-series storage cleanup.
+The current implementation plan is [`plan.md`](plan.md). In priority order:
+
+1. Browser OAuth for AniList/MAL, remaining tracker services, metadata, and tracker stats.
+2. Library layouts, filters, badges, sort extras, smart updates, and continue reading.
+3. Updates settings, tracker stats, and complete title-count breakdowns.
+4. Migrate notes, custom covers, and per-migration flags.
+5. Download policies, CBZ output, and queue controls.
+6. Per-series viewer mode, browser-open actions, reader page/skip/display features, and
+   Kitty placement zoom with an opt-out.
+7. Remaining backup fields and real Mihon restore verification.
+8. Advanced networking, diagnostics, and desktop notifications.
+9. Novel mode based on LNReader (backlog only).
 
 ## Development phases
 
-Step-by-step roadmap for turning the 0.2 prototype into a usable manga library app.
+The phases below are historical implementation phases. The current scope and acceptance
+criteria live in [`plan.md`](plan.md).
 
 Principles:
 
