@@ -91,6 +91,8 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_category_picker(frame, app);
     draw_save_categories(frame, app);
     draw_tag_picker(frame, app);
+    draw_tracker_picker(frame, app);
+    draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
     draw_migration_search(frame, app);
     draw_clear_downloads_confirm(frame, app);
@@ -438,6 +440,113 @@ fn draw_tag_picker(frame: &mut Frame, app: &AppState) {
         picker.selected.min(picker.tags.len().saturating_sub(1)),
     ));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_tracker_picker(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.tracker_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let height = (picker.results.len() as u16 + 2).min(area.height).max(4);
+    let width = 64.min(area.width).max(20);
+    if width < 16 || height < 3 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " AniList ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Enter link · Esc cancel ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = picker
+        .results
+        .iter()
+        .enumerate()
+        .map(|(index, media)| {
+            let selected = index == picker.selected;
+            let chapters = media
+                .chapters
+                .map(|chapters| format!(" · {chapters} ch"))
+                .unwrap_or_default();
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    media.title.clone(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+                Span::styled(chapters, Style::default().fg(c_overlay0())),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(
+        picker.selected.min(picker.results.len().saturating_sub(1)),
+    ));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_tracker_unlink(frame: &mut Frame, app: &AppState) {
+    if !app.tracker_unlink_confirm {
+        return;
+    }
+    let area = frame.area();
+    let width = 62.min(area.width).max(24);
+    let height = 7.min(area.height);
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(Span::styled(
+            " Unlink tracker ",
+            Style::default().fg(c_peach()).add_modifier(Modifier::BOLD),
+        )),
+        c_peach(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let title = app
+        .current_story_key()
+        .and_then(|key| app.config.tracking.get(&key))
+        .map(|link| link.title.clone())
+        .unwrap_or_default();
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![
+            Line::from(format!("Unlink AniList {title}?")),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Enter / y unlink · Esc cancel",
+                Style::default().fg(c_overlay1()),
+            )),
+        ])),
+        inner,
+    );
 }
 
 fn draw_save_categories(frame: &mut Frame, app: &AppState) {
@@ -1368,6 +1477,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("c", "categories"),
                 ("N", "notes"),
                 ("Y", "copy tags"),
+                ("T", "tracker"),
                 ("E", "metadata"),
                 ("S", "share cover"),
                 ("C", "copy URL"),
@@ -1404,6 +1514,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("c", "categories"),
                 ("N", "notes"),
                 ("Y", "copy tags"),
+                ("T", "tracker"),
                 ("S", "share cover"),
                 ("C/o", "copy/open"),
                 ("w/W", "cover"),
@@ -1619,6 +1730,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("a/I", "select"),
                 ("b", "bookmark"),
                 ("Y", "tags"),
+                ("T", "tracker"),
                 ("E", "metadata"),
                 ("S", "cover"),
                 ("Esc", "back"),
@@ -1887,6 +1999,7 @@ fn draw_library_chapters(
     }
     let mut lines = series_lines(&series);
     append_story_notes(&mut lines, app);
+    append_story_tracking(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
@@ -1955,6 +2068,7 @@ fn draw_library_remote_detail(
         app.next_story_update_at(),
     );
     append_story_notes(&mut lines, app);
+    append_story_tracking(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
@@ -4159,6 +4273,7 @@ fn draw_remote_detail(frame: &mut Frame, area: Rect, app: &mut AppState) {
         app.next_story_update_at(),
     );
     append_story_notes(&mut lines, app);
+    append_story_tracking(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
@@ -4270,6 +4385,24 @@ fn append_story_notes(lines: &mut Vec<Line<'static>>, app: &AppState) {
         return;
     };
     lines.push(field("Notes", note, c_yellow()));
+}
+
+fn append_story_tracking(lines: &mut Vec<Line<'static>>, app: &AppState) {
+    let Some(key) = app.current_story_key() else {
+        return;
+    };
+    let Some(link) = app.config.tracking.get(&key) else {
+        return;
+    };
+    let total = link
+        .total_chapters
+        .map(|total| format!("/{total}"))
+        .unwrap_or_default();
+    lines.push(field(
+        "Tracker",
+        &format!("AniList · {}{total}", link.progress),
+        c_mauve(),
+    ));
 }
 
 fn source_display_name(app: &AppState, source_id: &str) -> Option<String> {
@@ -4704,6 +4837,7 @@ fn draw_browse_chapters(frame: &mut Frame, area: Rect, app: &mut AppState) {
     }
     let mut lines = series_lines(&series);
     append_story_notes(&mut lines, app);
+    append_story_tracking(&mut lines, app);
     let cover = cover_path
         .as_ref()
         .and_then(|path| app.tile_covers.get_mut(path));
@@ -5594,6 +5728,14 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
             library_sort_label(app.config.library_sort).to_owned(),
         ),
         SettingId::RescanLibrary => ("Rescan library".to_owned(), "Enter".to_owned()),
+        SettingId::AniListToken => (
+            "AniList token".to_owned(),
+            if app.config.anilist_token.is_some() {
+                "Set".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
         SettingId::UpdateInterval => (
             "Update interval".to_owned(),
             if app.config.update_interval_hours == 0 {

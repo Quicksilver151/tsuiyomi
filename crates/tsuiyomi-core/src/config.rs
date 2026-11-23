@@ -101,6 +101,21 @@ pub enum Theme {
     Unknown,
 }
 
+/// A story's link to an external tracker.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrackerLink {
+    /// Tracker service identifier, currently `anilist`.
+    pub service: String,
+    pub media_id: u64,
+    pub title: String,
+    /// Total chapters reported by the tracker, when known.
+    #[serde(default)]
+    pub total_chapters: Option<u32>,
+    /// Last progress value sent to the tracker.
+    #[serde(default)]
+    pub progress: u32,
+}
+
 /// Application config, stored as TOML under the XDG config directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -163,6 +178,10 @@ pub struct Config {
     pub migration_sources: Vec<String>,
     /// Display names for extension repository URLs; missing entries use the URL host.
     pub store_names: BTreeMap<String, String>,
+    /// User-provided AniList OAuth token. Empty disables progress syncing.
+    pub anilist_token: Option<String>,
+    /// Linked tracker entries, keyed by the history series key.
+    pub tracking: BTreeMap<String, TrackerLink>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// When a series first appeared in the library, keyed by the history series key
@@ -225,6 +244,8 @@ impl Default for Config {
             show_nsfw_extensions: true,
             migration_sources: Vec::new(),
             store_names: BTreeMap::new(),
+            anilist_token: None,
+            tracking: BTreeMap::new(),
             remote_library: Vec::new(),
             series_added_at: BTreeMap::new(),
             hidden_series: Vec::new(),

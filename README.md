@@ -232,7 +232,8 @@ dates are right-aligned, and in-progress page counts sit immediately after the c
 title;
 chapter filters, sorting, and display mode persist per series. `x`/Delete removes
 selected downloads after confirmation, `c` edits categories for saved source manga,
-`M` opens Migrate with the manga selected, `N` edits notes, `Y` copies tags, `E` writes a
+`M` opens Migrate with the manga selected, `N` edits notes, `T` links or unlinks an
+AniList tracker entry, `Y` copies tags, `E` writes a
 Mihon-readable `ComicInfo.xml` for a local series, `C` copies the URL, `S` opens the cover
 in the system viewer, `o` opens the local folder or source page (resolving relative URLs
 through extension metadata), `t` searches a tag, and `w`/`W` show
@@ -392,6 +393,7 @@ library_sort = "natural" # natural, title_asc, title_desc, chapter_count_desc,
 update_interval_hours = 12  # background saved-story checks; 0 disables
 # default_category = "Reading"
 incognito = false
+# anilist_token = "..."  # optional; stored in this file in plain text
 ```
 
 Library sort, default category, and Incognito mode live under
@@ -448,14 +450,14 @@ categories:
   chapters, and the downloaded series with chapter counts and sizes (`r` refreshes,
   `c` cancels the queue, `x`/Delete removes a series after confirmation). `D` downloads the selected remote chapter,
   and downloaded chapters are read from disk.
-- **Tracking** — informational; no remote tracking services.
+- **Tracking** — paste an AniList OAuth token to link stories and sync read progress.
 - **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.
 - **Security** — Incognito mode, which stops writing reading progress.
 - **Advanced** — logging and diagnostic notes.
 - **About** — version, graphics protocol, and reader state.
 
-Tracking is not implemented; its page says so instead of pretending to work.
+Tracking supports AniList only; other tracker services are still pending.
 Downloaded chapters follow Mihon's layout:
 `<downloads>/<source>/<series>/<chapter>/<page>.<ext>`.
 

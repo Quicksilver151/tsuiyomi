@@ -28,6 +28,7 @@ pub mod reading_stats;
 pub mod runtime;
 pub mod source_prefs;
 pub mod story_cache;
+pub mod tracking;
 pub mod updates;
 
 pub use backup::{
@@ -44,7 +45,7 @@ pub use chapter_view::{
 pub use comic_info::{parse_comic_info, write_comic_info, ChapterDate, ComicInfo};
 pub use config::{
     load_config, save_config, Config, GlobalSearchScope, LibrarySort, LocalSourceOrder, ReaderFit,
-    ReadingMode, SourceDisplayMode, Theme,
+    ReadingMode, SourceDisplayMode, Theme, TrackerLink,
 };
 pub use downloads::{
     chapter_dir, chapter_dir_name, download_chapter, download_chapter_with_cancel, downloads_dir,
@@ -80,4 +81,5 @@ pub use source_prefs::{
     SourcePreferences,
 };
 pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};
+pub use tracking::{search_anilist, update_anilist_progress, AniListMedia};
 pub use updates::{RemoteUpdate, UpdateEntry, UpdateStore};

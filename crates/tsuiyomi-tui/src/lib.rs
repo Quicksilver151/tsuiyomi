@@ -23,6 +23,7 @@ mod scroll_worker;
 mod search_worker;
 mod source_worker;
 mod story_worker;
+mod tracker_worker;
 
 pub use app::AppState;
 
@@ -97,6 +98,7 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     app.set_scan_worker(crate::scan_worker::ScanWorker::spawn());
     app.set_global_search_worker(GlobalSearchWorker::spawn());
     app.set_cover_worker(CoverWorker::spawn());
+    app.set_tracker_worker(crate::tracker_worker::TrackerWorker::spawn());
     if app.library.series.is_empty() {
         app.refresh_async();
     }
@@ -191,6 +193,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             needs_draw = true;
         }
         if app.poll_story_refresh() {
+            needs_draw = true;
+        }
+        if app.poll_tracker_worker() {
             needs_draw = true;
         }
         app.maybe_auto_update_library();
@@ -312,6 +317,29 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::Next => app.tag_picker_next(),
                 Action::Open | Action::Confirm | Action::Select => app.confirm_tag_picker(),
                 Action::Back => app.cancel_tag_picker(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.tracker_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.tracker_picker_previous(),
+                Action::Next => app.tracker_picker_next(),
+                Action::Open | Action::Confirm | Action::Select => app.confirm_tracker_picker(),
+                Action::Back => app.cancel_tracker_picker(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.tracker_unlink_confirm {
+            match action {
+                Action::Open | Action::Confirm => app.confirm_tracker_unlink(),
+                Action::Back => app.cancel_tracker_unlink(),
                 _ => {}
             }
             needs_draw = true;
@@ -1212,6 +1240,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::StoryNotes => {
                 if app.story_screen_active() {
                     app.edit_story_notes();
+                }
+            }
+            Action::Tracking => {
+                if app.story_screen_active() {
+                    app.open_tracker();
                 }
             }
             Action::ToggleCover => {

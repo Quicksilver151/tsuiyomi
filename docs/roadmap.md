@@ -13,13 +13,13 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 1 | 1 | 95.8% |
-| [Shared story / chapter screen](#shared-story--chapter-screen) | 45 | 0 | 1 | 1 | 97.8% |
+| [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
 | [Reader](#reader) | 16 | 1 | 0 | 0 | 97.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
-| [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
+| [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 0 | 0 | 96.4% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **206** | **2** | **3** | **8** | **98.1%** |
+| **All categories** | **207** | **3** | **1** | **8** | **98.8%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -159,7 +159,7 @@ table below.
 | Header | Add/remove library | Yes | ✅ | ✅ | `F`. Remove confirmation exists; downloads checkbox is Library-level. |
 | Header | Edit categories | Yes | ✅ | ✅ | Saved source manga; `c`. |
 | Header | Migrate from story | Yes | ✅ | ✅ | `M`, preloads Migrate. |
-| Header | Tracking action | Yes | ❌ | ❌ | Separate integration milestone. |
+| Header | Tracking action | Yes | ✅ | ✅ | `T` searches AniList, links the story, shows progress, and unlinks after confirmation. |
 | Header | Copy/share URL | Yes | ✅ | ✅ | OSC 52 clipboard. |
 | Header | Open source page | Yes | ✅ | ✅ | Opens absolute URLs, local folders, and relative source paths resolved through the installed extension base URL; falls back to copied text when metadata is unavailable. |
 | Header | Refresh details and chapters | Yes | ✅ | ✅ | Remote refresh; local rescan. |
@@ -280,7 +280,7 @@ table below.
 | Security | Global Incognito | Yes | ✅ | ✅ | |
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Downloads | Download settings/management page | Yes | ✅ | ✅ | Folder setting plus a downloaded-series list with sizes and per-series deletion. |
-| Tracking | Tracker services | Yes | ❌ | ❌ | Placeholder. |
+| Tracking | Tracker services | Yes | 🟡 | 🟡 | AniList works with a pasted OAuth token; MyAnimeList, Kitsu, and other services remain. |
 | Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
 | Data | Storage statistics/cleanup | Yes | ✅ | ✅ | Sizes/counts, cover-cache cleanup, clear-all, and per-series deletion. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds, reorders with `+`/`-`, renames, and deletes; `Default` stays first. |
@@ -312,7 +312,7 @@ table below.
 ## Highest-impact remaining work
 
 1. Optional remote-WebView bridge for WebView-only sources.
-2. Tracking integration.
+2. Additional tracker services beyond AniList.
 3. Extension shared/signature states and richer store metadata.
 4. Background migration apply and remaining synchronous mutations.
 5. Real Mihon restore verification for exported backups.

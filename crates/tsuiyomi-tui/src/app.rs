@@ -23,17 +23,18 @@ use tsuiyomi_core::{
     is_downloaded, latest_chapter_number, legacy_remote_cover_path, load_cached_story,
     merge_extensions, missing_chapter_count, move_series_downloads, normalized_title,
     page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page, read_state,
-    remote_cover_path, save_cached_story, save_config, scan_library, series_dir_name,
-    source_dir_name, story_cache_path, title_similarity, today_key, visible_chapters,
-    write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
-    BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
-    ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibrarySort,
-    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
-    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
-    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
-    SourcePreferenceValue, SourcePreferences, Theme, TriState, UpdateEntry, UpdateStore,
+    remote_cover_path, save_cached_story, save_config, scan_library, search_anilist,
+    series_dir_name, source_dir_name, story_cache_path, title_similarity, today_key,
+    update_anilist_progress, visible_chapters, write_comic_info, write_mihon_backup, AniListMedia,
+    BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource, BookmarkStore,
+    CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort,
+    ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient,
+    HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup,
+    NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats,
+    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries,
+    RemoteSource, RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference,
+    SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme, TrackerLink, TriState,
+    UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -54,6 +55,7 @@ use crate::{
     search_worker::{GlobalSearchEvent, GlobalSearchWorker},
     source_worker::{SourceRequest, SourceWorker},
     story_worker::{StoryRequest, StoryWorker},
+    tracker_worker::{TrackerEvent, TrackerRequest, TrackerWorker},
 };
 
 /// Lines moved per arrow/wheel step in continuous scroll mode.
@@ -320,6 +322,8 @@ pub enum TextAction {
     MigrationSearch,
     StoryNotes,
     SetCustomCover,
+    TrackerSearch,
+    AniListToken,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -464,6 +468,7 @@ pub enum SettingId {
     LibrarySort,
     UpdateInterval,
     RescanLibrary,
+    AniListToken,
     Theme,
     Accent,
     Fullscreen,
@@ -546,10 +551,11 @@ const DOWNLOADS_ROWS: [MoreRow; 4] = [
     MoreRow::Note("Local library chapters are read directly from disk."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 3] = [
+const TRACKING_ROWS: [MoreRow; 4] = [
     MoreRow::Divider("Services"),
-    MoreRow::Note("No tracking services configured."),
-    MoreRow::Note("This build manages a local Mihon library only."),
+    MoreRow::Setting(SettingId::AniListToken),
+    MoreRow::Note("Paste an AniList OAuth token to enable progress sync."),
+    MoreRow::Note("Tokens are stored in the config file in plain text."),
 ];
 
 const BROWSE_ROWS: [MoreRow; 7] = [
@@ -873,6 +879,12 @@ pub struct TagPicker {
 }
 
 #[derive(Debug, Default)]
+pub struct TrackerPicker {
+    pub results: Vec<AniListMedia>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Default)]
 pub struct MigrationSourcePicker {
     pub selected: usize,
     pub chosen: Vec<String>,
@@ -1072,6 +1084,8 @@ pub struct AppState {
     host_states_loaded: bool,
     state_dirty: bool,
     pub(crate) story_worker: Option<StoryWorker>,
+    pub(crate) tracker_worker: Option<TrackerWorker>,
+    tracker_generation: u64,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
     pub(crate) cover_worker: Option<CoverWorker>,
@@ -1151,6 +1165,8 @@ pub struct AppState {
     pub category_picker: Option<CategoryPicker>,
     pub save_categories: Option<SaveCategories>,
     pub tag_picker: Option<TagPicker>,
+    pub tracker_picker: Option<TrackerPicker>,
+    pub tracker_unlink_confirm: bool,
     pub migration_source_picker: Option<MigrationSourcePicker>,
     pub migration_search: Option<MigrationSearchState>,
     pub cover_overlay: bool,
@@ -1234,6 +1250,8 @@ impl AppState {
             host_states_loaded: false,
             state_dirty: false,
             story_worker: None,
+            tracker_worker: None,
+            tracker_generation: 0,
             host_worker: None,
             global_search_worker: None,
             cover_worker: None,
@@ -1301,6 +1319,8 @@ impl AppState {
             category_picker: None,
             save_categories: None,
             tag_picker: None,
+            tracker_picker: None,
+            tracker_unlink_confirm: false,
             migration_source_picker: None,
             migration_search: None,
             cover_overlay: false,
@@ -5822,6 +5842,8 @@ impl AppState {
             TextAction::MigrationSearch => self.run_migration_search(&input.value),
             TextAction::StoryNotes => self.save_story_notes(&input.value),
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
+            TextAction::TrackerSearch => self.run_tracker_search(&input.value),
+            TextAction::AniListToken => self.set_anilist_token(&input.value),
         }
     }
 
@@ -7705,6 +7727,10 @@ impl AppState {
 
     pub(crate) fn set_story_worker(&mut self, worker: StoryWorker) {
         self.story_worker = Some(worker);
+    }
+
+    pub(crate) fn set_tracker_worker(&mut self, worker: TrackerWorker) {
+        self.tracker_worker = Some(worker);
     }
 
     pub(crate) fn set_host_worker(&mut self, worker: HostWorker) {
@@ -10092,6 +10118,243 @@ impl AppState {
         }
     }
 
+    fn current_story_title(&self) -> Option<String> {
+        if let Some(manga) = self.remote_story_manga() {
+            return Some(manga.title.clone());
+        }
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            return self.selected_series().map(|series| series.title.clone());
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            return self
+                .selected_browse_local_series()
+                .map(|series| series.title.clone());
+        }
+        None
+    }
+
+    fn current_read_chapter_count(&self) -> u32 {
+        self.story_chapter_indices()
+            .into_iter()
+            .filter(|index| self.story_chapter_read_state(*index) == ReadState::Read)
+            .count() as u32
+    }
+
+    fn set_tracker_message(&mut self, message: String, error: bool) {
+        self.status = Some(message.clone());
+        self.remote.status = Some(message);
+        self.remote.error = error;
+    }
+
+    pub fn open_tracker(&mut self) {
+        if !self.story_screen_active() {
+            return;
+        }
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        if let Some(link) = self.config.tracking.get(&key).cloned() {
+            self.tracker_unlink_confirm = true;
+            self.status = Some(format!(
+                "Unlink AniList {}? Enter/y confirm · Esc cancel",
+                link.title
+            ));
+            return;
+        }
+        let title = self.current_story_title().unwrap_or_default();
+        self.open_text_input(TextAction::TrackerSearch, "Search AniList", &title);
+    }
+
+    fn run_tracker_search(&mut self, query: &str) {
+        let query = query.trim();
+        if query.is_empty() {
+            return;
+        }
+        if let Some(worker) = self.tracker_worker.as_ref() {
+            self.tracker_generation = self.tracker_generation.wrapping_add(1);
+            worker.request(TrackerRequest::Search {
+                generation: self.tracker_generation,
+                query: query.to_owned(),
+            });
+            self.set_tracker_message("Searching AniList…".to_owned(), false);
+            return;
+        }
+        match search_anilist(query) {
+            Ok(results) => self.show_tracker_results(results),
+            Err(error) => self.set_tracker_error(error.to_string()),
+        }
+    }
+
+    fn show_tracker_results(&mut self, results: Vec<AniListMedia>) {
+        if results.is_empty() {
+            self.set_tracker_message("No AniList manga found.".to_owned(), true);
+            return;
+        }
+        self.set_tracker_message(format!("{} AniList results", results.len()), false);
+        self.tracker_picker = Some(TrackerPicker {
+            results,
+            selected: 0,
+        });
+    }
+
+    fn set_tracker_error(&mut self, message: String) {
+        self.set_tracker_message(message, true);
+    }
+
+    pub fn tracker_picker_previous(&mut self) {
+        if let Some(picker) = self.tracker_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn tracker_picker_next(&mut self) {
+        if let Some(picker) = self.tracker_picker.as_mut() {
+            picker.selected = (picker.selected + 1).min(picker.results.len().saturating_sub(1));
+        }
+    }
+
+    pub fn cancel_tracker_picker(&mut self) {
+        self.tracker_picker = None;
+    }
+
+    pub fn confirm_tracker_picker(&mut self) {
+        let Some(picker) = self.tracker_picker.take() else {
+            return;
+        };
+        let Some(media) = picker.results.get(picker.selected).cloned() else {
+            return;
+        };
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let progress = self.current_read_chapter_count();
+        self.config.tracking.insert(
+            key,
+            TrackerLink {
+                service: "anilist".to_owned(),
+                media_id: media.id,
+                title: media.title.clone(),
+                total_chapters: media.chapters,
+                progress,
+            },
+        );
+        self.persist_settings();
+        self.remote.status = Some(if self.config.anilist_token.is_some() {
+            format!("Linked AniList {}", media.title)
+        } else {
+            format!(
+                "Linked {} · set an AniList token to sync progress",
+                media.title
+            )
+        });
+        self.remote.error = false;
+    }
+
+    pub fn cancel_tracker_unlink(&mut self) {
+        self.tracker_unlink_confirm = false;
+        self.remote.status = None;
+    }
+
+    pub fn confirm_tracker_unlink(&mut self) {
+        self.tracker_unlink_confirm = false;
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let removed = self.config.tracking.remove(&key).is_some();
+        if removed {
+            self.persist_settings();
+            self.set_tracker_message("Unlinked AniList".to_owned(), false);
+        }
+    }
+
+    fn open_anilist_token(&mut self) {
+        let current = self.config.anilist_token.clone().unwrap_or_default();
+        self.open_text_input(TextAction::AniListToken, "AniList token", &current);
+    }
+
+    fn set_anilist_token(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.anilist_token = (!value.is_empty()).then(|| value.to_owned());
+        self.persist_settings();
+        self.set_tracker_message(
+            if self.config.anilist_token.is_some() {
+                "Saved AniList token".to_owned()
+            } else {
+                "Cleared AniList token".to_owned()
+            },
+            false,
+        );
+    }
+
+    fn sync_tracker_progress(&mut self) {
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let Some(link) = self.config.tracking.get(&key).cloned() else {
+            return;
+        };
+        let progress = self.current_read_chapter_count();
+        if progress <= link.progress {
+            return;
+        }
+        let Some(token) = self
+            .config
+            .anilist_token
+            .clone()
+            .filter(|token| !token.trim().is_empty())
+        else {
+            return;
+        };
+        if let Some(link) = self.config.tracking.get_mut(&key) {
+            link.progress = progress;
+        }
+        self.persist_settings();
+        let total = link.total_chapters;
+        if let Some(worker) = self.tracker_worker.as_ref() {
+            worker.request(TrackerRequest::Update {
+                token,
+                media_id: link.media_id,
+                progress,
+                total,
+            });
+        } else {
+            let _ = update_anilist_progress(&token, link.media_id, progress, total);
+        }
+    }
+
+    pub fn poll_tracker_worker(&mut self) -> bool {
+        let Some(event) = self
+            .tracker_worker
+            .as_ref()
+            .and_then(TrackerWorker::try_result)
+        else {
+            return false;
+        };
+        match event {
+            TrackerEvent::Search { generation, result } => {
+                if generation != self.tracker_generation {
+                    return false;
+                }
+                match result {
+                    Ok(results) => self.show_tracker_results(results),
+                    Err(error) => self.set_tracker_error(error),
+                }
+            }
+            TrackerEvent::Update {
+                result,
+                media_id,
+                progress,
+            } => {
+                if let Err(error) = result {
+                    self.set_tracker_message(format!("AniList update failed: {error}"), true);
+                    let _ = media_id;
+                    let _ = progress;
+                }
+            }
+        }
+        true
+    }
+
     pub fn open_tag_picker(&mut self) {
         let tags = self.current_story_tags();
         if tags.is_empty() {
@@ -11927,6 +12190,7 @@ impl AppState {
         }
         self.progress.update(chapter, page, pages);
         self.record_history(chapter, page, pages);
+        self.sync_tracker_progress();
         self.progress_dirty = true;
         self.progress_changed_at = Some(Instant::now());
     }
@@ -12362,6 +12626,7 @@ impl AppState {
                 self.persist_settings();
             }
             SettingId::RescanLibrary => self.refresh_async(),
+            SettingId::AniListToken => self.open_anilist_token(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
                 self.open_text_input(TextAction::SetHostUrl, "Extension host URL", &current);
@@ -13129,6 +13394,7 @@ impl AppState {
                 self.config.show_nsfw_extensions = !self.config.show_nsfw_extensions;
             }
             SettingId::LibraryPath
+            | SettingId::AniListToken
             | SettingId::RescanLibrary
             | SettingId::HostUrl
             | SettingId::FlareSolverr
@@ -16083,6 +16349,27 @@ mod tests {
         assert_eq!((panned.width(), panned.height()), (50, 100));
         let zoomed_out = zoomed_page_image(image, 50, (0.0, 0.0));
         assert_eq!((zoomed_out.width(), zoomed_out.height()), (200, 400));
+    }
+
+    #[test]
+    fn tracker_action_offers_to_unlink_a_linked_story() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.view = LibraryView::Chapters;
+        app.config.tracking.insert(
+            "local:Berserk".to_owned(),
+            TrackerLink {
+                service: "anilist".to_owned(),
+                media_id: 7,
+                title: "Berserk".to_owned(),
+                total_chapters: Some(380),
+                progress: 1,
+            },
+        );
+        app.open_tracker();
+        assert!(app.tracker_unlink_confirm);
+        app.cancel_tracker_unlink();
+        assert!(!app.tracker_unlink_confirm);
     }
 
     #[test]

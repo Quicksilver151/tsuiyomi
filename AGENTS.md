@@ -249,10 +249,10 @@ Rules:
   Chapter actions cover select all/invert, mark read/unread/previous, continue reading,
   single and batch downloads
   (selected, next 1/5/10/25, unread, bookmarked), queue cancellation, download deletion,
-  categories, notes, migrate, tag copy, `ComicInfo.xml` export for local series,
-  copy/open, cover share through the system viewer, relative source-page URL resolution
-  through installed extension metadata, cover overlay, tag search, and custom
-  covers for local or saved source manga.
+  categories, notes, migrate, tag copy, AniList tracking (`T`), `ComicInfo.xml` export for
+  local series, copy/open, cover share through the system viewer, relative source-page
+  URL resolution through installed extension metadata, cover overlay, tag search, and
+  custom covers for local or saved source manga.
   The details pane shows the cached story refresh age, the next check, and a warning when
   a remote source extension is not loaded. Saved stories whose cache is older than
   `update_interval_hours` refresh through `story_worker` while the host is running; checks
@@ -365,21 +365,23 @@ Rules:
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
   `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
-  `remote_library`, `store_names`, `series_added_at`, `update_interval_hours`,
-  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
+  `remote_library`, `store_names`, `tracking`, `anilist_token`, `series_added_at`,
+  `update_interval_hours`, `downloads_path`, and `hidden_series`, and preserves unknown
+  keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
   About. Entry pages are listed in `SettingsPage`; each page is a gray-divider grouped
   row list. Implemented real options: appearance/theme/accent/thumbnail size, library
   path/rescan/sort/default category, reader mode/zoom/fit/prefetch/cache, downloads
-  folder, backup import, and Security → Incognito (stops progress writes). Tracking is an
-  informational placeholder. More → Downloads lists downloaded series with chapter counts
-  and sizes (`r` refreshes, `c` cancels the queue, `x`/Delete removes one after
-  confirmation) and shows the live queue. More → Statistics shows library/chapter counts,
-  read states, reading-time totals, and unique series read. More → Data and storage shows library/downloads/host sizes on
-  demand (`r`) and can clear cached covers (`c`) or all downloads (`d`, confirmed). More
-  has a single focus: Enter
+  folder, backup import, AniList tracking, and Security → Incognito (stops progress
+  writes). Tracking uses a user-pasted AniList token and syncs chapter progress through
+  `tracker_worker`; other tracker services remain. More → Downloads lists downloaded
+  series with chapter counts and sizes (`r` refreshes, `c` cancels the queue, `x`/Delete
+  removes one after confirmation) and shows the live queue. More → Statistics shows
+  library/chapter counts, read states, reading-time totals, and unique series read. More
+  → Data and storage shows library/downloads/host sizes on demand (`r`) and can clear
+  cached covers (`c`) or all downloads (`d`, confirmed). More has a single focus: Enter
   enters the selected section/page or activates a setting, Esc backs out one level, and
   left/right adjust the selected setting. Clicking sections, menu rows, and sliders works.
 - Core has tests for chapter parsing, config loading, scanning, categories, page

@@ -33,7 +33,7 @@ Current plan and reference index. Historical phase details live in the
 ## Current priorities
 
 1. Optional remote-WebView bridge for WebView-only sources.
-2. Tracking integration.
+2. Additional tracker services beyond AniList.
 3. Extension shared/signature states and richer store metadata.
 4. Background migration apply and remaining synchronous mutations.
 5. Real Mihon restore verification for exported backups.
