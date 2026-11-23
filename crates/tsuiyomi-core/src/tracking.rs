@@ -86,7 +86,11 @@ pub fn search_mal(client_id: &str, query: &str) -> Result<Vec<TrackerMedia>, Cor
         url: url.to_owned(),
         message: error.to_string(),
     })?;
-    Ok(value
+    Ok(parse_mal_search(&value))
+}
+
+fn parse_mal_search(value: &Value) -> Vec<TrackerMedia> {
+    value
         .get("data")
         .and_then(Value::as_array)
         .map(|items| {
@@ -109,7 +113,7 @@ pub fn search_mal(client_id: &str, query: &str) -> Result<Vec<TrackerMedia>, Cor
                 })
                 .collect()
         })
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 pub fn update_mal_progress(
@@ -237,6 +241,21 @@ mod tests {
         assert_eq!(results[0].title, "Berserk");
         assert_eq!(results[0].chapters, Some(380));
         assert_eq!(results[1].title, "No English");
+    }
+
+    #[test]
+    fn parses_myanimelist_search_results() {
+        let value = json!({
+            "data": [
+                { "node": { "id": 2, "title": "Berserk", "num_chapters": 380 } },
+                { "node": { "id": 4, "title": "No Chapters", "num_chapters": 0 } }
+            ]
+        });
+        let results = parse_mal_search(&value);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].service, "mal");
+        assert_eq!(results[0].id, 2);
+        assert_eq!(results[0].chapters, Some(380));
     }
 
     #[test]

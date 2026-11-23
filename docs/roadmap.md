@@ -11,7 +11,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 0 | 0 | 1 | 100.0% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
-| [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
+| [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 1 | 1 | 95.8% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
 | [Reader](#reader) | 16 | 1 | 0 | 0 | 97.1% |
@@ -19,7 +19,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 14 | 0 | 0 | 0 | 100.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **208** | **2** | **1** | **8** | **99.1%** |
+| **All categories** | **209** | **1** | **1** | **8** | **99.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -110,7 +110,7 @@ table below.
 | Stores | Add / remove repository | Yes | ✅ | ✅ | |
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
 | Stores | Store name / website / counts | Yes | ✅ | ✅ | Rows show an editable display name, the repository URL, and extension/installed counts. |
-| Networking | Background Browse calls | Yes | 🟡 | 🟡 | Fetches, favorite add/remove, and saved-story refreshes run on workers; migration apply, library deletion, and backup import remain synchronous. |
+| Networking | Background Browse calls | Yes | ✅ | ✅ | Browse reads, favorite mutations, and saved-story refreshes run on workers; migration apply processes one item per tick. Library deletion and backup import are separate synchronous bulk actions. |
 | Search | Extension source URL/id search terms | Yes | ✅ | ✅ | Matches names, packages, languages, source IDs, and source base URLs for installed and repository entries. |
 | Search | Debounced extension search | Yes | ➖ | ➖ | Local filtering is immediate, so a debounce would only add latency. |
 
