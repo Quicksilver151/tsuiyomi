@@ -39,6 +39,7 @@ Useful commands (inside the devshell):
 
 ```sh
 just run      # or: cargo run
+just run backup-info ~/backup.tachibk   # inspect a Mihon backup without importing
 just check
 just fmt
 just clippy

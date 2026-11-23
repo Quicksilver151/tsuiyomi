@@ -60,7 +60,7 @@ table below.
 | Backups | Tracking entries | Yes | ✅ | ✅ | Field 18 is parsed and exported for AniList and MyAnimeList links. |
 | Backups | Viewer/chapter flags and update strategy | Yes | ✅ | ✅ | Viewer mode, chapter filters/sort, update strategy, and next update are preserved; the first two also apply to chapter settings. |
 | Backups | Excluded scanlators and next update | Yes | ✅ | ✅ | Fields 108 and 113 are parsed, applied, and exported. |
-| Backups | Real Mihon restore verification | Yes | 🟡 | 🟡 | Protobuf round-trip passes; no Android Mihon restore has been performed. |
+| Backups | Real Mihon restore verification | Yes | 🟡 | 🟡 | Protobuf round-trip and `backup-info` pass; an Android Mihon restore still needs a real backup/device. |
 
 ### Library
 

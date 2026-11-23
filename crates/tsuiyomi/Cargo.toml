@@ -11,3 +11,6 @@ path = "src/main.rs"
 [dependencies]
 tsuiyomi-core.workspace = true
 tsuiyomi-tui.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -43,6 +43,12 @@ architecture below.
 - Commits use the existing global git identity. Do not add co-author tags, "generated
   by" footers, or any AI attribution.
 
+## Backup inspection
+
+`tsuiyomi backup-info <file>` parses a Mihon backup without touching the library and
+prints counts plus per-series source, tracker, and flag fields. Use it when verifying a
+real Android backup before importing.
+
 ## Build and test
 
 Run these inside the devshell, from the repo root:
