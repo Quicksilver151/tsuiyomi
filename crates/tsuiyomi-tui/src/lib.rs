@@ -597,6 +597,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::ToggleReaderMode => app.toggle_reader_mode(),
                 Action::ZoomIn => app.zoom_in(),
                 Action::ZoomOut => app.zoom_out(),
+                Action::HideSaved => app.pan_page(-0.5, 0.0),
+                Action::Latest => app.pan_page(0.5, 0.0),
+                Action::PanUp => app.pan_page(0.0, -0.5),
+                Action::PanDown => app.pan_page(0.0, 0.5),
                 Action::ToggleFullscreen => app.toggle_fullscreen(),
                 Action::Click { column, row } => {
                     let (width, height) = crossterm::terminal::size()?;
@@ -1230,7 +1234,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.open_selected_source_home();
                 }
             }
-            Action::Redraw | Action::Char(_) | Action::Backspace => {}
+            Action::Redraw
+            | Action::Char(_)
+            | Action::Backspace
+            | Action::PanUp
+            | Action::PanDown => {}
             Action::Click { column, row } => {
                 let (width, height) = crossterm::terminal::size()?;
                 handle_click(Rect::new(0, 0, width, height), app, column, row);

@@ -411,9 +411,10 @@ up/down. Valid `reading_mode` values are `default`,
 Page-turn modes open single pages and use the **Page fit** setting (Fit, Fill/crop, or
 Stretch); `webtoon` and `continuous_vertical` open in scroll mode. `m` switches between page and scroll for the current session. Scroll mode fits
 pages to the terminal width without upscaling by default; `+`/`-` adjusts zoom from 50%
-to 300%. In page mode zoom crops into the page center (or pads it when zooming out). In
-scroll mode zooming rebuilds the scroll layout but keeps the top of the viewport on the
-same point in the page, including inside very long webtoon strips. Only pages near the viewport
+to 300%. In page mode zoom crops into the page center (or pads it when zooming out); `h`/`l` and
+`j`/`k` pan the zoomed page. In scroll mode zooming rebuilds the scroll layout but keeps
+the top of the viewport on the same point in the page, including inside very long webtoon
+strips. Only pages near the viewport
 are decoded and cached, and page preparation runs off the UI thread. `D` downloads the current chapter and `b` toggles its bookmark.
 
 - `↑↓` selects sections/settings; `Enter` enters the selected More section, opens a

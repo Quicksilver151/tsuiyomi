@@ -208,7 +208,7 @@ table below.
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
 | Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
-| Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads the page, scroll zoom rebuilds rows, no upscaling at 100%. |
+| Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads and pans with `h/l`/`j/k`, scroll zoom rebuilds rows, no upscaling at 100%. |
 | Zoom | Retransmit-free Kitty placement zoom | Yes | 🟡 | 🟡 | Page zoom works but re-encodes the page; placement-only Kitty zoom is still pending. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |
 | Progress | Read-state derivation | Yes | ✅ | ✅ | Page/pages. |

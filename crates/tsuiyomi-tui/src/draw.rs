@@ -1268,6 +1268,8 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
             vec![
                 ("q", "quit"),
                 ("↑↓", "page"),
+                ("+/-", "zoom"),
+                ("h/l j/k", "pan"),
                 ("f", "full"),
                 ("Esc", "back"),
             ]
@@ -1275,6 +1277,8 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
             vec![
                 ("q", "quit"),
                 ("←→", "page"),
+                ("+/-", "zoom"),
+                ("h/l j/k", "pan"),
                 ("f", "full"),
                 ("Esc", "back"),
             ]

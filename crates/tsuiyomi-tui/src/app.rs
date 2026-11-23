@@ -1014,6 +1014,7 @@ pub struct AppState {
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
     pub reader_origin: ReaderOrigin,
+    pub page_pan: (f32, f32),
     pub image_picker: Option<Picker>,
     pub progress: ProgressStore,
     pub bookmarks: BookmarkStore,
@@ -1176,6 +1177,7 @@ impl AppState {
             chapter_list_state: ListState::default(),
             reader: None,
             reader_origin: ReaderOrigin::Library,
+            page_pan: (0.0, 0.0),
             image_picker: None,
             progress: ProgressStore::default(),
             bookmarks: BookmarkStore::default(),
@@ -13174,11 +13176,21 @@ impl AppState {
         self.set_zoom(self.zoom.saturating_sub(10).max(50));
     }
 
+    pub fn pan_page(&mut self, dx: f32, dy: f32) {
+        if self.reader.is_none() || self.reader_mode != ReaderMode::Page || self.zoom <= 100 {
+            return;
+        }
+        self.page_pan.0 = (self.page_pan.0 + dx).clamp(-1.0, 1.0);
+        self.page_pan.1 = (self.page_pan.1 + dy).clamp(-1.0, 1.0);
+        self.load_page();
+    }
+
     fn set_zoom(&mut self, zoom: u16) {
         if self.zoom == zoom {
             return;
         }
         self.zoom = zoom;
+        self.page_pan = (0.0, 0.0);
         if self.reader.is_some() {
             match self.reader_mode {
                 ReaderMode::Page => self.load_page(),
@@ -13333,6 +13345,7 @@ impl AppState {
     }
 
     fn change_page(&mut self, forward: bool) {
+        self.page_pan = (0.0, 0.0);
         {
             let Some(reader) = self.reader.as_mut() else {
                 return;
@@ -13444,7 +13457,7 @@ impl AppState {
                 return;
             }
         };
-        let image = zoomed_page_image(image, self.zoom);
+        let image = zoomed_page_image(image, self.zoom, self.page_pan);
 
         let Some(picker) = self.image_picker.as_ref() else {
             reader.error = Some("No terminal graphics backend.".to_owned());
@@ -14996,7 +15009,11 @@ fn directory_size(path: &Path) -> u64 {
 ///
 /// Zoom-in crops the center; zoom-out pads the image so fitting it into the viewport
 /// makes the page smaller. This re-encodes the page when zoom changes.
-fn zoomed_page_image(image: image::DynamicImage, zoom: u16) -> image::DynamicImage {
+fn zoomed_page_image(
+    image: image::DynamicImage,
+    zoom: u16,
+    pan: (f32, f32),
+) -> image::DynamicImage {
     let scale = f32::from(zoom) / 100.0;
     if (scale - 1.0).abs() < f32::EPSILON {
         return image;
@@ -15005,8 +15022,10 @@ fn zoomed_page_image(image: image::DynamicImage, zoom: u16) -> image::DynamicIma
     if scale > 1.0 {
         let crop_width = ((width as f32) / scale).round().max(1.0) as u32;
         let crop_height = ((height as f32) / scale).round().max(1.0) as u32;
-        let x = (width.saturating_sub(crop_width)) / 2;
-        let y = (height.saturating_sub(crop_height)) / 2;
+        let max_x = width.saturating_sub(crop_width) as f32;
+        let max_y = height.saturating_sub(crop_height) as f32;
+        let x = (max_x * (pan.0.clamp(-1.0, 1.0) + 1.0) / 2.0).round() as u32;
+        let y = (max_y * (pan.1.clamp(-1.0, 1.0) + 1.0) / 2.0).round() as u32;
         image.crop_imm(x, y, crop_width, crop_height)
     } else {
         let canvas_width = ((width as f32) / scale).round().max(1.0) as u32;
@@ -16058,10 +16077,32 @@ mod tests {
             200,
             image::Rgb([10, 20, 30]),
         ));
-        let zoomed_in = zoomed_page_image(image.clone(), 200);
+        let zoomed_in = zoomed_page_image(image.clone(), 200, (0.0, 0.0));
         assert_eq!((zoomed_in.width(), zoomed_in.height()), (50, 100));
-        let zoomed_out = zoomed_page_image(image, 50);
+        let panned = zoomed_page_image(image.clone(), 200, (1.0, -1.0));
+        assert_eq!((panned.width(), panned.height()), (50, 100));
+        let zoomed_out = zoomed_page_image(image, 50, (0.0, 0.0));
         assert_eq!((zoomed_out.width(), zoomed_out.height()), (200, 400));
+    }
+
+    #[test]
+    fn page_zoom_pan_selects_page_edges() {
+        let mut source = image::RgbaImage::new(10, 10);
+        for y in 0..10 {
+            for x in 0..10 {
+                let color = if x < 5 {
+                    image::Rgba([255, 0, 0, 255])
+                } else {
+                    image::Rgba([0, 0, 255, 255])
+                };
+                source.put_pixel(x, y, color);
+            }
+        }
+        let image = image::DynamicImage::ImageRgba8(source);
+        let left = zoomed_page_image(image.clone(), 200, (-1.0, 0.0)).to_rgba8();
+        let right = zoomed_page_image(image, 200, (1.0, 0.0)).to_rgba8();
+        assert_eq!(left.get_pixel(0, 0), &image::Rgba([255, 0, 0, 255]));
+        assert_eq!(right.get_pixel(0, 0), &image::Rgba([0, 0, 255, 255]));
     }
 
     #[test]
