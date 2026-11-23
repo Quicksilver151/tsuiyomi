@@ -17,11 +17,11 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Reader](#reader) | 16 | 1 | 7 | 0 | 68.8% |
 | [History and Stats](#history-and-stats) | 19 | 1 | 1 | 0 | 92.9% |
 | [Migrate](#migrate) | 20 | 1 | 2 | 0 | 89.1% |
-| [Tracking](#tracking) | 2 | 0 | 5 | 0 | 28.6% |
+| [Tracking](#tracking) | 2 | 2 | 3 | 0 | 42.9% |
 | [Downloads](#downloads) | 1 | 2 | 4 | 1 | 28.6% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **210** | **11** | **34** | **11** | **84.5%** |
+| **All categories** | **210** | **13** | **32** | **11** | **84.9%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -300,8 +300,8 @@ table below.
 
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
-| Auth | AniList browser login, refresh, logout | Yes | ❌ | ❌ | Token paste only; proper OAuth with refresh/revoke is planned. |
-| Auth | MyAnimeList browser login, refresh, logout | Yes | ❌ | ❌ | Client ID and token paste only. |
+| Auth | AniList browser login, refresh, logout | Yes | 🟡 | 🟡 | Browser OAuth with a loopback callback and logout; AniList does not issue refresh tokens here, so expiry requires re-login. Needs a registered client ID for end-to-end verification. |
+| Auth | MyAnimeList browser login, refresh, logout | Yes | 🟡 | 🟡 | Browser OAuth/PKCE with refresh and logout; not yet exercised against a registered app. |
 | Services | AniList / MyAnimeList | Yes | ✅ | ✅ | Search, link/unlink, and progress sync work. |
 | Services | Kitsu, MangaUpdates, Shikimori, Bangumi, Hikka, MangaBaka | Yes | ❌ | ❌ | Planned tracker adapters. |
 | Metadata | Status, score, start/end dates, private flag | Yes | ❌ | ❌ | Only progress and completed status are sent. |

@@ -2506,10 +2506,12 @@ dependencies = [
 name = "tsuiyomi-core"
 version = "0.2.0"
 dependencies = [
+ "base64",
  "chrono",
  "confy",
  "directories",
  "flate2",
+ "getrandom 0.3.4",
  "image",
  "natord",
  "quick-xml",

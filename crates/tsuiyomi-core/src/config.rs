@@ -101,6 +101,17 @@ pub enum Theme {
     Unknown,
 }
 
+/// OAuth credentials for one tracker service.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrackerAuth {
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    /// Unix seconds. `None` means the tracker did not provide an expiry.
+    #[serde(default)]
+    pub expires_at: Option<u64>,
+}
+
 /// A story's link to an external tracker.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrackerLink {
@@ -178,12 +189,20 @@ pub struct Config {
     pub migration_sources: Vec<String>,
     /// Display names for extension repository URLs; missing entries use the URL host.
     pub store_names: BTreeMap<String, String>,
-    /// User-provided AniList OAuth token. Empty disables progress syncing.
+    /// Legacy AniList token, kept as a fallback and migrated into `tracker_auth`.
     pub anilist_token: Option<String>,
-    /// MyAnimeList API client ID, used for manga search.
+    /// AniList OAuth application client ID.
+    pub anilist_client_id: Option<String>,
+    /// AniList OAuth application client secret.
+    pub anilist_client_secret: Option<String>,
+    /// MyAnimeList API client ID, used for search and OAuth.
     pub mal_client_id: Option<String>,
-    /// User-provided MyAnimeList OAuth token, used for progress updates.
+    /// MyAnimeList OAuth application client secret.
+    pub mal_client_secret: Option<String>,
+    /// Legacy MyAnimeList token, kept as a fallback and migrated into `tracker_auth`.
     pub mal_token: Option<String>,
+    /// OAuth bundles keyed by service (`anilist`, `mal`).
+    pub tracker_auth: BTreeMap<String, TrackerAuth>,
     /// Linked tracker entries, keyed by the history series key.
     pub tracking: BTreeMap<String, TrackerLink>,
     /// Trusted extension file fingerprints, keyed by package name.
@@ -251,8 +270,12 @@ impl Default for Config {
             migration_sources: Vec::new(),
             store_names: BTreeMap::new(),
             anilist_token: None,
+            anilist_client_id: None,
+            anilist_client_secret: None,
             mal_client_id: None,
+            mal_client_secret: None,
             mal_token: None,
+            tracker_auth: BTreeMap::new(),
             tracking: BTreeMap::new(),
             trusted_extensions: BTreeMap::new(),
             remote_library: Vec::new(),

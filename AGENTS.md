@@ -367,8 +367,9 @@ Rules:
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
   `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
-  `remote_library`, `store_names`, `tracking`, `anilist_token`, `mal_client_id`,
-  `mal_token`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,
+  `remote_library`, `store_names`, `tracking`, `anilist_token`, `anilist_client_id`,
+  `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
+  `tracker_auth`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,
   `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
@@ -377,8 +378,9 @@ Rules:
   row list. Implemented real options: appearance/theme/accent/thumbnail size, library
   path/rescan/sort/default category, reader mode/zoom/fit/prefetch/cache, downloads
   folder, backup import, AniList/MyAnimeList tracking, and Security → Incognito (stops
-  progress writes). Tracking uses user-pasted credentials and syncs chapter progress
-  through `tracker_worker`; other tracker services remain. More → Downloads lists
+  progress writes). Tracking uses browser OAuth with configurable application client
+  credentials and syncs chapter progress through `tracker_worker`; other tracker services
+  remain. More → Downloads lists
   downloaded series with chapter counts and sizes (`r` refreshes, `c` cancels the queue,
   `x`/Delete removes one after confirmation) and shows the live queue. More → Statistics shows
   library/chapter counts, read states, reading-time totals, and unique series read. More

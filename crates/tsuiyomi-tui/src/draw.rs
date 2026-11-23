@@ -5788,6 +5788,47 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
             library_sort_label(app.config.library_sort).to_owned(),
         ),
         SettingId::RescanLibrary => ("Rescan library".to_owned(), "Enter".to_owned()),
+        SettingId::AniListLogin => (
+            "AniList login".to_owned(),
+            if app.config.tracker_auth.contains_key("anilist") {
+                "Connected".to_owned()
+            } else {
+                "Log in".to_owned()
+            },
+        ),
+        SettingId::AniListClientId => (
+            "AniList client ID".to_owned(),
+            if app.config.anilist_client_id.is_some() {
+                "Set".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
+        SettingId::AniListClientSecret => (
+            "AniList client secret".to_owned(),
+            if app.config.anilist_client_secret.is_some() {
+                "Set".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
+        SettingId::MalLogin => (
+            "MyAnimeList login".to_owned(),
+            if app.config.tracker_auth.contains_key("mal") {
+                "Connected".to_owned()
+            } else {
+                "Log in".to_owned()
+            },
+        ),
+        SettingId::MalClientSecret => (
+            "MyAnimeList client secret".to_owned(),
+            if app.config.mal_client_secret.is_some() {
+                "Set".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
+        SettingId::TrackerLogout => ("Log out trackers".to_owned(), "Enter".to_owned()),
         SettingId::AniListToken => (
             "AniList token".to_owned(),
             if app.config.anilist_token.is_some() {

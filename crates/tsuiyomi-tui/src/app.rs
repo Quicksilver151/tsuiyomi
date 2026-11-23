@@ -34,7 +34,7 @@ use tsuiyomi_core::{
     ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState,
     RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode, SourceFilter,
     SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme,
-    TrackerLink, TrackerMedia, TriState, UpdateEntry, UpdateStore,
+    TrackerAuth, TrackerLink, TrackerMedia, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -325,7 +325,10 @@ pub enum TextAction {
     SetCustomCover,
     TrackerSearch,
     AniListToken,
+    AniListClientId,
+    AniListClientSecret,
     MalClientId,
+    MalClientSecret,
     MalToken,
 }
 
@@ -472,8 +475,14 @@ pub enum SettingId {
     UpdateInterval,
     RescanLibrary,
     AniListToken,
+    AniListLogin,
+    AniListClientId,
+    AniListClientSecret,
+    MalLogin,
     MalClientId,
+    MalClientSecret,
     MalToken,
+    TrackerLogout,
     Theme,
     Accent,
     Fullscreen,
@@ -556,14 +565,17 @@ const DOWNLOADS_ROWS: [MoreRow; 4] = [
     MoreRow::Note("Local library chapters are read directly from disk."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 7] = [
+const TRACKING_ROWS: [MoreRow; 10] = [
     MoreRow::Divider("AniList"),
-    MoreRow::Setting(SettingId::AniListToken),
+    MoreRow::Setting(SettingId::AniListLogin),
+    MoreRow::Setting(SettingId::AniListClientId),
+    MoreRow::Setting(SettingId::AniListClientSecret),
     MoreRow::Divider("MyAnimeList"),
+    MoreRow::Setting(SettingId::MalLogin),
     MoreRow::Setting(SettingId::MalClientId),
-    MoreRow::Setting(SettingId::MalToken),
-    MoreRow::Note("Paste tracker credentials to enable search and progress sync."),
-    MoreRow::Note("Tokens are stored in the config file in plain text."),
+    MoreRow::Setting(SettingId::MalClientSecret),
+    MoreRow::Divider("Account"),
+    MoreRow::Setting(SettingId::TrackerLogout),
 ];
 
 const BROWSE_ROWS: [MoreRow; 7] = [
@@ -1094,6 +1106,8 @@ pub struct AppState {
     pub(crate) story_worker: Option<StoryWorker>,
     pub(crate) tracker_worker: Option<TrackerWorker>,
     tracker_generation: u64,
+    tracker_refresh_checked_at: Option<Instant>,
+    tracker_refresh_pending: HashSet<String>,
     pub(crate) host_worker: Option<HostWorker>,
     pub(crate) global_search_worker: Option<GlobalSearchWorker>,
     pub(crate) cover_worker: Option<CoverWorker>,
@@ -1260,6 +1274,8 @@ impl AppState {
             story_worker: None,
             tracker_worker: None,
             tracker_generation: 0,
+            tracker_refresh_checked_at: None,
+            tracker_refresh_pending: HashSet::new(),
             host_worker: None,
             global_search_worker: None,
             cover_worker: None,
@@ -5852,7 +5868,10 @@ impl AppState {
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
             TextAction::TrackerSearch => self.run_tracker_search(&input.value),
             TextAction::AniListToken => self.set_anilist_token(&input.value),
+            TextAction::AniListClientId => self.set_anilist_client_id(&input.value),
+            TextAction::AniListClientSecret => self.set_anilist_client_secret(&input.value),
             TextAction::MalClientId => self.set_mal_client_id(&input.value),
+            TextAction::MalClientSecret => self.set_mal_client_secret(&input.value),
             TextAction::MalToken => self.set_mal_token(&input.value),
         }
     }
@@ -10320,6 +10339,153 @@ impl AppState {
         }
     }
 
+    fn tracker_client(&self, service: &str) -> Option<(String, Option<String>)> {
+        let (id, secret) = if service == "mal" {
+            (
+                self.config.mal_client_id.clone(),
+                self.config.mal_client_secret.clone(),
+            )
+        } else {
+            (
+                self.config.anilist_client_id.clone(),
+                self.config.anilist_client_secret.clone(),
+            )
+        };
+        let id = id?.trim().to_owned();
+        (!id.is_empty()).then_some((id, secret))
+    }
+
+    fn start_tracker_login(&mut self, service: &str) {
+        let Some((client_id, client_secret)) = self.tracker_client(service) else {
+            self.set_tracker_message(
+                "Set the tracker client ID in Settings first.".to_owned(),
+                true,
+            );
+            return;
+        };
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            self.set_tracker_message("Tracker worker is unavailable.".to_owned(), true);
+            return;
+        };
+        worker.request(TrackerRequest::Login {
+            service: service.to_owned(),
+            client_id,
+            client_secret,
+        });
+        self.set_tracker_message("Complete the login in your browser…".to_owned(), false);
+    }
+
+    pub fn maybe_refresh_trackers(&mut self) {
+        let now = Instant::now();
+        if self
+            .tracker_refresh_checked_at
+            .is_some_and(|checked| now.duration_since(checked) < Duration::from_secs(60))
+        {
+            return;
+        }
+        self.tracker_refresh_checked_at = Some(now);
+        let unix = current_unix_seconds();
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        for (service, auth) in self.config.tracker_auth.clone() {
+            if self.tracker_refresh_pending.contains(&service) {
+                continue;
+            }
+            let Some(expires_at) = auth.expires_at else {
+                continue;
+            };
+            if expires_at > unix.saturating_add(120) {
+                continue;
+            }
+            let Some(refresh_token) = auth.refresh_token.clone() else {
+                continue;
+            };
+            let Some((client_id, client_secret)) = self.tracker_client(&service) else {
+                continue;
+            };
+            self.tracker_refresh_pending.insert(service.clone());
+            worker.request(TrackerRequest::Refresh {
+                service,
+                client_id,
+                client_secret,
+                refresh_token,
+            });
+        }
+    }
+
+    fn push_tracker_progress_for_service(&mut self, service: &str) {
+        let Some(token) = self.tracker_token_for(service) else {
+            return;
+        };
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        for link in self
+            .config
+            .tracking
+            .values()
+            .filter(|link| link.service == service)
+        {
+            if link.progress == 0 {
+                continue;
+            }
+            worker.request(TrackerRequest::Update {
+                service: service.to_owned(),
+                token: token.clone(),
+                media_id: link.media_id,
+                progress: link.progress,
+                total: link.total_chapters,
+            });
+        }
+    }
+
+    fn logout_trackers(&mut self) {
+        self.config.tracker_auth.clear();
+        self.config.anilist_token = None;
+        self.config.mal_token = None;
+        self.tracker_refresh_pending.clear();
+        self.persist_settings();
+        self.set_tracker_message("Logged out of trackers".to_owned(), false);
+    }
+
+    fn open_anilist_client_id(&mut self) {
+        let current = self.config.anilist_client_id.clone().unwrap_or_default();
+        self.open_text_input(TextAction::AniListClientId, "AniList client ID", &current);
+    }
+
+    fn set_anilist_client_id(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.anilist_client_id = (!value.is_empty()).then(|| value.to_owned());
+        self.persist_settings();
+        self.set_tracker_message(
+            if self.config.anilist_client_id.is_some() {
+                "Saved AniList client ID".to_owned()
+            } else {
+                "Cleared AniList client ID".to_owned()
+            },
+            false,
+        );
+    }
+
+    fn open_anilist_client_secret(&mut self) {
+        self.open_text_input(TextAction::AniListClientSecret, "AniList client secret", "");
+    }
+
+    fn set_anilist_client_secret(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.anilist_client_secret = (!value.is_empty()).then(|| value.to_owned());
+        self.persist_settings();
+        self.set_tracker_message(
+            if self.config.anilist_client_secret.is_some() {
+                "Saved AniList client secret".to_owned()
+            } else {
+                "Cleared AniList client secret".to_owned()
+            },
+            false,
+        );
+    }
+
     fn open_anilist_token(&mut self) {
         let current = self.config.anilist_token.clone().unwrap_or_default();
         self.open_text_input(TextAction::AniListToken, "AniList token", &current);
@@ -10358,6 +10524,24 @@ impl AppState {
         );
     }
 
+    fn open_mal_client_secret(&mut self) {
+        self.open_text_input(TextAction::MalClientSecret, "MyAnimeList client secret", "");
+    }
+
+    fn set_mal_client_secret(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.mal_client_secret = (!value.is_empty()).then(|| value.to_owned());
+        self.persist_settings();
+        self.set_tracker_message(
+            if self.config.mal_client_secret.is_some() {
+                "Saved MyAnimeList client secret".to_owned()
+            } else {
+                "Cleared MyAnimeList client secret".to_owned()
+            },
+            false,
+        );
+    }
+
     fn open_mal_token(&mut self) {
         let current = self.config.mal_token.clone().unwrap_or_default();
         self.open_text_input(TextAction::MalToken, "MyAnimeList token", &current);
@@ -10378,6 +10562,15 @@ impl AppState {
     }
 
     fn tracker_token_for(&self, service: &str) -> Option<String> {
+        if let Some(auth) = self.config.tracker_auth.get(service) {
+            let fresh = auth
+                .expires_at
+                .is_none_or(|expires| expires > current_unix_seconds().saturating_add(60));
+            if fresh && !auth.access_token.trim().is_empty() {
+                return Some(auth.access_token.clone());
+            }
+            return None;
+        }
         (if service == "mal" {
             self.config.mal_token.clone()
         } else {
@@ -10431,6 +10624,27 @@ impl AppState {
             return false;
         };
         match event {
+            TrackerEvent::Auth { service, result } => {
+                self.tracker_refresh_pending.remove(&service);
+                match result {
+                    Ok(auth) => {
+                        self.config.tracker_auth.insert(service.clone(), auth);
+                        if service == "mal" {
+                            self.config.mal_token = None;
+                        } else {
+                            self.config.anilist_token = None;
+                        }
+                        self.persist_settings();
+                        self.set_tracker_message(
+                            format!("Logged in to {}", Self::tracker_service_label(&service)),
+                            false,
+                        );
+                        self.push_tracker_progress_for_service(&service);
+                        self.sync_tracker_progress();
+                    }
+                    Err(error) => self.set_tracker_error(error),
+                }
+            }
             TrackerEvent::Search { generation, result } => {
                 if generation != self.tracker_generation {
                     return false;
@@ -11100,6 +11314,34 @@ impl AppState {
                     self.remote.host_hint = Some(format!("{message} Using the bundled host."));
                 }
             }
+        }
+        if let Some(token) = config
+            .anilist_token
+            .clone()
+            .filter(|token| !token.trim().is_empty())
+        {
+            config
+                .tracker_auth
+                .entry("anilist".to_owned())
+                .or_insert(TrackerAuth {
+                    access_token: token,
+                    refresh_token: None,
+                    expires_at: None,
+                });
+        }
+        if let Some(token) = config
+            .mal_token
+            .clone()
+            .filter(|token| !token.trim().is_empty())
+        {
+            config
+                .tracker_auth
+                .entry("mal".to_owned())
+                .or_insert(TrackerAuth {
+                    access_token: token,
+                    refresh_token: None,
+                    expires_at: None,
+                });
         }
         config.thumbnail_width = config.thumbnail_width.clamp(8, 28);
         self.zoom = config.reader_zoom.clamp(50, 300);
@@ -12727,8 +12969,14 @@ impl AppState {
             }
             SettingId::RescanLibrary => self.refresh_async(),
             SettingId::AniListToken => self.open_anilist_token(),
+            SettingId::AniListLogin => self.start_tracker_login("anilist"),
+            SettingId::AniListClientId => self.open_anilist_client_id(),
+            SettingId::AniListClientSecret => self.open_anilist_client_secret(),
+            SettingId::MalLogin => self.start_tracker_login("mal"),
             SettingId::MalClientId => self.open_mal_client_id(),
+            SettingId::MalClientSecret => self.open_mal_client_secret(),
             SettingId::MalToken => self.open_mal_token(),
+            SettingId::TrackerLogout => self.logout_trackers(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
                 self.open_text_input(TextAction::SetHostUrl, "Extension host URL", &current);
@@ -13497,8 +13745,14 @@ impl AppState {
             }
             SettingId::LibraryPath
             | SettingId::AniListToken
+            | SettingId::AniListLogin
+            | SettingId::AniListClientId
+            | SettingId::AniListClientSecret
+            | SettingId::MalLogin
             | SettingId::MalClientId
+            | SettingId::MalClientSecret
             | SettingId::MalToken
+            | SettingId::TrackerLogout
             | SettingId::RescanLibrary
             | SettingId::HostUrl
             | SettingId::FlareSolverr

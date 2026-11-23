@@ -394,9 +394,10 @@ library_sort = "natural" # natural, title_asc, title_desc, chapter_count_desc,
 update_interval_hours = 12  # background saved-story checks; 0 disables
 # default_category = "Reading"
 incognito = false
-# anilist_token = "..."   # optional; stored in this file in plain text
-# mal_client_id = "..."   # MyAnimeList search client ID
-# mal_token = "..."       # MyAnimeList OAuth token
+# anilist_client_id = "..."   # registered AniList application client ID
+# anilist_client_secret = "..." # optional; stored in plain text
+# mal_client_id = "..."       # registered MyAnimeList client ID
+# mal_client_secret = "..."   # optional; stored in plain text
 ```
 
 Library sort, default category, and Incognito mode live under
@@ -454,8 +455,8 @@ categories:
   chapters, and the downloaded series with chapter counts and sizes (`r` refreshes,
   `c` cancels the queue, `x`/Delete removes a series after confirmation). `D` downloads the selected remote chapter,
   and downloaded chapters are read from disk.
-- **Tracking** — paste AniList and MyAnimeList credentials to link stories and sync
-  read progress.
+- **Tracking** — log in to AniList or MyAnimeList in the browser after entering an
+  application client ID; link stories and sync read progress.
 - **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.
 - **Security** — Incognito mode, which stops writing reading progress.

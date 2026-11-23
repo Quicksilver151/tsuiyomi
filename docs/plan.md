@@ -7,7 +7,7 @@ criteria.
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **84.5%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **84.9%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`.
 
 ## Scope
@@ -44,15 +44,20 @@ in-scope rows**, with deliberate deviations recorded as `➖`.
 
 Goal: remove manual token creation and make trackers a proper subsystem.
 
+Progress: browser OAuth/PKCE with a loopback callback, token storage, MAL refresh, logout,
+legacy-token migration, and configurable client credentials are implemented. AniList/MAL
+auth rows are now partial pending end-to-end verification with registered apps. The
+adapter layer, remaining services, full metadata, and tracker stats are still open.
+
 - [ ] Add a tracker adapter interface in core (`search`, `link`, `status`, `progress`,
       `score`, `dates`, `unlink`) and keep the existing AniList/MAL behavior behind it.
 - [ ] Add browser-based OAuth 2.0 + PKCE for AniList and MyAnimeList:
       - [ ] Register embedded public client IDs or read them from config for development.
-      - [ ] Open the system browser.
-      - [ ] Listen on a loopback callback with a short timeout.
+      - [x] Open the system browser.
+      - [x] Listen on a loopback callback with a short timeout.
       - [ ] Exchange the code, store access/refresh tokens, and refresh automatically.
-      - [ ] Add logout/revoke and clear-token actions.
-- [ ] Migrate existing pasted tokens into the new token store; keep manual token entry
+      - [x] Add logout/revoke and clear-token actions.
+- [x] Migrate existing pasted tokens into the new token store; keep manual token entry
       as a troubleshooting fallback.
 - [ ] Add service adapters: Kitsu, MangaUpdates, Shikimori, Bangumi, Hikka, MangaBaka.
       Services without browser OAuth use their supported token/credential flow, stored

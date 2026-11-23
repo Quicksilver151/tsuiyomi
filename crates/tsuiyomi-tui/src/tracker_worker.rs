@@ -4,10 +4,22 @@ use std::{
 };
 
 use tsuiyomi_core::{
-    search_anilist, search_mal, update_anilist_progress, update_mal_progress, TrackerMedia,
+    search_anilist, search_mal, tracker_login, tracker_refresh, update_anilist_progress,
+    update_mal_progress, TrackerAuth, TrackerMedia, TrackerService,
 };
 
 pub(crate) enum TrackerRequest {
+    Login {
+        service: String,
+        client_id: String,
+        client_secret: Option<String>,
+    },
+    Refresh {
+        service: String,
+        client_id: String,
+        client_secret: Option<String>,
+        refresh_token: String,
+    },
     Search {
         generation: u64,
         query: String,
@@ -23,6 +35,10 @@ pub(crate) enum TrackerRequest {
 }
 
 pub(crate) enum TrackerEvent {
+    Auth {
+        service: String,
+        result: Result<TrackerAuth, String>,
+    },
     Search {
         generation: u64,
         result: Result<Vec<TrackerMedia>, String>,
@@ -46,6 +62,38 @@ impl TrackerWorker {
         thread::spawn(move || {
             for request in request_rx {
                 let event = match request {
+                    TrackerRequest::Login {
+                        service,
+                        client_id,
+                        client_secret,
+                    } => {
+                        let result = TrackerService::parse(&service)
+                            .ok_or_else(|| format!("unknown tracker service: {service}"))
+                            .and_then(|service| {
+                                tracker_login(service, &client_id, client_secret.as_deref())
+                                    .map_err(|error| error.to_string())
+                            });
+                        TrackerEvent::Auth { service, result }
+                    }
+                    TrackerRequest::Refresh {
+                        service,
+                        client_id,
+                        client_secret,
+                        refresh_token,
+                    } => {
+                        let result = TrackerService::parse(&service)
+                            .ok_or_else(|| format!("unknown tracker service: {service}"))
+                            .and_then(|service| {
+                                tracker_refresh(
+                                    service,
+                                    &client_id,
+                                    client_secret.as_deref(),
+                                    &refresh_token,
+                                )
+                                .map_err(|error| error.to_string())
+                            });
+                        TrackerEvent::Auth { service, result }
+                    }
                     TrackerRequest::Search {
                         generation,
                         query,

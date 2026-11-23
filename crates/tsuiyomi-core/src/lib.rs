@@ -22,6 +22,7 @@ pub mod host;
 pub mod import;
 pub mod library;
 pub mod migration;
+pub mod oauth;
 pub mod pages;
 pub mod progress;
 pub mod reading_stats;
@@ -45,7 +46,7 @@ pub use chapter_view::{
 pub use comic_info::{parse_comic_info, write_comic_info, ChapterDate, ComicInfo};
 pub use config::{
     load_config, save_config, Config, GlobalSearchScope, LibrarySort, LocalSourceOrder, ReaderFit,
-    ReadingMode, SourceDisplayMode, Theme, TrackerLink,
+    ReadingMode, SourceDisplayMode, Theme, TrackerAuth, TrackerLink,
 };
 pub use downloads::{
     chapter_dir, chapter_dir_name, download_chapter, download_chapter_with_cancel, downloads_dir,
@@ -69,6 +70,7 @@ pub use migration::{
     best_match, deep_queries, latest_chapter_number, title_similarity, MigrationMatch,
     MATCH_THRESHOLD,
 };
+pub use oauth::{login as tracker_login, refresh as tracker_refresh, TrackerService};
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
 pub use reading_stats::{date_key_for_unix, today_key, ReadingStats, SeriesReadingTime};
