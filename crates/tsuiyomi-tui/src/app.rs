@@ -28,13 +28,13 @@ use tsuiyomi_core::{
     title_similarity, today_key, update_anilist_entry, update_anilist_progress, update_mal_entry,
     update_mal_progress, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
     BackupChapter, BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking,
-    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
-    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
-    HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort,
-    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
-    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
-    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    BookmarkStore, CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
+    ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
+    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
+    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
+    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
+    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
     SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerEntry, TrackerLink,
     TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
 };
@@ -8477,6 +8477,13 @@ impl AppState {
                     .collect();
                 let now = current_unix_seconds();
                 let source_name = self.remote_source_display_name(&result.manga.source_id);
+                if self.config.mark_duplicate_chapters_read {
+                    self.mark_new_duplicate_chapters_read(
+                        &result.manga,
+                        &result.chapters,
+                        &previous,
+                    );
+                }
                 let mut added = 0usize;
                 for chapter in &result.chapters {
                     if known.contains(chapter.url.as_str()) {
@@ -8975,6 +8982,40 @@ impl AppState {
             }
         }
         true
+    }
+
+    /// Mark newly fetched chapters read when an older chapter with the same number is read.
+    fn mark_new_duplicate_chapters_read(
+        &mut self,
+        manga: &RemoteManga,
+        chapters: &[RemoteChapter],
+        previous: &[RemoteChapter],
+    ) {
+        let read_numbers: BTreeSet<u32> = previous
+            .iter()
+            .filter(|chapter| {
+                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
+                self.progress
+                    .entry(&key)
+                    .is_some_and(|entry| entry.pages > 0 && entry.page + 1 >= entry.pages)
+            })
+            .filter(|chapter| chapter.chapter_number >= 0.0)
+            .map(|chapter| chapter.chapter_number.to_bits())
+            .collect();
+        if read_numbers.is_empty() {
+            return;
+        }
+        for chapter in chapters {
+            if chapter.chapter_number < 0.0
+                || !read_numbers.contains(&chapter.chapter_number.to_bits())
+            {
+                continue;
+            }
+            let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
+            if self.progress.entry(&key).is_none() {
+                self.progress.update(&key, 0, 1);
+            }
+        }
     }
 
     /// Per-series auto-download, or the global policy when the saved series matches
@@ -9843,7 +9884,7 @@ impl AppState {
             return indices;
         }
 
-        match self.config.library_sort {
+        match self.library_sort_mode() {
             LibrarySort::Natural => {}
             LibrarySort::Random => {
                 let seed = self.library_random_seed;
@@ -9938,6 +9979,38 @@ impl AppState {
                     })
                 });
             }
+            LibrarySort::TrackerScoreDesc => indices.sort_by(|left, right| {
+                let score = |index: usize| {
+                    let series = &self.library.series[index];
+                    let key = series
+                        .remote
+                        .as_ref()
+                        .map(|remote| remote_story_key(&remote.source_id, &remote.url))
+                        .unwrap_or_else(|| format!("local:{}", series.path.display()));
+                    self.config
+                        .tracking
+                        .get(&key)
+                        .and_then(|link| link.score)
+                        .unwrap_or(-1.0)
+                };
+                score(*right)
+                    .partial_cmp(&score(*left))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| {
+                        self.library.series[*left]
+                            .title
+                            .cmp(&self.library.series[*right].title)
+                    })
+            }),
+            LibrarySort::LastUpdateDesc => indices.sort_by(|left, right| {
+                self.series_last_update(&self.library.series[*right])
+                    .cmp(&self.series_last_update(&self.library.series[*left]))
+                    .then_with(|| {
+                        self.library.series[*left]
+                            .title
+                            .cmp(&self.library.series[*right].title)
+                    })
+            }),
             LibrarySort::DateAddedDesc => indices.sort_by(|left, right| {
                 let added = |index: usize| {
                     let series = &self.library.series[index];
@@ -9956,6 +10029,22 @@ impl AppState {
             }),
         }
         indices
+    }
+
+    /// Layout for the active category, falling back to the global setting.
+    pub fn library_display_mode(&self) -> LibraryDisplayMode {
+        self.category_name()
+            .and_then(|name| self.config.category_display.get(name))
+            .and_then(|display| display.layout)
+            .unwrap_or(self.config.library_display_mode)
+    }
+
+    /// Sort for the active category, falling back to the global setting.
+    pub fn library_sort_mode(&self) -> LibrarySort {
+        self.category_name()
+            .and_then(|name| self.config.category_display.get(name))
+            .and_then(|display| display.sort)
+            .unwrap_or(self.config.library_sort)
     }
 
     pub fn library_filters_active(&self) -> bool {
@@ -9992,6 +10081,76 @@ impl AppState {
             LibraryDisplayMode::List => LibraryDisplayMode::Comfortable,
         };
         self.library_grid_offset = 0;
+        self.persist_settings();
+    }
+
+    /// Cycle the selected category's layout override, then back to inheriting.
+    pub fn cycle_category_layout(&mut self) {
+        let Some(name) = self.selected_manage_category() else {
+            return;
+        };
+        let entry = self
+            .config
+            .category_display
+            .entry(name.clone())
+            .or_default();
+        entry.layout = match entry.layout {
+            None => Some(LibraryDisplayMode::Comfortable),
+            Some(LibraryDisplayMode::Comfortable) => Some(LibraryDisplayMode::Compact),
+            Some(LibraryDisplayMode::Compact) => Some(LibraryDisplayMode::List),
+            Some(LibraryDisplayMode::List) => None,
+        };
+        if entry == &CategoryDisplay::default() {
+            self.config.category_display.remove(&name);
+        }
+        self.library_grid_offset = 0;
+        self.persist_settings();
+    }
+
+    /// Cycle the selected category's sort override, then back to inheriting.
+    pub fn cycle_category_sort(&mut self) {
+        let Some(name) = self.selected_manage_category() else {
+            return;
+        };
+        let sorts = [
+            None,
+            Some(LibrarySort::Natural),
+            Some(LibrarySort::TitleAsc),
+            Some(LibrarySort::TitleDesc),
+            Some(LibrarySort::ChapterCountDesc),
+            Some(LibrarySort::LatestChapterDesc),
+            Some(LibrarySort::UnreadDesc),
+            Some(LibrarySort::LastReadDesc),
+            Some(LibrarySort::DateAddedDesc),
+            Some(LibrarySort::TrackerScoreDesc),
+            Some(LibrarySort::LastUpdateDesc),
+            Some(LibrarySort::Random),
+        ];
+        let current = self
+            .config
+            .category_display
+            .get(&name)
+            .map(|display| {
+                sorts
+                    .iter()
+                    .position(|sort| *sort == display.sort)
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        let next = sorts[(current + 1) % sorts.len()];
+        if next == Some(LibrarySort::Random) {
+            self.reseed_library_random();
+        }
+        let entry = self
+            .config
+            .category_display
+            .entry(name.clone())
+            .or_default();
+        entry.sort = next;
+        if entry == &CategoryDisplay::default() {
+            self.config.category_display.remove(&name);
+        }
+        self.clamp_selection();
         self.persist_settings();
     }
 
@@ -10097,6 +10256,33 @@ impl AppState {
             .chapters
             .iter()
             .any(|chapter| self.bookmarks.is_bookmarked(&chapter.path))
+    }
+
+    fn series_last_update(&self, series: &Series) -> u64 {
+        if let Some(remote) = &series.remote {
+            if let Some(modified) = story_cache_path(&remote.source_id, &remote.url)
+                .and_then(|path| std::fs::metadata(path).ok())
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            {
+                return modified.as_secs();
+            }
+        }
+        series
+            .chapters
+            .iter()
+            .filter_map(|chapter| chapter.date)
+            .filter_map(|date| {
+                chrono::NaiveDate::from_ymd_opt(
+                    date.year,
+                    u32::from(date.month),
+                    u32::from(date.day),
+                )
+                .and_then(|date| date.and_hms_opt(0, 0, 0))
+                .map(|date| date.and_utc().timestamp().max(0) as u64)
+            })
+            .max()
+            .unwrap_or(0)
     }
 
     fn series_last_read_at(&self, series: &Series) -> u64 {
@@ -15456,6 +15642,8 @@ impl AppState {
                     LibrarySort::UnreadDesc,
                     LibrarySort::LastReadDesc,
                     LibrarySort::DateAddedDesc,
+                    LibrarySort::TrackerScoreDesc,
+                    LibrarySort::LastUpdateDesc,
                     LibrarySort::Random,
                 ];
                 let index = sorts
@@ -18897,6 +19085,113 @@ mod tests {
             .is_some_and(|label| label.starts_with("paused")));
         app.toggle_download_pause();
         assert!(!app.download_queue.paused);
+    }
+
+    #[test]
+    fn tracker_and_update_sorts_order_the_library() {
+        let mut app = AppState::new(library(), None);
+        app.config.library_sort = LibrarySort::TrackerScoreDesc;
+        app.config.tracking.insert(
+            "local:Azumanga".to_owned(),
+            TrackerLink {
+                service: "anilist".to_owned(),
+                media_id: 1,
+                title: "Azumanga".to_owned(),
+                score: Some(9.0),
+                ..TrackerLink::default()
+            },
+        );
+        assert_eq!(
+            app.visible_indices()
+                .into_iter()
+                .map(|index| app.library.series[index].title.as_str())
+                .collect::<Vec<_>>(),
+            ["Azumanga", "Berserk"]
+        );
+
+        app.config.library_sort = LibrarySort::LastUpdateDesc;
+        app.library.series[1].chapters[0].date = Some(tsuiyomi_core::ChapterDate {
+            year: 2024,
+            month: 1,
+            day: 2,
+        });
+        assert_eq!(app.visible_indices().first().copied(), Some(1));
+    }
+
+    #[test]
+    fn new_duplicate_chapters_inherit_read_state() {
+        let mut app = remote_app();
+        let manga = RemoteManga {
+            source_id: "1".to_owned(),
+            url: "/manga/alpha".to_owned(),
+            title: "Alpha".to_owned(),
+            author: None,
+            artist: None,
+            description: None,
+            genre: Vec::new(),
+            status: "unknown".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        };
+        let old = RemoteChapter {
+            url: "/old/1".to_owned(),
+            name: "Chapter 1".to_owned(),
+            chapter_number: 1.0,
+            scanlator: Some("A".to_owned()),
+            upload_date: 0,
+            memo: None,
+        };
+        let new = RemoteChapter {
+            url: "/new/1".to_owned(),
+            name: "Chapter 1".to_owned(),
+            chapter_number: 1.0,
+            scanlator: Some("B".to_owned()),
+            upload_date: 0,
+            memo: None,
+        };
+        let old_key = remote_progress_key(&manga.source_id, &manga.url, &old.url);
+        app.progress.update(&old_key, 9, 10);
+        app.mark_new_duplicate_chapters_read(&manga, std::slice::from_ref(&new), &[old]);
+        let new_key = remote_progress_key(&manga.source_id, &manga.url, &new.url);
+        assert_eq!(
+            app.progress.entry(&new_key).map(|entry| entry.page + 1),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn category_display_overrides_sort_and_layout() {
+        let mut app = AppState::new(library(), None);
+        app.config.category_display.insert(
+            "Default".to_owned(),
+            CategoryDisplay {
+                sort: Some(LibrarySort::TitleDesc),
+                layout: Some(LibraryDisplayMode::List),
+            },
+        );
+        app.category_index = 0;
+        assert_eq!(app.library_display_mode(), LibraryDisplayMode::List);
+        assert_eq!(
+            app.visible_indices()
+                .into_iter()
+                .map(|index| app.library.series[index].title.as_str())
+                .collect::<Vec<_>>(),
+            ["Berserk", "Azumanga"]
+        );
+
+        app.category_index = 1;
+        app.category_manage_index = 1;
+        assert_eq!(app.library_display_mode(), app.config.library_display_mode);
+        app.cycle_category_layout();
+        assert_eq!(
+            app.config.category_display["Reading"].layout,
+            Some(LibraryDisplayMode::Comfortable)
+        );
+        app.cycle_category_sort();
+        assert_eq!(
+            app.config.category_display["Reading"].sort,
+            Some(LibrarySort::Natural)
+        );
     }
 
     #[test]

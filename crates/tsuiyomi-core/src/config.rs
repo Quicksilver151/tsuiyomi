@@ -40,6 +40,10 @@ pub enum LibrarySort {
     LastReadDesc,
     /// Most recently added first.
     DateAddedDesc,
+    /// Highest tracker score first.
+    TrackerScoreDesc,
+    /// Saved-source cache or newest chapter date, newest first.
+    LastUpdateDesc,
     /// Stable pseudo-random order, reseeded when the sort or random action is selected.
     Random,
 }
@@ -129,6 +133,15 @@ pub enum LibraryDisplayMode {
     Compact,
     /// One row per series.
     List,
+}
+
+/// Per-category display overrides. Unset fields follow the global settings.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CategoryDisplay {
+    #[serde(default)]
+    pub sort: Option<LibrarySort>,
+    #[serde(default)]
+    pub layout: Option<LibraryDisplayMode>,
 }
 
 /// Library-wide filters. Each flag is an include-only constraint.
@@ -265,6 +278,8 @@ pub struct Config {
     pub library_filters: LibraryFilters,
     /// Library grid layout.
     pub library_display_mode: LibraryDisplayMode,
+    /// Sort and layout overrides per category name.
+    pub category_display: BTreeMap<String, CategoryDisplay>,
     /// Hide missing-chapter counts in the story header and details.
     pub hide_missing_chapters: bool,
     /// Mark chapters with the same number from other scanlators as read.
@@ -407,6 +422,7 @@ impl Default for Config {
             library_sort: LibrarySort::default(),
             library_filters: LibraryFilters::default(),
             library_display_mode: LibraryDisplayMode::default(),
+            category_display: BTreeMap::new(),
             hide_missing_chapters: false,
             mark_duplicate_chapters_read: true,
             update_interval_hours: 12,

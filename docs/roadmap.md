@@ -10,7 +10,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 24 | 1 | 0 | 1 | 98.0% |
-| [Library](#library) | 24 | 2 | 1 | 0 | 92.6% |
+| [Library](#library) | 26 | 1 | 0 | 0 | 98.1% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
@@ -21,7 +21,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 7 | 0 | 0 | 1 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 16 | 0 | 2 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **245** | **6** | **5** | **10** | **96.9%** |
+| **All categories** | **247** | **5** | **4** | **10** | **97.5%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -74,8 +74,8 @@ table below.
 | Categories | Category tabs/filtering | Yes | ✅ | ✅ | `[`/`]`; default category. |
 | Categories | Edit categories from story | Yes | ✅ | ✅ | Local and saved source manga; local assignments write `categories.json`. |
 | Sorting | Natural / title A–Z / Z–A | Yes | ✅ | ✅ | Persisted `library_sort`. |
-| Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, unread, recently read, recently added, and random. Tracker score, last update, and chapter fetch date remain. |
-| Sorting | Per-category sort and display settings | Yes | ❌ | ❌ | Sort and display are global. |
+| Sorting | Other Mihon sort fields | Yes | 🟡 | 🟡 | Chapter count, latest chapter, unread, recently read, recently added, tracker score, last update, and random. Per-chapter fetch dates remain. |
+| Sorting | Per-category sort and display settings | Yes | ✅ | ✅ | More → Categories cycles each category’s sort (`s`) and layout (`v`); unset inherits the global setting. |
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
 | Filters | Library filter dialog | Yes | ✅ | ✅ | `z` toggles unread, in-progress, bookmarked, tracked, missing, and downloaded filters. |
 | Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan and newly discovered saved-source chapters, kept 30 days; Enter reads, `x` dismisses, `X` clears. |
@@ -90,7 +90,7 @@ table below.
 | Discovery | Random manga action | Yes | ✅ | ✅ | `B` opens a random visible series. |
 | Filters | Downloaded-only library view | Yes | ✅ | ✅ | Download filter in `z`, plus per-tile download counts. |
 | Display | Hide missing-chapter indicators | Yes | ✅ | ✅ | Settings → Library toggle hides the count. |
-| Reading | Mark duplicate chapters read | Yes | 🟡 | 🟡 | Marking chapters read also marks same-number chapters; new-chapter rules remain. |
+| Reading | Mark duplicate chapters read | Yes | ✅ | ✅ | Marking chapters read propagates to same-number chapters, and refreshed chapters inherit read state from read duplicates. |
 | Scan | Background scan | Yes | ✅ | ✅ | Refresh, rescan, and the initial scan run on a worker after the UI opens. |
 | Scan | Import browser / file picker | Yes | ✅ | ✅ | `i` opens a path dialog and copies a folder into `local/`; name collisions get a suffix. |
 

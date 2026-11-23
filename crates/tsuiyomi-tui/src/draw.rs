@@ -2470,7 +2470,7 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 );
             }
             let indices = app.visible_indices();
-            let mode = app.config.library_display_mode;
+            let mode = app.library_display_mode();
             let (columns, offset) = draw_series_grid(
                 frame,
                 grid_area,
@@ -6841,6 +6841,8 @@ fn library_sort_label(sort: LibrarySort) -> &'static str {
         LibrarySort::UnreadDesc => "Most unread",
         LibrarySort::LastReadDesc => "Recently read",
         LibrarySort::DateAddedDesc => "Recently added",
+        LibrarySort::TrackerScoreDesc => "Tracker score",
+        LibrarySort::LastUpdateDesc => "Last update",
         LibrarySort::Random => "Random",
     }
 }
@@ -7017,6 +7019,19 @@ fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
             .filter(|series| series.categories.iter().any(|name| name == category))
             .count();
         let selected = index == app.category_manage_index;
+        let display = app.config.category_display.get(category);
+        let layout = display
+            .and_then(|display| display.layout)
+            .map(|layout| match layout {
+                LibraryDisplayMode::Comfortable => "comfortable",
+                LibraryDisplayMode::Compact => "compact",
+                LibraryDisplayMode::List => "list",
+            })
+            .unwrap_or("inherit");
+        let sort = display
+            .and_then(|display| display.sort)
+            .map(library_sort_label)
+            .unwrap_or("inherit");
         lines.push(Line::from(vec![
             Span::styled(
                 if selected { "› " } else { "  " },
@@ -7034,6 +7049,10 @@ fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
                 format!("  {count} series"),
                 Style::default().fg(c_overlay0()),
             ),
+            Span::styled(
+                format!("  · {sort} · {layout}"),
+                Style::default().fg(c_overlay1()),
+            ),
         ]));
     }
     if lines.is_empty() {
@@ -7041,7 +7060,7 @@ fn draw_more_categories(frame: &mut Frame, area: Rect, app: &AppState) {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "a add · Enter rename · x/Del remove · Esc back",
+        "a add · Enter rename · s sort · v layout · x/Del remove · Esc back",
         Style::default().fg(c_overlay0()),
     )));
 

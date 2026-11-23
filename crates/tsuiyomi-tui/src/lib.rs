@@ -973,6 +973,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::Search => {
                 if app.story_screen_active() {
                     app.chapter_settings_adjust_sort(1);
+                } else if app.tab == 4 && app.more_section == MoreSection::Categories {
+                    app.cycle_category_sort();
                 } else if app.tab == 3
                     && app.browse_view == BrowseView::Migrate
                     && app.migrate.screen == app::MigrateScreen::Matches
@@ -1066,6 +1068,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::DisplayMode => {
                 if app.story_screen_active() {
                     app.cycle_chapter_display();
+                } else if app.tab == 4 && app.more_section == MoreSection::Categories {
+                    app.cycle_category_layout();
                 } else if app.tab == 0 && app.view == LibraryView::Series {
                     app.cycle_library_display_mode();
                 } else if app.tab == 3 {
@@ -1488,7 +1492,7 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             );
         }
         let tile_height = library_tile_height(
-            app.config.library_display_mode,
+            app.library_display_mode(),
             app.config.thumbnail_width,
             grid_area.height,
         );
