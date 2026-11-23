@@ -26,18 +26,19 @@ use tsuiyomi_core::{
     read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
     save_config, scan_library, search_anilist, series_dir_name, set_default_user_agent,
     source_dir_name, story_cache_path, title_similarity, today_key, update_anilist_entry,
-    update_anilist_progress, update_mal_entry, update_mal_progress, update_mangaupdates_entry,
-    update_shikimori_entry, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
-    BackupChapter, BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking,
-    BookmarkStore, CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
-    ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
-    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
-    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
-    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
-    SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerEntry, TrackerLink,
-    TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
+    update_anilist_progress, update_bangumi_entry, update_mal_entry, update_mal_progress,
+    update_mangaupdates_entry, update_shikimori_entry, visible_chapters, write_comic_info,
+    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga,
+    BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore, CachedStory, CategoryDisplay,
+    Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, ComicInfo,
+    Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
+    InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort, LocalSourceOrder,
+    MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState,
+    ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage,
+    RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode,
+    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
+    Theme, TrackerAuth, TrackerEntry, TrackerLink, TrackerMedia, TrackerStatus, TriState,
+    UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -338,6 +339,7 @@ pub enum TextAction {
     MangaUpdatesUsername,
     MangaUpdatesPassword,
     ShikimoriToken,
+    BangumiToken,
     UserAgent,
 }
 
@@ -506,6 +508,7 @@ pub enum SettingId {
     MangaUpdatesPassword,
     MangaUpdatesLogin,
     ShikimoriToken,
+    BangumiToken,
     TrackerLogout,
     Theme,
     Accent,
@@ -644,7 +647,7 @@ const NOTIFICATION_ROWS: [MoreRow; 5] = [
     MoreRow::Note("Uses notify-send on Linux and Notification Center on macOS."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 16] = [
+const TRACKING_ROWS: [MoreRow; 18] = [
     MoreRow::Divider("AniList"),
     MoreRow::Setting(SettingId::AniListLogin),
     MoreRow::Setting(SettingId::AniListClientId),
@@ -659,6 +662,8 @@ const TRACKING_ROWS: [MoreRow; 16] = [
     MoreRow::Setting(SettingId::MangaUpdatesLogin),
     MoreRow::Divider("Shikimori"),
     MoreRow::Setting(SettingId::ShikimoriToken),
+    MoreRow::Divider("Bangumi"),
+    MoreRow::Setting(SettingId::BangumiToken),
     MoreRow::Divider("Account"),
     MoreRow::Setting(SettingId::TrackerLogout),
 ];
@@ -6132,6 +6137,7 @@ impl AppState {
             TextAction::MangaUpdatesUsername => self.set_mangaupdates_username(&input.value),
             TextAction::MangaUpdatesPassword => self.set_mangaupdates_password(&input.value),
             TextAction::ShikimoriToken => self.set_shikimori_token(&input.value),
+            TextAction::BangumiToken => self.set_bangumi_token(&input.value),
             TextAction::UserAgent => self.set_user_agent(&input.value),
         }
     }
@@ -11758,6 +11764,7 @@ impl AppState {
             "mal" => "MyAnimeList",
             "mangaupdates" => "MangaUpdates",
             "shikimori" => "Shikimori",
+            "bangumi" => "Bangumi",
             _ => "AniList",
         }
     }
@@ -12006,6 +12013,7 @@ impl AppState {
                     link.media_id,
                     &entry,
                 ),
+                "bangumi" => update_bangumi_entry(&token, link.media_id, &entry),
                 _ => update_anilist_entry(&token, link.media_id, &entry),
             };
         }
@@ -12137,6 +12145,7 @@ impl AppState {
                 mal_client_id: self.config.mal_client_id.clone(),
                 mangaupdates: self.tracker_token_for("mangaupdates").is_some(),
                 shikimori: self.tracker_token_for("shikimori").is_some(),
+                bangumi: self.tracker_token_for("bangumi").is_some(),
             });
             self.set_tracker_message("Searching trackers…".to_owned(), false);
             return;
@@ -12327,6 +12336,24 @@ impl AppState {
             token: value.to_owned(),
         });
         self.set_tracker_message("Verifying Shikimori token…".to_owned(), false);
+    }
+
+    fn open_bangumi_token(&mut self) {
+        self.open_text_input(TextAction::BangumiToken, "Bangumi access token", "");
+    }
+
+    fn set_bangumi_token(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            return;
+        }
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        worker.request(TrackerRequest::BangumiLogin {
+            token: value.to_owned(),
+        });
+        self.set_tracker_message("Verifying Bangumi token…".to_owned(), false);
     }
 
     fn start_tracker_login(&mut self, service: &str) {
@@ -12593,37 +12620,27 @@ impl AppState {
                 account_id: self.tracker_account_id(&link.service),
             });
         } else {
+            let entry = TrackerEntry {
+                progress,
+                total,
+                status: link.status.as_deref().and_then(TrackerStatus::parse),
+                score: link.score,
+                start_date: link.start_date.as_deref(),
+                finish_date: link.finish_date.as_deref(),
+                private: link.private,
+            };
             let _ = match link.service.as_str() {
                 "mal" => update_mal_progress(&token, link.media_id, progress, total),
+                "mangaupdates" => update_mangaupdates_entry(&token, link.media_id, &entry),
                 "shikimori" => update_shikimori_entry(
                     &token,
                     self.tracker_account_id("shikimori")
                         .as_deref()
                         .unwrap_or_default(),
                     link.media_id,
-                    &TrackerEntry {
-                        progress,
-                        total,
-                        status: link.status.as_deref().and_then(TrackerStatus::parse),
-                        score: link.score,
-                        start_date: link.start_date.as_deref(),
-                        finish_date: link.finish_date.as_deref(),
-                        private: link.private,
-                    },
+                    &entry,
                 ),
-                "mangaupdates" => update_mangaupdates_entry(
-                    &token,
-                    link.media_id,
-                    &TrackerEntry {
-                        progress,
-                        total,
-                        status: link.status.as_deref().and_then(TrackerStatus::parse),
-                        score: link.score,
-                        start_date: link.start_date.as_deref(),
-                        finish_date: link.finish_date.as_deref(),
-                        private: link.private,
-                    },
-                ),
+                "bangumi" => update_bangumi_entry(&token, link.media_id, &entry),
                 _ => update_anilist_progress(&token, link.media_id, progress, total),
             };
         }
@@ -15094,6 +15111,7 @@ impl AppState {
             SettingId::MangaUpdatesPassword => self.open_mangaupdates_password(),
             SettingId::MangaUpdatesLogin => self.start_mangaupdates_login(),
             SettingId::ShikimoriToken => self.open_shikimori_token(),
+            SettingId::BangumiToken => self.open_bangumi_token(),
             SettingId::TrackerLogout => self.logout_trackers(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
@@ -16007,6 +16025,7 @@ impl AppState {
             | SettingId::MangaUpdatesPassword
             | SettingId::MangaUpdatesLogin
             | SettingId::ShikimoriToken
+            | SettingId::BangumiToken
             | SettingId::TrackerLogout
             | SettingId::RescanLibrary
             | SettingId::HostUrl
@@ -18374,6 +18393,15 @@ fn tracker_status_code(service: &str, status: TrackerStatus) -> i64 {
             TrackerStatus::OnHold => 4,
         };
     }
+    if service == "bangumi" {
+        return match status {
+            TrackerStatus::Planning => 1,
+            TrackerStatus::Completed => 2,
+            TrackerStatus::Reading => 3,
+            TrackerStatus::OnHold => 4,
+            TrackerStatus::Dropped => 5,
+        };
+    }
     match status {
         TrackerStatus::Reading => 1,
         TrackerStatus::Completed => 2,
@@ -18400,6 +18428,16 @@ fn tracker_status_from_code(service: &str, code: i64) -> Option<TrackerStatus> {
             _ => None,
         };
     }
+    if service == "bangumi" {
+        return match code {
+            1 => Some(TrackerStatus::Planning),
+            2 => Some(TrackerStatus::Completed),
+            3 => Some(TrackerStatus::Reading),
+            4 => Some(TrackerStatus::OnHold),
+            5 => Some(TrackerStatus::Dropped),
+            _ => None,
+        };
+    }
     match code {
         1 => Some(TrackerStatus::Reading),
         2 => Some(TrackerStatus::Completed),
@@ -18416,6 +18454,7 @@ fn tracker_service_from_sync_id(sync_id: i64) -> Option<&'static str> {
         1 => Some("mal"),
         2 => Some("anilist"),
         4 => Some("shikimori"),
+        5 => Some("bangumi"),
         7 => Some("mangaupdates"),
         _ => None,
     }
@@ -18426,6 +18465,7 @@ fn backup_tracking_from_link(link: &TrackerLink) -> Option<BackupTracking> {
         "mal" => 1,
         "anilist" => 2,
         "shikimori" => 4,
+        "bangumi" => 5,
         "mangaupdates" => 7,
         _ => return None,
     };
@@ -20187,6 +20227,33 @@ mod tests {
         let restored = tracker_link_from_backup(&tracking).expect("link");
         assert_eq!(restored.service, "shikimori");
         assert_eq!(restored.status.as_deref(), Some("on_hold"));
+    }
+
+    #[test]
+    fn bangumi_status_and_backup_mapping() {
+        for status in [
+            TrackerStatus::Reading,
+            TrackerStatus::Completed,
+            TrackerStatus::OnHold,
+            TrackerStatus::Dropped,
+            TrackerStatus::Planning,
+        ] {
+            let code = tracker_status_code("bangumi", status);
+            assert_eq!(tracker_status_from_code("bangumi", code), Some(status));
+        }
+        let link = TrackerLink {
+            service: "bangumi".to_owned(),
+            media_id: 42,
+            title: "Berserk".to_owned(),
+            status: Some("planning".to_owned()),
+            ..TrackerLink::default()
+        };
+        let tracking = backup_tracking_from_link(&link).expect("tracking");
+        assert_eq!(tracking.sync_id, 5);
+        assert_eq!(tracking.status, 1);
+        let restored = tracker_link_from_backup(&tracking).expect("link");
+        assert_eq!(restored.service, "bangumi");
+        assert_eq!(restored.status.as_deref(), Some("planning"));
     }
 
     #[test]

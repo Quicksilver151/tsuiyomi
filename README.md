@@ -485,7 +485,7 @@ categories:
   and downloaded chapters are read from disk.
 - **Tracking** — log in to AniList or MyAnimeList in the browser after entering an
   application client ID, log in to MangaUpdates with a username and session password, or
-  paste a Shikimori access token; link stories and sync read progress.
+  paste a Shikimori or Bangumi access token; link stories and sync read progress.
 - **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.
 - **Security** — Incognito mode, which stops writing reading progress.

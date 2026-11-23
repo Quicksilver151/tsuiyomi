@@ -673,6 +673,167 @@ fn encode_query(value: &str) -> String {
     encoded
 }
 
+const BANGUMI: &str = "https://api.bgm.tv";
+
+/// Bangumi collection types: wish, collect, doing, on hold, dropped.
+fn bangumi_status(status: TrackerStatus) -> i64 {
+    match status {
+        TrackerStatus::Planning => 1,
+        TrackerStatus::Completed => 2,
+        TrackerStatus::Reading => 3,
+        TrackerStatus::OnHold => 4,
+        TrackerStatus::Dropped => 5,
+    }
+}
+
+/// Search Bangumi's book catalog, keeping manga-like results.
+pub fn search_bangumi(query: &str) -> Result<Vec<TrackerMedia>, CoreError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let url = format!("{BANGUMI}/v0/search/subjects?limit=20");
+    let body = json!({
+        "keyword": query,
+        "sort": "match",
+        "filter": { "type": [1] },
+    });
+    let value = bangumi_json("POST", &url, Some(&body), None)?;
+    Ok(parse_bangumi_search(&value))
+}
+
+fn parse_bangumi_search(value: &Value) -> Vec<TrackerMedia> {
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| {
+                    item.get("platform")
+                        .and_then(Value::as_str)
+                        .is_none_or(|platform| platform == "漫画")
+                })
+                .filter_map(|item| {
+                    let id = item.get("id")?.as_u64()?;
+                    let title = item
+                        .get("name_cn")
+                        .and_then(Value::as_str)
+                        .filter(|title| !title.trim().is_empty())
+                        .or_else(|| item.get("name").and_then(Value::as_str))?
+                        .to_owned();
+                    let chapters = item
+                        .get("eps")
+                        .and_then(Value::as_u64)
+                        .and_then(|chapters| u32::try_from(chapters).ok());
+                    Some(TrackerMedia {
+                        service: "bangumi".to_owned(),
+                        id,
+                        title,
+                        chapters,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Verify a pasted Bangumi access token.
+pub fn login_bangumi(token: &str) -> Result<TrackerAuth, CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: BANGUMI.to_owned(),
+            message: "a Bangumi access token is required".to_owned(),
+        });
+    }
+    let value = bangumi_json("GET", &format!("{BANGUMI}/v0/me"), None, Some(token))?;
+    let account_id = value
+        .get("id")
+        .and_then(Value::as_u64)
+        .map(|id| id.to_string())
+        .or_else(|| {
+            value
+                .get("username")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| CoreError::Network {
+            url: BANGUMI.to_owned(),
+            message: "Bangumi did not return the current user".to_owned(),
+        })?;
+    Ok(TrackerAuth {
+        access_token: token.to_owned(),
+        refresh_token: None,
+        expires_at: None,
+        account_id: Some(account_id),
+    })
+}
+
+/// Create or update a Bangumi collection entry.
+pub fn update_bangumi_entry(
+    token: &str,
+    media_id: u64,
+    entry: &TrackerEntry<'_>,
+) -> Result<(), CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: BANGUMI.to_owned(),
+            message: "a Bangumi token is required".to_owned(),
+        });
+    }
+    let url = format!("{BANGUMI}/v0/users/-/collections/{media_id}");
+    let body = json!({
+        "type": bangumi_status(entry.effective_status()),
+        "rate": entry.score.unwrap_or(0.0).clamp(0.0, 10.0).round() as i64,
+        "ep_status": entry.progress,
+        "private": entry.private.unwrap_or(false),
+    });
+    match bangumi_json("PATCH", &url, Some(&body), Some(token)) {
+        Ok(_) => Ok(()),
+        Err(CoreError::Network { message, .. }) if message.contains("404") => {
+            bangumi_json("POST", &url, Some(&body), Some(token)).map(|_| ())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn bangumi_json(
+    method: &str,
+    url: &str,
+    body: Option<&Value>,
+    token: Option<&str>,
+) -> Result<Value, CoreError> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut request = match method {
+        "POST" => agent.post(url),
+        "PATCH" => agent.patch(url),
+        _ => agent.get(url),
+    };
+    request = request.set("Accept", "application/json");
+    if let Some(token) = token.filter(|token| !token.trim().is_empty()) {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+    let response = if let Some(body) = body {
+        request
+            .set("Content-Type", "application/json")
+            .send_json(body.clone())
+    } else {
+        request.call()
+    }
+    .map_err(|error| CoreError::Network {
+        url: url.to_owned(),
+        message: error.to_string(),
+    })?;
+    match response.into_json::<Value>() {
+        Ok(value) => Ok(value),
+        Err(_) => Ok(Value::Null),
+    }
+}
+
 fn post(body: Value, token: Option<&str>) -> Result<Value, CoreError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(30))
@@ -883,6 +1044,32 @@ mod tests {
         assert_eq!(shikimori_status(TrackerStatus::OnHold), "on_hold");
         assert_eq!(shikimori_status(TrackerStatus::Dropped), "dropped");
         assert_eq!(shikimori_status(TrackerStatus::Planning), "planned");
+    }
+
+    #[test]
+    fn parses_bangumi_search_results() {
+        let value = json!({
+            "data": [
+                { "id": 5, "name": "Berserk", "name_cn": "剑风传奇", "platform": "漫画", "eps": 380 },
+                { "id": 6, "name": "Novel", "platform": "小说" },
+                { "id": 7, "name": "Unknown platform", "eps": 12 }
+            ]
+        });
+        let results = parse_bangumi_search(&value);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, 5);
+        assert_eq!(results[0].title, "剑风传奇");
+        assert_eq!(results[0].chapters, Some(380));
+        assert_eq!(results[1].service, "bangumi");
+    }
+
+    #[test]
+    fn maps_bangumi_statuses() {
+        assert_eq!(bangumi_status(TrackerStatus::Planning), 1);
+        assert_eq!(bangumi_status(TrackerStatus::Completed), 2);
+        assert_eq!(bangumi_status(TrackerStatus::Reading), 3);
+        assert_eq!(bangumi_status(TrackerStatus::OnHold), 4);
+        assert_eq!(bangumi_status(TrackerStatus::Dropped), 5);
     }
 
     #[test]

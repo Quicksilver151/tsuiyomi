@@ -6640,6 +6640,14 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "Not set".to_owned()
             },
         ),
+        SettingId::BangumiToken => (
+            "Bangumi token".to_owned(),
+            if app.config.tracker_auth.contains_key("bangumi") {
+                "Connected".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
         SettingId::TrackerLogout => ("Log out trackers".to_owned(), "Enter".to_owned()),
         SettingId::AniListToken => (
             "AniList token".to_owned(),

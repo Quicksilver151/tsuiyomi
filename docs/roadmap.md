@@ -17,11 +17,11 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Reader](#reader) | 23 | 1 | 0 | 0 | 97.9% |
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
-| [Tracking](#tracking) | 6 | 2 | 1 | 0 | 77.8% |
+| [Tracking](#tracking) | 7 | 2 | 1 | 0 | 80.0% |
 | [Downloads](#downloads) | 7 | 0 | 0 | 1 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 16 | 1 | 1 | 0 | 91.7% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **251** | **5** | **2** | **10** | **98.3%** |
+| **All categories** | **252** | **5** | **2** | **10** | **98.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -305,7 +305,8 @@ table below.
 | Services | AniList / MyAnimeList | Yes | ✅ | ✅ | Search, link/unlink, and progress sync work. |
 | Services | MangaUpdates | Yes | ✅ | ✅ | Session-token login, search, link, progress/status/score sync, and backup round-trip. |
 | Services | Shikimori | Yes | ✅ | ✅ | Access-token login (user-supplied), search, link, progress/status/score sync, and backup round-trip. |
-| Services | Kitsu, Bangumi, Hikka, MangaBaka | Yes | ❌ | ❌ | Planned tracker adapters; each needs its own client credentials/API model. |
+| Services | Bangumi | Yes | ✅ | ✅ | Access-token login, search, link, progress/status/score/privacy sync, and backup round-trip. |
+| Services | Kitsu, Hikka, MangaBaka | Yes | ❌ | ❌ | Planned tracker adapters; each needs its own client credentials/API model. |
 | Metadata | Status, score, start/end dates, private flag | Yes | ✅ | ✅ | `T` on a linked story edits status, score, dates, AniList privacy, and unlink; updates sync when logged in. |
 | Overview | Tracker stats and mean score | Yes | ✅ | ✅ | More → Statistics shows linked entries, scored entries, and the mean local score. |
 | Actions | Link/unlink/search and background progress sync | Yes | ✅ | ✅ | Worker-backed. |
