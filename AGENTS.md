@@ -175,8 +175,8 @@ Rules:
   reader. Chapter rows use fixed bookmark/download columns. Right-to-left page mode
   reverses the left/right keys; paged vertical mode uses up/down page turns. Page images
   support Fit, Fill/crop, and Stretch modes. Page-mode zoom crops/pads the decoded page,
-  pans with `h`/`l` and `j`/`k`, and re-encodes it; retransmit-free Kitty placement zoom
-  is not implemented yet.
+  pans with `h`/`l` and `j`/`k`, and re-encodes it. Placement-only Kitty scaling is a
+  deliberate terminal tradeoff, not a custom graphics protocol.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
@@ -218,10 +218,10 @@ Rules:
   opens extension details with per-source toggles, enable/disable-all actions, source
   preferences, per-extension Incognito, clear-cookies, and uninstall. Details show a
   SHA-256 file fingerprint and `Y` trusts/untrusts it (TOFU, warning on change). This is
-  not APK signature verification: the host cannot verify signatures. Migrate lists saved
-  manga by source, multi-selects favorites, matches titles against enabled sources with
-  regular/deep queries, previews targets, skips a
-  preview (`s`), hides unmatched rows (`h`), hides targets without newer chapters (`u`),
+  a documented deviation from APK signing-key verification: the host cannot verify
+  signatures. Migrate lists saved manga by source, multi-selects favorites, matches titles
+  against enabled sources with regular/deep queries, previews targets, skips a preview
+  (`s`), hides unmatched rows (`h`), hides targets without newer chapters (`u`),
   prioritizes the source with the latest chapter (`p`),
   and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
   Replace also moves downloaded chapters into the target source/series directory. Apply

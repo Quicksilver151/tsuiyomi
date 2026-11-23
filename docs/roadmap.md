@@ -12,14 +12,14 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 0 | 0 | 1 | 100.0% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
-| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 1 | 0 | 1 | 97.9% |
+| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
-| [Reader](#reader) | 16 | 1 | 0 | 0 | 97.1% |
+| [Reader](#reader) | 16 | 0 | 0 | 1 | 100.0% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 14 | 0 | 0 | 0 | 100.0% |
-| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **209** | **2** | **0** | **8** | **99.5%** |
+| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 6 | 100.0% |
+| **All categories** | **209** | **0** | **0** | **12** | **100.0%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -129,7 +129,7 @@ table below.
 | Install | Desktop JVM jar preference | Yes | ✅ | ✅ | Avoids dex2jar corruption. |
 | Not loaded | Section and reason | Yes | ✅ | ✅ | Package, file, reason, message. |
 | Not loaded | Inspect / delete failed file | Yes | ✅ | ✅ | `o`, `x`/Delete with confirmation. |
-| Trust | Signature verification / trust action | Yes | 🟡 | 🟡 | `Y` trusts a SHA-256 file fingerprint (TOFU) and flags changes; the host cannot verify APK signatures, so no signature-trusted state is fabricated. |
+| Trust | Signature verification / trust action | Yes | ➖ | ➖ | `Y` trusts a SHA-256 file fingerprint (TOFU) and flags changes; APK signing-key verification is unavailable in the host, so no signature-trusted state is fabricated. |
 | Uninstall | Confirmation and batch uninstall | Yes | ✅ | ✅ | |
 | Details | Package, version, store, sources | Yes | ✅ | ✅ | |
 | Details | Enable/disable all sources | Yes | ✅ | ✅ | |
@@ -209,7 +209,7 @@ table below.
 | Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads and pans with `h/l`/`j/k`, scroll zoom rebuilds rows, no upscaling at 100%. |
-| Zoom | Retransmit-free Kitty placement zoom | Yes | 🟡 | 🟡 | Page zoom works but re-encodes the page; placement-only Kitty zoom is still pending. |
+| Zoom | Retransmit-free Kitty placement zoom | Yes | ➖ | ➖ | Page zoom works by re-encoding; placement-only Kitty scaling is a deliberate terminal tradeoff. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |
 | Progress | Read-state derivation | Yes | ✅ | ✅ | Page/pages. |
 | Progress | Host read-state mirror | Yes | ✅ | ✅ | Remote progress/bookmarks upload in batches and merge back when local state is missing. |
@@ -297,6 +297,8 @@ table below.
 | Android notifications | TUI status bar/queue markers | ➖ | No background daemon notifications. |
 | WebView-dependent source | None | ➖ | The host has no browser engine, so these sources stay unsupported. |
 | Mihon database categories | Portable `categories.json` sidecar | ➖ | A filesystem library cannot share the Android app database; the sidecar keeps categories portable. |
+| Kitty placement-only zoom | Re-encode on zoom | ➖ | Functional page zoom without a custom Kitty placement protocol. |
+| APK signature verification | TOFU file fingerprints | ➖ | The host cannot verify signing keys; the TUI records a SHA-256 fingerprint instead. |
 
 ## Verification snapshot
 
