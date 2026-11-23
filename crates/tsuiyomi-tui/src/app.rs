@@ -517,6 +517,10 @@ pub enum SettingId {
     SmartUpdateReleaseDays,
     UpdateCategories,
     UpdatesTabBadge,
+    NotifyUpdates,
+    NotifyDownloads,
+    NotifyTrackerFailures,
+    Diagnostics,
     ImportBackup,
     ExportBackup,
 }
@@ -530,6 +534,7 @@ pub enum SettingsPage {
     Library,
     Reader,
     Downloads,
+    Notifications,
     Tracking,
     Browse,
     Data,
@@ -538,11 +543,12 @@ pub enum SettingsPage {
     About,
 }
 
-pub const SETTINGS_PAGES: [SettingsPage; 10] = [
+pub const SETTINGS_PAGES: [SettingsPage; 11] = [
     SettingsPage::Appearance,
     SettingsPage::Library,
     SettingsPage::Reader,
     SettingsPage::Downloads,
+    SettingsPage::Notifications,
     SettingsPage::Tracking,
     SettingsPage::Browse,
     SettingsPage::Data,
@@ -612,6 +618,14 @@ const DOWNLOADS_ROWS: [MoreRow; 12] = [
     MoreRow::Setting(SettingId::AutoDownloadCategories),
 ];
 
+const NOTIFICATION_ROWS: [MoreRow; 5] = [
+    MoreRow::Divider("Desktop notifications"),
+    MoreRow::Setting(SettingId::NotifyUpdates),
+    MoreRow::Setting(SettingId::NotifyDownloads),
+    MoreRow::Setting(SettingId::NotifyTrackerFailures),
+    MoreRow::Note("Uses notify-send on Linux and Notification Center on macOS."),
+];
+
 const TRACKING_ROWS: [MoreRow; 10] = [
     MoreRow::Divider("AniList"),
     MoreRow::Setting(SettingId::AniListLogin),
@@ -650,10 +664,11 @@ const SECURITY_ROWS: [MoreRow; 3] = [
     MoreRow::Note("Incognito stops writing reading progress."),
 ];
 
-const ADVANCED_ROWS: [MoreRow; 5] = [
+const ADVANCED_ROWS: [MoreRow; 6] = [
     MoreRow::Divider("Network"),
     MoreRow::Setting(SettingId::FlareSolverr),
     MoreRow::Divider("Diagnostics"),
+    MoreRow::Setting(SettingId::Diagnostics),
     MoreRow::Note("Log level comes from TSUIYOMI_LOG."),
     MoreRow::Note("Refresh scans synchronously and may block briefly."),
 ];
@@ -666,6 +681,7 @@ impl SettingsPage {
             Self::Library => "Library",
             Self::Reader => "Reader",
             Self::Downloads => "Downloads",
+            Self::Notifications => "Notifications",
             Self::Tracking => "Tracking",
             Self::Browse => "Browse",
             Self::Data => "Data and storage",
@@ -682,6 +698,7 @@ impl SettingsPage {
             Self::Library => "Path · sort · categories",
             Self::Reader => "Mode · zoom · prefetch",
             Self::Downloads => "Folder · queue",
+            Self::Notifications => "Updates · downloads · trackers",
             Self::Tracking => "Local library only",
             Self::Browse => "Local source",
             Self::Data => "Storage · backups",
@@ -698,6 +715,7 @@ impl SettingsPage {
             Self::Library => &LIBRARY_ROWS,
             Self::Reader => &READER_ROWS,
             Self::Downloads => &DOWNLOADS_ROWS,
+            Self::Notifications => &NOTIFICATION_ROWS,
             Self::Tracking => &TRACKING_ROWS,
             Self::Browse => &BROWSE_ROWS,
             Self::Data => &DATA_ROWS,
@@ -1279,6 +1297,7 @@ pub struct AppState {
     pub migration_flags_picker: Option<MigrationFlagsPicker>,
     pub tracker_picker: Option<TrackerPicker>,
     pub tracker_edit: Option<TrackerEditState>,
+    pub diagnostics: Option<String>,
     pub tracker_unlink_confirm: bool,
     pub migration_source_picker: Option<MigrationSourcePicker>,
     pub migration_search: Option<MigrationSearchState>,
@@ -1443,6 +1462,7 @@ impl AppState {
             migration_flags_picker: None,
             tracker_picker: None,
             tracker_edit: None,
+            diagnostics: None,
             tracker_unlink_confirm: false,
             migration_source_picker: None,
             migration_search: None,
@@ -8380,6 +8400,10 @@ impl AppState {
                 if added > 0 {
                     let _ = self.updates.save();
                     self.status = Some(format!("{added} new chapters from saved sources"));
+                    self.notify_updates(
+                        added,
+                        &format!("{} from {}", plural_chapters(added), result.manga.title),
+                    );
                 }
             }
             self.cache_story(result.manga.clone(), result.chapters.clone());
@@ -8502,8 +8526,21 @@ impl AppState {
             };
             self.status = Some(message.clone());
             if self.tab == 3 {
-                self.remote.status = Some(message);
+                self.remote.status = Some(message.clone());
                 self.remote.error = error;
+            }
+            match &result.result {
+                Err(failure) if !cancelled => {
+                    self.notify_download(true, &format!("{}: {failure}", result.label))
+                }
+                Ok(_) if !cancelled => {
+                    let finished = self.download_queue.pending.is_empty()
+                        && self.download_queue.active.is_none();
+                    if finished {
+                        self.notify_download(false, &message);
+                    }
+                }
+                _ => {}
             }
             self.refresh_download_marks();
             self.pump_download_queue();
@@ -11570,6 +11607,102 @@ impl AppState {
         }
     }
 
+    fn notify(&self, title: &str, body: &str) {
+        #[cfg(target_os = "macos")]
+        let command = (
+            "osascript",
+            vec![
+                "-e".to_owned(),
+                format!("display notification \"{body}\" with title \"{title}\""),
+            ],
+        );
+        #[cfg(not(target_os = "macos"))]
+        let command = ("notify-send", vec![title.to_owned(), body.to_owned()]);
+        let _ = std::process::Command::new(command.0)
+            .args(command.1)
+            .spawn();
+    }
+
+    fn notify_updates(&self, count: usize, detail: &str) {
+        if !self.config.notify_updates {
+            return;
+        }
+        let title = if count == 1 {
+            "New chapter".to_owned()
+        } else {
+            format!("{count} new chapters")
+        };
+        self.notify(&title, detail);
+    }
+
+    fn notify_download(&self, failed: bool, detail: &str) {
+        if !self.config.notify_downloads {
+            return;
+        }
+        let title = if failed {
+            "Download failed"
+        } else {
+            "Downloads finished"
+        };
+        self.notify(title, detail);
+    }
+
+    fn notify_tracker_failure(&self, detail: &str) {
+        if !self.config.notify_tracker_failures {
+            return;
+        }
+        self.notify("Tracker update failed", detail);
+    }
+
+    pub fn open_diagnostics(&mut self) {
+        let downloads = downloads_dir(&self.config)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "(unavailable)".to_owned());
+        let chapters: usize = self
+            .library
+            .series
+            .iter()
+            .map(|series| series.chapters.len())
+            .sum();
+        let host = match (&self.host_client, &self.host_process) {
+            (Some(_), Some(_)) => "running (bundled)".to_owned(),
+            (Some(_), None) => "running (external)".to_owned(),
+            (None, Some(_)) => "starting".to_owned(),
+            (None, None) => "stopped".to_owned(),
+        };
+        let (tracker_links, _, _) = self.tracker_summary();
+        let queue = self
+            .download_queue
+            .label()
+            .unwrap_or_else(|| "idle".to_owned());
+        let lines = vec![
+            format!("Version        {}", env!("CARGO_PKG_VERSION")),
+            format!("Library        {}", self.library.root.display()),
+            format!(
+                "Series         {} ({} chapters)",
+                self.library.series.len(),
+                chapters
+            ),
+            format!("Downloads      {downloads}"),
+            format!("Host           {host}"),
+            format!(
+                "Host URL       {}",
+                self.config.host_url.as_deref().unwrap_or("bundled")
+            ),
+            format!("Tracker links  {tracker_links}"),
+            format!("Download queue {queue}"),
+            format!(
+                "Log level      {}",
+                std::env::var("TSUIYOMI_LOG").unwrap_or_else(|_| "info".to_owned())
+            ),
+        ];
+        self.diagnostics = Some(lines.join("\n"));
+    }
+
+    pub fn close_diagnostics(&mut self) {
+        self.diagnostics = None;
+    }
+
     fn run_tracker_search(&mut self, query: &str) {
         let query = query.trim();
         if query.is_empty() {
@@ -12008,6 +12141,7 @@ impl AppState {
                 progress,
             } => {
                 if let Err(error) = result {
+                    self.notify_tracker_failure(&error);
                     self.set_tracker_message(format!("AniList update failed: {error}"), true);
                     let _ = media_id;
                     let _ = progress;
@@ -15063,6 +15197,7 @@ impl AppState {
         };
 
         match setting {
+            SettingId::Diagnostics => {}
             SettingId::ReaderSkipRead => {
                 self.config.reader_skip_read = !self.config.reader_skip_read;
             }
@@ -15180,6 +15315,15 @@ impl AppState {
             SettingId::UpdateCategories => {}
             SettingId::UpdatesTabBadge => {
                 self.config.updates_tab_badge = !self.config.updates_tab_badge;
+            }
+            SettingId::NotifyUpdates => {
+                self.config.notify_updates = !self.config.notify_updates;
+            }
+            SettingId::NotifyDownloads => {
+                self.config.notify_downloads = !self.config.notify_downloads;
+            }
+            SettingId::NotifyTrackerFailures => {
+                self.config.notify_tracker_failures = !self.config.notify_tracker_failures;
             }
             SettingId::LibraryDisplay => {
                 self.cycle_library_display_mode_for(delta);
@@ -16857,7 +17001,7 @@ impl AppState {
     }
 
     fn apply_scanned_library(&mut self, library: Library, context: &ScanContext) {
-        let _ = self.updates.observe_now(&library);
+        let new_chapters = self.updates.observe_now(&library).unwrap_or(0);
         self.library = library;
         self.tile_covers.clear();
         self.apply_hidden_series();
@@ -16879,6 +17023,12 @@ impl AppState {
                 .into_iter()
                 .position(|index| self.library.series[index].path == *path)
         });
+        if new_chapters > 0 {
+            self.notify_updates(
+                new_chapters,
+                &format!("{} from local scans", plural_chapters(new_chapters)),
+            );
+        }
         if let Some(position) = restored {
             self.selected = position;
             self.view = context.previous_view;
@@ -17473,6 +17623,14 @@ fn cycle_tri_state(state: TriState, delta: i32) -> TriState {
 
 fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
+}
+
+fn plural_chapters(count: usize) -> String {
+    if count == 1 {
+        "1 chapter".to_owned()
+    } else {
+        format!("{count} chapters")
+    }
 }
 
 /// Apply the reader's display transforms before zoom or block slicing.
@@ -18867,6 +19025,24 @@ mod tests {
         );
         app.close_tracker_edit();
         assert!(app.tracker_edit.is_none());
+    }
+
+    #[test]
+    fn diagnostics_report_paths_and_counts() {
+        let mut app = AppState::new(library(), None);
+        app.open_diagnostics();
+        let text = app.diagnostics.clone().expect("diagnostics");
+        assert!(text.contains("Version"));
+        assert!(text.contains("Series         2"));
+        assert!(text.contains("Host           stopped"));
+        app.close_diagnostics();
+        assert!(app.diagnostics.is_none());
+    }
+
+    #[test]
+    fn diagnostics_page_is_listed_in_settings() {
+        assert!(SETTINGS_PAGES.contains(&SettingsPage::Notifications));
+        assert!(SETTINGS_PAGES.contains(&SettingsPage::Advanced));
     }
 
     #[test]

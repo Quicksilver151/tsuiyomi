@@ -382,6 +382,7 @@ Rules:
   `auto_download_new_chapters`, `auto_download_categories`, `smart_update_unread_only`,
   `smart_update_skip_unstarted`, `smart_update_skip_completed`,
   `smart_update_release_days`, `update_categories`, `updates_tab_badge`,
+  `notify_updates`, `notify_downloads`, `notify_tracker_failures`,
   `library_display_mode`, `hide_missing_chapters`,
   `mark_duplicate_chapters_read`, `reader_skip_read`, `reader_skip_duplicates`,
   `reader_chapter_transitions`, `reader_crop_borders`, `reader_grayscale`,

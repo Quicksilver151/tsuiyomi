@@ -213,6 +213,12 @@ pub struct Config {
     pub update_categories: BTreeSet<String>,
     /// Show the new-chapter count on the Updates tab.
     pub updates_tab_badge: bool,
+    /// Send desktop notifications for newly discovered chapters.
+    pub notify_updates: bool,
+    /// Send desktop notifications when downloads fail or finish.
+    pub notify_downloads: bool,
+    /// Send desktop notifications when a tracker update fails.
+    pub notify_tracker_failures: bool,
     /// External extension-host base URL, e.g. `http://127.0.0.1:4567`. When unset,
     /// tsuiyomi starts the bundled host.
     pub host_url: Option<String>,
@@ -362,6 +368,9 @@ impl Default for Config {
             smart_update_release_days: 0,
             update_categories: BTreeSet::new(),
             updates_tab_badge: true,
+            notify_updates: true,
+            notify_downloads: true,
+            notify_tracker_failures: true,
             host_url: None,
             host_jar: None,
             flaresolverr_url: None,

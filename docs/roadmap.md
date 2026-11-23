@@ -19,9 +19,9 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 4 | 2 | 1 | 0 | 71.4% |
 | [Downloads](#downloads) | 6 | 0 | 1 | 1 | 85.7% |
-| [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
-| [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **237** | **7** | **11** | **11** | **94.3%** |
+| [Settings, security, and data](#settings-security-and-data) | 16 | 0 | 2 | 0 | 88.9% |
+| [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
+| **All categories** | **241** | **6** | **9** | **10** | **95.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -333,9 +333,9 @@ table below.
 | Advanced | FlareSolverr URL | Yes | ✅ | ✅ | Validated, persisted, host restart. |
 | Advanced | Custom user agent | Yes | ❌ | ❌ | Planned. |
 | Advanced | DNS-over-HTTPS | Yes | ❌ | ❌ | Planned. |
-| Advanced | Diagnostics / verbose logging | Yes | 🟡 | 🟡 | Host logs exist; no in-app diagnostics view. |
-| Notifications | Update notifications | Yes | ❌ | ❌ | Planned desktop notifications. |
-| Notifications | Download and tracker-failure notifications | Yes | ❌ | ❌ | Planned desktop notifications. |
+| Advanced | Diagnostics / verbose logging | Yes | ✅ | ✅ | Advanced → Diagnostics shows version, paths, host state, tracker links, queue, and log level. |
+| Notifications | Update notifications | Yes | ✅ | ✅ | Desktop notifications for local scans and saved-source refreshes. |
+| Notifications | Download and tracker-failure notifications | Yes | ✅ | ✅ | Download completion/failure and tracker failures notify through the desktop. |
 | Security | Global Incognito | Yes | ✅ | ✅ | |
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Downloads | Download settings/management page | Yes | ✅ | ✅ | Folder setting plus a downloaded-series list with sizes and per-series deletion. |
@@ -352,7 +352,7 @@ table below.
 | Android share sheet | OSC 52 clipboard copy / open file | ✅ | `C` on story; `S` opens the cached cover externally. |
 | File picker | Path-entry dialog | ✅ | Custom covers and series import. |
 | Swipe actions | Keys and download menu | ➖ | Intentional terminal deviation. |
-| Android notifications | TUI status bar/queue markers | ➖ | No background daemon notifications. |
+| Android notifications | Desktop notifications + TUI status/queue markers | ✅ | Best-effort `notify-send`/Notification Center; no background daemon runs while the TUI is closed. |
 | WebView-dependent source | None | ➖ | The host has no browser engine, so these sources stay unsupported. |
 | Mihon database categories | Portable `categories.json` sidecar | ➖ | A filesystem library cannot share the Android app database; the sidecar keeps categories portable. |
 | APK signature verification | TOFU file fingerprints | ➖ | The host cannot verify signing keys; the TUI records a SHA-256 fingerprint instead. |

@@ -394,6 +394,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.diagnostics.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Back => app.close_diagnostics(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.tracker_edit.is_some() {
             match action {
                 Action::Quit => return Ok(()),

@@ -104,6 +104,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_update_categories(frame, app);
     draw_tracker_picker(frame, app);
     draw_tracker_edit(frame, app);
+    draw_diagnostics(frame, app);
     draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
     draw_migration_search(frame, app);
@@ -871,6 +872,43 @@ fn draw_tracker_picker(frame: &mut Frame, app: &AppState) {
         picker.selected.min(picker.results.len().saturating_sub(1)),
     ));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_diagnostics(frame: &mut Frame, app: &AppState) {
+    let Some(text) = app.diagnostics.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 72.min(area.width).max(24);
+    let height = 13.min(area.height);
+    if width < 20 || height < 6 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Diagnostics ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Esc close ", Style::default().fg(c_overlay0())),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    frame.render_widget(
+        Paragraph::new(text.clone())
+            .style(Style::default().fg(c_text()))
+            .wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 fn draw_tracker_edit(frame: &mut Frame, app: &AppState) {
@@ -6644,6 +6682,31 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                     .join(", ")
             },
         ),
+        SettingId::NotifyUpdates => (
+            "New chapters".to_owned(),
+            if app.config.notify_updates {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::NotifyDownloads => (
+            "Downloads".to_owned(),
+            if app.config.notify_downloads {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::NotifyTrackerFailures => (
+            "Tracker failures".to_owned(),
+            if app.config.notify_tracker_failures {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::Diagnostics => ("Show diagnostics".to_owned(), "Enter".to_owned()),
         SettingId::UpdatesTabBadge => (
             "Updates tab badge".to_owned(),
             if app.config.updates_tab_badge {
