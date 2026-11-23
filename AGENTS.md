@@ -254,7 +254,7 @@ Rules:
   Chapter actions cover select all/invert, mark read/unread/previous, continue reading,
   single and batch downloads
   (selected, next 1/5/10/25, unread, bookmarked), queue cancellation, download deletion,
-  categories, notes, migrate, tag copy, AniList/MyAnimeList tracking (`T`),
+  categories, notes, migrate, tag copy, AniList/MyAnimeList tracking and entry metadata (`T`),
   `ComicInfo.xml` export for local series, copy/open, cover share through the system
   viewer, relative source-page URL resolution through installed extension metadata, cover
   overlay, tag search, and
@@ -378,7 +378,9 @@ Rules:
   `migration_transfer_categories`, `migration_transfer_notes`, `migration_transfer_cover`,
   `migration_remove_downloads`, `download_ahead`, `delete_after_read`,
   `keep_bookmarked_downloads`, `save_chapters_as_cbz`, `download_excluded_categories`,
-  `auto_download_new_chapters`, `auto_download_categories`,
+  `auto_download_new_chapters`, `auto_download_categories`, `smart_update_unread_only`,
+  `smart_update_skip_unstarted`, `smart_update_skip_completed`,
+  `smart_update_release_days`, `update_categories`, `updates_tab_badge`,
   `library_display_mode`, `hide_missing_chapters`,
   `mark_duplicate_chapters_read`, `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,

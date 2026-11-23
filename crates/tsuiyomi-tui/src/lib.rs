@@ -324,6 +324,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.update_category_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.update_category_previous(),
+                Action::Next => app.update_category_next(),
+                Action::Open | Action::Confirm | Action::Select => app.update_category_toggle(),
+                Action::Refresh => app.update_category_reset(),
+                Action::Back => app.close_update_categories(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.auto_download_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -374,6 +388,22 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::Open | Action::Confirm | Action::Select => app.library_filter_toggle(),
                 Action::Refresh => app.library_filter_reset(),
                 Action::Back => app.close_library_filters(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
+        if app.tracker_edit.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.tracker_edit_previous(),
+                Action::Next => app.tracker_edit_next(),
+                Action::PreviousPage => app.tracker_edit_adjust(-1),
+                Action::NextPage | Action::Open | Action::Confirm | Action::Select => {
+                    app.tracker_edit_activate()
+                }
+                Action::Back => app.close_tracker_edit(),
                 _ => {}
             }
             needs_draw = true;

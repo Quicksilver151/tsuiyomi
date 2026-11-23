@@ -237,8 +237,9 @@ dates are right-aligned, and in-progress page counts sit immediately after the c
 title;
 chapter filters, sorting, and display mode persist per series. `x`/Delete removes
 selected downloads after confirmation, `c` edits categories for saved source manga,
-`M` opens Migrate with the manga selected, `N` edits notes, `T` links or unlinks an
-AniList or MyAnimeList tracker entry, `Y` copies tags, `o` opens the series page (or the
+`M` opens Migrate with the manga selected, `N` edits notes, `T` links a story to
+AniList or MyAnimeList or edits the linked entry's status, score, dates, privacy, and
+unlink action, `Y` copies tags, `o` opens the series page (or the
 current chapter page in the reader), `E` writes a
 Mihon-readable `ComicInfo.xml` for a local series, `C` copies the URL, `S` opens the cover
 in the system viewer, `o` opens the local folder or source page (resolving relative URLs
@@ -394,6 +395,11 @@ delete_after_read = false      # remove a downloaded chapter after its last page
 keep_bookmarked_downloads = true
 save_chapters_as_cbz = false   # save downloads as .cbz archives
 auto_download_new_chapters = false  # download new chapters for saved series
+smart_update_unread_only = false   # smart update restrictions
+smart_update_skip_unstarted = false
+smart_update_skip_completed = false
+smart_update_release_days = 0
+updates_tab_badge = true
 # auto_download_categories = ["Reading"]  # scope the global policy
 # download_excluded_categories = ["Keep"]  # categories kept from delete-after-read
 theme = "catppuccin_mocha"

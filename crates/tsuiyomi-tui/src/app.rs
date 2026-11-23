@@ -25,17 +25,18 @@ use tsuiyomi_core::{
     normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
     read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
     save_config, scan_library, search_anilist, series_dir_name, source_dir_name, story_cache_path,
-    title_similarity, today_key, update_anilist_progress, update_mal_progress, visible_chapters,
-    write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
-    BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
-    ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
-    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
-    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
-    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
-    SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerLink, TrackerMedia,
-    TriState, UpdateEntry, UpdateStore,
+    title_similarity, today_key, update_anilist_entry, update_anilist_progress, update_mal_entry,
+    update_mal_progress, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
+    BackupChapter, BackupHistory, BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter,
+    ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config,
+    ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess,
+    InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort, LocalSourceOrder,
+    MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState,
+    ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage,
+    RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode,
+    SourceFilter, SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences,
+    Theme, TrackerAuth, TrackerEntry, TrackerLink, TrackerMedia, TrackerStatus, TriState,
+    UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -331,6 +332,8 @@ pub enum TextAction {
     MalClientId,
     MalClientSecret,
     MalToken,
+    TrackerStartDate,
+    TrackerFinishDate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -503,6 +506,12 @@ pub enum SettingId {
     DownloadExcludedCategories,
     AutoDownloadNewChapters,
     AutoDownloadCategories,
+    SmartUpdateUnreadOnly,
+    SmartUpdateSkipUnstarted,
+    SmartUpdateSkipCompleted,
+    SmartUpdateReleaseDays,
+    UpdateCategories,
+    UpdatesTabBadge,
     ImportBackup,
     ExportBackup,
 }
@@ -547,7 +556,7 @@ const APPEARANCE_ROWS: [MoreRow; 7] = [
     MoreRow::Setting(SettingId::ThumbnailSize),
 ];
 
-const LIBRARY_ROWS: [MoreRow; 11] = [
+const LIBRARY_ROWS: [MoreRow; 17] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::LibraryPath),
     MoreRow::Setting(SettingId::RescanLibrary),
@@ -559,6 +568,12 @@ const LIBRARY_ROWS: [MoreRow; 11] = [
     MoreRow::Setting(SettingId::MarkDuplicatesRead),
     MoreRow::Divider("Updates"),
     MoreRow::Setting(SettingId::UpdateInterval),
+    MoreRow::Setting(SettingId::SmartUpdateUnreadOnly),
+    MoreRow::Setting(SettingId::SmartUpdateSkipUnstarted),
+    MoreRow::Setting(SettingId::SmartUpdateSkipCompleted),
+    MoreRow::Setting(SettingId::SmartUpdateReleaseDays),
+    MoreRow::Setting(SettingId::UpdateCategories),
+    MoreRow::Setting(SettingId::UpdatesTabBadge),
 ];
 
 const READER_ROWS: [MoreRow; 8] = [
@@ -950,6 +965,11 @@ pub struct LibraryFilterPicker {
 }
 
 #[derive(Debug, Default)]
+pub struct TrackerEditState {
+    pub selected: usize,
+}
+
+#[derive(Debug, Default)]
 pub struct TrackerPicker {
     pub results: Vec<TrackerMedia>,
     pub selected: usize,
@@ -1245,8 +1265,10 @@ pub struct AppState {
     pub library_filter_picker: Option<LibraryFilterPicker>,
     pub download_exclusion_picker: Option<CategorySetPicker>,
     pub auto_download_picker: Option<CategorySetPicker>,
+    pub update_category_picker: Option<CategorySetPicker>,
     pub migration_flags_picker: Option<MigrationFlagsPicker>,
     pub tracker_picker: Option<TrackerPicker>,
+    pub tracker_edit: Option<TrackerEditState>,
     pub tracker_unlink_confirm: bool,
     pub migration_source_picker: Option<MigrationSourcePicker>,
     pub migration_search: Option<MigrationSearchState>,
@@ -1407,8 +1429,10 @@ impl AppState {
             library_filter_picker: None,
             download_exclusion_picker: None,
             auto_download_picker: None,
+            update_category_picker: None,
             migration_flags_picker: None,
             tracker_picker: None,
+            tracker_edit: None,
             tracker_unlink_confirm: false,
             migration_source_picker: None,
             migration_search: None,
@@ -6042,6 +6066,8 @@ impl AppState {
             TextAction::MalClientId => self.set_mal_client_id(&input.value),
             TextAction::MalClientSecret => self.set_mal_client_secret(&input.value),
             TextAction::MalToken => self.set_mal_token(&input.value),
+            TextAction::TrackerStartDate => self.set_tracker_date(false, &input.value),
+            TextAction::TrackerFinishDate => self.set_tracker_date(true, &input.value),
         }
     }
 
@@ -8191,6 +8217,9 @@ impl AppState {
             if queued >= 10 {
                 break;
             }
+            if !self.should_update_favorite(&favorite) {
+                continue;
+            }
             let key = remote_story_key(&favorite.source_id, &favorite.url);
             if self.auto_update_inflight.contains(&key)
                 || self.story_refresh.as_deref() == Some(key.as_str())
@@ -8245,6 +8274,9 @@ impl AppState {
         let favorites = self.config.remote_library.clone();
         let mut queued = 0usize;
         for favorite in favorites {
+            if !self.should_update_favorite(&favorite) {
+                continue;
+            }
             let key = remote_story_key(&favorite.source_id, &favorite.url);
             if self.auto_update_inflight.contains(&key)
                 || self.story_refresh.as_deref() == Some(key.as_str())
@@ -8724,6 +8756,77 @@ impl AppState {
         }
     }
 
+    fn library_series_for_remote(&self, source_id: &str, url: &str) -> Option<&Series> {
+        self.library.series.iter().find(|series| {
+            series
+                .remote
+                .as_ref()
+                .is_some_and(|remote| remote.source_id == source_id && remote.url == url)
+        })
+    }
+
+    /// Whether an automatic update should refresh a saved source entry under the
+    /// configured restrictions.
+    fn should_update_favorite(&self, favorite: &RemoteFavorite) -> bool {
+        let Some(series) = self.library_series_for_remote(&favorite.source_id, &favorite.url)
+        else {
+            // Entries without a library series cannot be evaluated; keep updating.
+            return true;
+        };
+        if !self.config.update_categories.is_empty()
+            && !series
+                .categories
+                .iter()
+                .any(|category| self.config.update_categories.contains(category))
+        {
+            return false;
+        }
+        if self.config.smart_update_unread_only && self.series_unread_count(series) == 0 {
+            return false;
+        }
+        if self.config.smart_update_skip_unstarted
+            && !series
+                .chapters
+                .iter()
+                .any(|chapter| self.progress.entry(&chapter.path).is_some_and(|_| true))
+        {
+            return false;
+        }
+        if self.config.smart_update_skip_completed
+            && series
+                .status
+                .as_deref()
+                .is_some_and(|status| status.to_ascii_lowercase().contains("complete"))
+        {
+            return false;
+        }
+        if self.config.smart_update_release_days > 0 {
+            let cutoff = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0)
+                .saturating_sub(self.config.smart_update_release_days.saturating_mul(86_400));
+            let newest = series
+                .chapters
+                .iter()
+                .filter_map(|chapter| chapter.date)
+                .filter_map(|date| {
+                    chrono::NaiveDate::from_ymd_opt(
+                        date.year,
+                        u32::from(date.month),
+                        u32::from(date.day),
+                    )
+                    .and_then(|date| date.and_hms_opt(0, 0, 0))
+                    .map(|date| date.and_utc().timestamp().max(0) as u64)
+                })
+                .max();
+            if newest.is_some_and(|newest| newest >= cutoff) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Per-series auto-download, or the global policy when the saved series matches
     /// its category scope.
     fn auto_download_new_chapters_enabled(
@@ -8981,6 +9084,51 @@ impl AppState {
 
     pub fn close_auto_download_categories(&mut self) {
         self.auto_download_picker = None;
+    }
+
+    pub fn open_update_categories(&mut self) {
+        if self.library.categories.is_empty() {
+            self.status = Some("The library has no categories.".to_owned());
+            return;
+        }
+        self.update_category_picker = Some(CategorySetPicker::default());
+    }
+
+    pub fn update_category_previous(&mut self) {
+        if let Some(picker) = self.update_category_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn update_category_next(&mut self) {
+        if let Some(picker) = self.update_category_picker.as_mut() {
+            let last = self.library.categories.len().saturating_sub(1);
+            picker.selected = (picker.selected + 1).min(last);
+        }
+    }
+
+    pub fn update_category_toggle(&mut self) {
+        let Some(picker) = self.update_category_picker.as_ref() else {
+            return;
+        };
+        let Some(category) = self.library.categories.get(picker.selected).cloned() else {
+            return;
+        };
+        if !self.config.update_categories.insert(category.clone()) {
+            self.config.update_categories.remove(&category);
+        }
+        self.auto_update_checked_at = None;
+        self.persist_settings();
+    }
+
+    pub fn update_category_reset(&mut self) {
+        self.config.update_categories.clear();
+        self.auto_update_checked_at = None;
+        self.persist_settings();
+    }
+
+    pub fn close_update_categories(&mut self) {
+        self.update_category_picker = None;
     }
 
     pub fn queue_previous(&mut self) {
@@ -11012,17 +11160,209 @@ impl AppState {
         let Some(key) = self.current_story_key() else {
             return;
         };
-        if let Some(link) = self.config.tracking.get(&key).cloned() {
-            self.tracker_unlink_confirm = true;
-            self.status = Some(format!(
-                "Unlink {} {}? Enter/y confirm · Esc cancel",
-                Self::tracker_service_label(&link.service),
-                link.title
-            ));
+        if self.config.tracking.contains_key(&key) {
+            self.tracker_edit = Some(TrackerEditState::default());
             return;
         }
         let title = self.current_story_title().unwrap_or_default();
         self.open_text_input(TextAction::TrackerSearch, "Search AniList", &title);
+    }
+
+    const TRACKER_EDIT_ROWS: usize = 7;
+
+    pub fn tracker_edit_previous(&mut self) {
+        if let Some(edit) = self.tracker_edit.as_mut() {
+            edit.selected = edit.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn tracker_edit_next(&mut self) {
+        if let Some(edit) = self.tracker_edit.as_mut() {
+            edit.selected = (edit.selected + 1).min(Self::TRACKER_EDIT_ROWS - 1);
+        }
+    }
+
+    pub fn close_tracker_edit(&mut self) {
+        self.tracker_edit = None;
+    }
+
+    fn tracker_edit_link(&self) -> Option<TrackerLink> {
+        let key = self.current_story_key()?;
+        self.config.tracking.get(&key).cloned()
+    }
+
+    /// `(links, scored entries, mean score)` across configured tracker links.
+    pub fn tracker_summary(&self) -> (usize, usize, Option<f32>) {
+        let mut count = 0usize;
+        let mut scored = 0usize;
+        let mut total = 0.0f32;
+        for link in self.config.tracking.values() {
+            count += 1;
+            if let Some(score) = link.score {
+                scored += 1;
+                total += score;
+            }
+        }
+        let mean = (scored > 0).then(|| total / scored as f32);
+        (count, scored, mean)
+    }
+
+    pub(crate) fn tracker_effective_status(link: &TrackerLink) -> TrackerStatus {
+        link.status
+            .as_deref()
+            .and_then(TrackerStatus::parse)
+            .unwrap_or_else(|| {
+                if link
+                    .total_chapters
+                    .is_some_and(|total| total > 0 && link.progress >= total)
+                {
+                    TrackerStatus::Completed
+                } else {
+                    TrackerStatus::Reading
+                }
+            })
+    }
+
+    pub fn tracker_edit_adjust(&mut self, delta: i32) {
+        let Some(edit) = self.tracker_edit.as_ref() else {
+            return;
+        };
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let Some(mut link) = self.config.tracking.get(&key).cloned() else {
+            return;
+        };
+        match edit.selected {
+            0 => {
+                let statuses = [
+                    TrackerStatus::Reading,
+                    TrackerStatus::Completed,
+                    TrackerStatus::OnHold,
+                    TrackerStatus::Dropped,
+                    TrackerStatus::Planning,
+                ];
+                let current = statuses
+                    .iter()
+                    .position(|status| *status == Self::tracker_effective_status(&link))
+                    .unwrap_or(0);
+                let next = (current as i32 + delta).rem_euclid(statuses.len() as i32) as usize;
+                link.status = Some(statuses[next].id().to_owned());
+            }
+            1 => {
+                let current = link.score.unwrap_or(0.0).round() as i32;
+                let next = (current + delta).clamp(0, 10);
+                link.score = (next > 0).then_some(next as f32);
+            }
+            4 => {
+                if link.service != "anilist" {
+                    self.status = Some("MyAnimeList does not expose per-entry privacy.".to_owned());
+                    return;
+                }
+                link.private = Some(!link.private.unwrap_or(false));
+            }
+            _ => return,
+        }
+        self.config.tracking.insert(key.clone(), link);
+        self.persist_settings();
+        self.push_tracker_link_update(&key);
+        self.status = Some("Tracker entry updated.".to_owned());
+    }
+
+    pub fn tracker_edit_activate(&mut self) {
+        let Some(edit) = self.tracker_edit.as_ref() else {
+            return;
+        };
+        match edit.selected {
+            0 | 1 | 4 => self.tracker_edit_adjust(1),
+            2 => {
+                let current = self
+                    .tracker_edit_link()
+                    .and_then(|link| link.start_date)
+                    .unwrap_or_default();
+                self.open_text_input(TextAction::TrackerStartDate, "Start date", &current);
+            }
+            3 => {
+                let current = self
+                    .tracker_edit_link()
+                    .and_then(|link| link.finish_date)
+                    .unwrap_or_default();
+                self.open_text_input(TextAction::TrackerFinishDate, "Finish date", &current);
+            }
+            5 => {
+                self.tracker_edit = None;
+                self.tracker_unlink_confirm = true;
+                self.status =
+                    Some("Unlink this tracker entry? Enter/y confirm · Esc cancel".to_owned());
+            }
+            _ => self.tracker_edit = None,
+        }
+    }
+
+    fn set_tracker_date(&mut self, finish: bool, value: &str) {
+        let value = value.trim();
+        if !value.is_empty() && !valid_tracker_date(value) {
+            self.status = Some("Use YYYY-MM-DD for tracker dates.".to_owned());
+            return;
+        }
+        let Some(key) = self.current_story_key() else {
+            return;
+        };
+        let date = (!value.is_empty()).then(|| value.to_owned());
+        let Some(link) = self.config.tracking.get_mut(&key) else {
+            return;
+        };
+        if finish {
+            link.finish_date = date;
+        } else {
+            link.start_date = date;
+        }
+        self.persist_settings();
+        self.push_tracker_link_update(&key);
+        self.status = Some("Tracker entry updated.".to_owned());
+    }
+
+    /// Send the full local tracker entry so metadata edits reach the tracker.
+    fn push_tracker_link_update(&mut self, key: &str) {
+        let Some(link) = self.config.tracking.get(key).cloned() else {
+            return;
+        };
+        let Some(token) = self.tracker_token_for(&link.service) else {
+            self.set_tracker_message(
+                "Saved locally; log in to sync tracker metadata.".to_owned(),
+                false,
+            );
+            return;
+        };
+        if let Some(worker) = self.tracker_worker.as_ref() {
+            worker.request(TrackerRequest::Update {
+                service: link.service.clone(),
+                token,
+                media_id: link.media_id,
+                progress: link.progress,
+                total: link.total_chapters,
+                status: link.status.clone(),
+                score: link.score,
+                start_date: link.start_date.clone(),
+                finish_date: link.finish_date.clone(),
+                private: link.private,
+            });
+        } else {
+            let entry = TrackerEntry {
+                progress: link.progress,
+                total: link.total_chapters,
+                status: link.status.as_deref().and_then(TrackerStatus::parse),
+                score: link.score,
+                start_date: link.start_date.as_deref(),
+                finish_date: link.finish_date.as_deref(),
+                private: link.private,
+            };
+            let _ = if link.service == "mal" {
+                update_mal_entry(&token, link.media_id, &entry)
+            } else {
+                update_anilist_entry(&token, link.media_id, &entry)
+            };
+        }
     }
 
     fn run_tracker_search(&mut self, query: &str) {
@@ -11097,6 +11437,7 @@ impl AppState {
                 title: media.title.clone(),
                 total_chapters: media.chapters,
                 progress,
+                ..TrackerLink::default()
             },
         );
         self.persist_settings();
@@ -11228,6 +11569,11 @@ impl AppState {
                 media_id: link.media_id,
                 progress: link.progress,
                 total: link.total_chapters,
+                status: link.status.clone(),
+                score: link.score,
+                start_date: link.start_date.clone(),
+                finish_date: link.finish_date.clone(),
+                private: link.private,
             });
         }
     }
@@ -11397,6 +11743,11 @@ impl AppState {
                 media_id: link.media_id,
                 progress,
                 total,
+                status: link.status.clone(),
+                score: link.score,
+                start_date: link.start_date.clone(),
+                finish_date: link.finish_date.clone(),
+                private: link.private,
             });
         } else {
             let _ = if link.service == "mal" {
@@ -14572,6 +14923,27 @@ impl AppState {
                 self.config.auto_download_new_chapters = !self.config.auto_download_new_chapters;
             }
             SettingId::AutoDownloadCategories => {}
+            SettingId::SmartUpdateUnreadOnly => {
+                self.config.smart_update_unread_only = !self.config.smart_update_unread_only;
+                self.auto_update_checked_at = None;
+            }
+            SettingId::SmartUpdateSkipUnstarted => {
+                self.config.smart_update_skip_unstarted = !self.config.smart_update_skip_unstarted;
+                self.auto_update_checked_at = None;
+            }
+            SettingId::SmartUpdateSkipCompleted => {
+                self.config.smart_update_skip_completed = !self.config.smart_update_skip_completed;
+                self.auto_update_checked_at = None;
+            }
+            SettingId::SmartUpdateReleaseDays => {
+                self.config.smart_update_release_days =
+                    (self.config.smart_update_release_days as i32 + delta).clamp(0, 30) as u64;
+                self.auto_update_checked_at = None;
+            }
+            SettingId::UpdateCategories => {}
+            SettingId::UpdatesTabBadge => {
+                self.config.updates_tab_badge = !self.config.updates_tab_badge;
+            }
             SettingId::LibraryDisplay => {
                 self.cycle_library_display_mode_for(delta);
             }
@@ -16801,6 +17173,19 @@ fn in_category(series: &Series, category: Option<&str>) -> bool {
     category.is_none_or(|category| series.categories.iter().any(|item| item == category))
 }
 
+/// Validate a `YYYY-MM-DD` tracker date.
+fn valid_tracker_date(value: &str) -> bool {
+    let mut parts = value.split('-');
+    let parsed = (
+        parts.next().and_then(|part| part.parse::<i32>().ok()),
+        parts.next().and_then(|part| part.parse::<u32>().ok()),
+        parts.next().and_then(|part| part.parse::<u32>().ok()),
+    );
+    matches!(parsed, (Some(year), Some(month), Some(day))
+        if year > 0 && (1..=12).contains(&month) && (1..=31).contains(&day))
+        && parts.next().is_none()
+}
+
 fn terminal_width() -> u16 {
     terminal::size()
         .map(|(width, _)| width.max(1))
@@ -17540,6 +17925,7 @@ mod tests {
                 title: "Berserk".to_owned(),
                 total_chapters: None,
                 progress: 0,
+                ..TrackerLink::default()
             },
         );
         app.config.library_filters.tracked = true;
@@ -17655,6 +18041,67 @@ mod tests {
             .is_some_and(|label| label.starts_with("paused")));
         app.toggle_download_pause();
         assert!(!app.download_queue.paused);
+    }
+
+    #[test]
+    fn smart_update_rules_filter_saved_entries() {
+        let mut app = remote_app();
+        let mut saved = series("Saved", &["Default", "Reading"]);
+        saved.remote = Some(RemoteSeries {
+            source_id: "1".to_owned(),
+            url: "/manga/saved".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        });
+        saved.chapters = vec![chapter("Chapter 1"), chapter("Chapter 2")];
+        app.library.series.push(saved);
+        let favorite = RemoteFavorite {
+            source_id: "1".to_owned(),
+            url: "/manga/saved".to_owned(),
+            title: "Saved".to_owned(),
+            thumbnail_url: None,
+            last_read_url: None,
+            last_read_name: None,
+            categories: vec!["Reading".to_owned()],
+        };
+        assert!(app.should_update_favorite(&favorite));
+
+        app.config.smart_update_unread_only = true;
+        assert!(app.should_update_favorite(&favorite));
+        app.progress.update(Path::new("Chapter 1"), 0, 1);
+        app.progress.update(Path::new("Chapter 2"), 0, 1);
+        assert!(!app.should_update_favorite(&favorite));
+        app.config.smart_update_unread_only = false;
+
+        app.config.smart_update_skip_unstarted = true;
+        app.progress = ProgressStore::default();
+        assert!(!app.should_update_favorite(&favorite));
+        app.progress.update(Path::new("Chapter 1"), 0, 10);
+        assert!(app.should_update_favorite(&favorite));
+        app.config.smart_update_skip_unstarted = false;
+
+        app.config.update_categories.insert("Keep".to_owned());
+        assert!(!app.should_update_favorite(&favorite));
+        app.config.update_categories.insert("Reading".to_owned());
+        assert!(app.should_update_favorite(&favorite));
+        app.config.update_categories.clear();
+
+        app.library.series.last_mut().unwrap().status = Some("Completed".to_owned());
+        app.config.smart_update_skip_completed = true;
+        assert!(!app.should_update_favorite(&favorite));
+        app.config.smart_update_skip_completed = false;
+
+        let today = chrono::Local::now().date_naive();
+        app.library.series.last_mut().unwrap().chapters[0].date =
+            Some(tsuiyomi_core::ChapterDate {
+                year: today.format("%Y").to_string().parse().unwrap(),
+                month: today.format("%m").to_string().parse().unwrap(),
+                day: today.format("%d").to_string().parse().unwrap(),
+            });
+        app.config.smart_update_release_days = 3;
+        assert!(!app.should_update_favorite(&favorite));
+        app.library.series.last_mut().unwrap().chapters[0].date = None;
+        assert!(app.should_update_favorite(&favorite));
     }
 
     #[test]
@@ -17940,12 +18387,66 @@ mod tests {
                 title: "Berserk".to_owned(),
                 total_chapters: Some(380),
                 progress: 1,
+                ..TrackerLink::default()
             },
         );
         app.open_tracker();
-        assert!(app.tracker_unlink_confirm);
-        app.cancel_tracker_unlink();
-        assert!(!app.tracker_unlink_confirm);
+        assert!(app.tracker_edit.is_some());
+        app.tracker_edit_adjust(1);
+        assert_eq!(
+            app.config.tracking["local:Berserk"].status.as_deref(),
+            Some("completed")
+        );
+        app.tracker_edit_next();
+        app.tracker_edit_adjust(1);
+        assert_eq!(app.config.tracking["local:Berserk"].score, Some(1.0));
+
+        app.tracker_edit_next();
+        app.tracker_edit_activate();
+        assert!(app.text_input.is_some());
+        app.text_input.as_mut().unwrap().value = "2024-02-03".to_owned();
+        app.input_submit();
+        assert_eq!(
+            app.config.tracking["local:Berserk"].start_date.as_deref(),
+            Some("2024-02-03")
+        );
+        app.close_tracker_edit();
+        assert!(app.tracker_edit.is_none());
+    }
+
+    #[test]
+    fn tracker_summary_counts_links_and_mean_score() {
+        let mut app = AppState::new(library(), None);
+        app.config.tracking.insert(
+            "a".to_owned(),
+            TrackerLink {
+                service: "anilist".to_owned(),
+                media_id: 1,
+                title: "A".to_owned(),
+                score: Some(8.0),
+                ..TrackerLink::default()
+            },
+        );
+        app.config.tracking.insert(
+            "b".to_owned(),
+            TrackerLink {
+                service: "mal".to_owned(),
+                media_id: 2,
+                title: "B".to_owned(),
+                score: Some(6.0),
+                ..TrackerLink::default()
+            },
+        );
+        app.config.tracking.insert(
+            "c".to_owned(),
+            TrackerLink {
+                service: "mal".to_owned(),
+                media_id: 3,
+                title: "C".to_owned(),
+                ..TrackerLink::default()
+            },
+        );
+        assert_eq!(app.tracker_summary(), (3, 2, Some(7.0)));
     }
 
     #[test]

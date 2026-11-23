@@ -10,18 +10,18 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | Category | ✅ | 🟡 | ❌ | ➖ | Score |
 |---|---:|---:|---:|---:|---:|
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 1 | 3 | 1 | 86.0% |
-| [Library](#library) | 22 | 3 | 2 | 0 | 87.0% |
+| [Library](#library) | 24 | 2 | 1 | 0 | 92.6% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
 | [Reader](#reader) | 18 | 1 | 5 | 0 | 77.1% |
-| [History and Stats](#history-and-stats) | 19 | 1 | 1 | 0 | 92.9% |
+| [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
-| [Tracking](#tracking) | 2 | 2 | 3 | 0 | 42.9% |
+| [Tracking](#tracking) | 4 | 2 | 1 | 0 | 71.4% |
 | [Downloads](#downloads) | 6 | 0 | 1 | 1 | 85.7% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **227** | **9** | **19** | **11** | **90.8%** |
+| **All categories** | **233** | **7** | **15** | **11** | **92.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -79,8 +79,8 @@ table below.
 | Search | Library title filter | Yes | ✅ | ✅ | `/` or `s` filters the Library grid; Esc clears. |
 | Filters | Library filter dialog | Yes | ✅ | ✅ | `z` toggles unread, in-progress, bookmarked, tracked, missing, and downloaded filters. |
 | Updates | Updates tab | Yes | ✅ | ✅ | New local chapters per scan and newly discovered saved-source chapters, kept 30 days; Enter reads, `x` dismisses, `X` clears. |
-| Updates | Update settings and smart-update rules | Yes | ❌ | ❌ | Planned unread-only, started/completed/release-period restrictions. |
-| Updates | Category-only update and tab-badge setting | Yes | 🟡 | 🟡 | Global saved-story refresh and tab badge exist; no category scope or badge toggle. |
+| Updates | Update settings and smart-update rules | Yes | ✅ | ✅ | Unread-only, skip-unstarted, skip-completed, and recent-release limits. |
+| Updates | Category-only update and tab-badge setting | Yes | ✅ | ✅ | Category scope for automatic updates and a tab-badge toggle. |
 | Removal | Remove local series, keep files | Yes | ✅ | ✅ | Path stored in `hidden_series`. |
 | Removal | Remove saved source manga + downloads | Yes | ✅ | ✅ | Delete dialog with optional downloads. |
 | Covers | Persistent cover cache | Yes | ✅ | ✅ | LRU, 512 px, atomic writes, Kitty reset. |
@@ -261,8 +261,8 @@ table below.
 | Stats | 14-day chart | Yes | ✅ | ✅ | |
 | Stats | Top series, streak, active days | Yes | ✅ | ✅ | |
 | Stats | Unique series count | Yes | ✅ | ✅ | |
-| Stats | Tracker overview and mean score | Yes | ❌ | ❌ | Planned tracked-title, score, and status summaries. |
-| Stats | Local/downloaded/total title counts | Yes | 🟡 | 🟡 | Library/downloads counts exist; not a unified stats breakdown. |
+| Stats | Tracker overview and mean score | Yes | ✅ | ✅ | History → Stats and More → Statistics show linked/scored entries and the mean score. |
+| Stats | Local/downloaded/total title counts | Yes | ✅ | ✅ | More → Statistics reports local, saved, and downloaded title counts. |
 | Stats | Keyboard/wheel scrolling | Yes | ✅ | ✅ | |
 | Time | Per-chapter and per-day duration | Yes | ✅ | ✅ | |
 | Time | Idle cutoff | Yes | ✅ | ✅ | Two-minute inactivity cutoff. |
@@ -304,8 +304,8 @@ table below.
 | Auth | MyAnimeList browser login, refresh, logout | Yes | 🟡 | 🟡 | Browser OAuth/PKCE with refresh and logout; not yet exercised against a registered app. |
 | Services | AniList / MyAnimeList | Yes | ✅ | ✅ | Search, link/unlink, and progress sync work. |
 | Services | Kitsu, MangaUpdates, Shikimori, Bangumi, Hikka, MangaBaka | Yes | ❌ | ❌ | Planned tracker adapters. |
-| Metadata | Status, score, start/end dates, private flag | Yes | ❌ | ❌ | Only progress and completed status are sent. |
-| Overview | Tracker stats and mean score | Yes | ❌ | ❌ | Planned in More → Statistics. |
+| Metadata | Status, score, start/end dates, private flag | Yes | ✅ | ✅ | `T` on a linked story edits status, score, dates, AniList privacy, and unlink; updates sync when logged in. |
+| Overview | Tracker stats and mean score | Yes | ✅ | ✅ | More → Statistics shows linked entries, scored entries, and the mean local score. |
 | Actions | Link/unlink/search and background progress sync | Yes | ✅ | ✅ | Worker-backed. |
 
 ### Downloads

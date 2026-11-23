@@ -87,6 +87,7 @@ pub use source_prefs::{
 };
 pub use story_cache::{load_cached_story, save_cached_story, story_cache_path, CachedStory};
 pub use tracking::{
-    search_anilist, search_mal, update_anilist_progress, update_mal_progress, TrackerMedia,
+    search_anilist, search_mal, update_anilist_entry, update_anilist_progress, update_mal_entry,
+    update_mal_progress, TrackerEntry, TrackerMedia, TrackerStatus,
 };
 pub use updates::{RemoteUpdate, UpdateEntry, UpdateStore};

@@ -67,7 +67,12 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
             3 => draw_browse(frame, layout.content, app),
             _ => draw_more(frame, layout.content, app),
         }
-        draw_tabs(frame, layout.tabs, app.tab, app.updates_count());
+        let updates = if app.config.updates_tab_badge {
+            app.updates_count()
+        } else {
+            0
+        };
+        draw_tabs(frame, layout.tabs, app.tab, updates);
     }
 
     if let Some(commands) = layout.commands {
@@ -96,7 +101,9 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_migration_flags(frame, app);
     draw_download_exclusions(frame, app);
     draw_auto_download_categories(frame, app);
+    draw_update_categories(frame, app);
     draw_tracker_picker(frame, app);
+    draw_tracker_edit(frame, app);
     draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
     draw_migration_search(frame, app);
@@ -520,6 +527,73 @@ fn draw_auto_download_categories(frame: &mut Frame, app: &AppState) {
     frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
+fn draw_update_categories(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.update_category_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 58.min(area.width).max(24);
+    let height = (app.library.categories.len() as u16 + 4)
+        .min(area.height)
+        .max(6);
+    if width < 20 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Update categories ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Space toggle · r all · Esc close ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = app
+        .library
+        .categories
+        .iter()
+        .enumerate()
+        .map(|(index, category)| {
+            let selected = index == picker.selected;
+            let enabled = app.config.update_categories.contains(category);
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    if enabled { "[x] " } else { "[ ] " },
+                    Style::default().fg(if enabled { c_green() } else { c_overlay1() }),
+                ),
+                Span::styled(
+                    category.clone(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(picker.selected.min(items.len().saturating_sub(1))));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
 fn draw_migration_flags(frame: &mut Frame, app: &AppState) {
     let Some(picker) = app.migration_flags_picker.as_ref() else {
         return;
@@ -796,6 +870,111 @@ fn draw_tracker_picker(frame: &mut Frame, app: &AppState) {
     state.select(Some(
         picker.selected.min(picker.results.len().saturating_sub(1)),
     ));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_tracker_edit(frame: &mut Frame, app: &AppState) {
+    let Some(edit) = app.tracker_edit.as_ref() else {
+        return;
+    };
+    let Some(link) = app
+        .current_story_key()
+        .and_then(|key| app.config.tracking.get(&key))
+    else {
+        return;
+    };
+    let area = frame.area();
+    let width = 58.min(area.width).max(24);
+    let height = 12.min(area.height);
+    if width < 20 || height < 8 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let service = if link.service == "mal" {
+        "MyAnimeList"
+    } else {
+        "AniList"
+    };
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                format!(" {service} · {} ", link.title),
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "↑↓ row · ←→ adjust · ↵ edit · Esc ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let score = link
+        .score
+        .map(|score| format!("{} / 10", score.round() as i64))
+        .unwrap_or_else(|| "Not scored".to_owned());
+    let private = if link.service == "mal" {
+        "n/a".to_owned()
+    } else if link.private.unwrap_or(false) {
+        "Yes".to_owned()
+    } else {
+        "No".to_owned()
+    };
+    let rows = [
+        (
+            "Status",
+            crate::app::AppState::tracker_effective_status(link)
+                .label()
+                .to_owned(),
+        ),
+        ("Score", score),
+        (
+            "Start date",
+            link.start_date
+                .clone()
+                .unwrap_or_else(|| "Not set".to_owned()),
+        ),
+        (
+            "Finish date",
+            link.finish_date
+                .clone()
+                .unwrap_or_else(|| "Not set".to_owned()),
+        ),
+        ("Private", private),
+        ("Unlink tracker", "Enter".to_owned()),
+        ("Close", "Enter".to_owned()),
+    ];
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (label, value))| {
+            let selected = index == edit.selected;
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    format!("{label:<16}"),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+                Span::styled(value.clone(), Style::default().fg(c_overlay1())),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(edit.selected.min(items.len().saturating_sub(1))));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
@@ -3320,6 +3499,18 @@ fn draw_history_stats(frame: &mut Frame, area: Rect, app: &mut AppState) {
         ),
         Style::default().fg(c_overlay1()),
     )));
+    let (tracker_links, tracker_scored, tracker_mean) = app.tracker_summary();
+    lines.push(Line::from(Span::styled(
+        format!(
+            " Trackers {} linked · {} scored · mean {}",
+            tracker_links,
+            tracker_scored,
+            tracker_mean
+                .map(|mean| format!("{mean:.1}/10"))
+                .unwrap_or_else(|| "—".to_owned())
+        ),
+        Style::default().fg(c_mauve()),
+    )));
     let max_scroll = lines.len().saturating_sub(area.height as usize);
     app.history_stats_scroll = app.history_stats_scroll.min(max_scroll);
     frame.render_widget(
@@ -4900,6 +5091,28 @@ fn append_story_tracking(lines: &mut Vec<Line<'static>>, app: &AppState) {
         &format!("{service} · {}{total}", link.progress),
         c_mauve(),
     ));
+    let status = link
+        .status
+        .as_deref()
+        .and_then(tsuiyomi_core::TrackerStatus::parse)
+        .map(tsuiyomi_core::TrackerStatus::label);
+    let score = link.score.map(|score| format!("{score:.0}/10"));
+    let mut extra = Vec::new();
+    if let Some(status) = status {
+        extra.push(status.to_owned());
+    }
+    if let Some(score) = score {
+        extra.push(score);
+    }
+    if let Some(date) = &link.start_date {
+        extra.push(format!("start {date}"));
+    }
+    if let Some(date) = &link.finish_date {
+        extra.push(format!("finish {date}"));
+    }
+    if !extra.is_empty() {
+        lines.push(field("Tracker meta", &extra.join(" · "), c_overlay1()));
+    }
 }
 
 fn source_display_name(app: &AppState, source_id: &str) -> Option<String> {
@@ -6339,6 +6552,59 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "No".to_owned()
             },
         ),
+        SettingId::SmartUpdateUnreadOnly => (
+            "Update only unread".to_owned(),
+            if app.config.smart_update_unread_only {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::SmartUpdateSkipUnstarted => (
+            "Skip unstarted".to_owned(),
+            if app.config.smart_update_skip_unstarted {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::SmartUpdateSkipCompleted => (
+            "Skip completed".to_owned(),
+            if app.config.smart_update_skip_completed {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::SmartUpdateReleaseDays => (
+            "Skip recent releases".to_owned(),
+            if app.config.smart_update_release_days == 0 {
+                "Off".to_owned()
+            } else {
+                format!("{} days", app.config.smart_update_release_days)
+            },
+        ),
+        SettingId::UpdateCategories => (
+            "Update categories".to_owned(),
+            if app.config.update_categories.is_empty() {
+                "All".to_owned()
+            } else {
+                app.config
+                    .update_categories
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+        ),
+        SettingId::UpdatesTabBadge => (
+            "Updates tab badge".to_owned(),
+            if app.config.updates_tab_badge {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
         SettingId::AutoDownloadNewChapters => (
             "Auto-download new chapters".to_owned(),
             if app.config.auto_download_new_chapters {
@@ -6721,6 +6987,35 @@ fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
             &app.library.errors.len().to_string(),
             c_peach(),
         ),
+        stat_field(
+            "Local titles",
+            &app.library
+                .series
+                .iter()
+                .filter(|series| series.remote.is_none())
+                .count()
+                .to_string(),
+            c_green(),
+        ),
+        stat_field(
+            "Saved titles",
+            &app.library
+                .series
+                .iter()
+                .filter(|series| series.remote.is_some())
+                .count()
+                .to_string(),
+            c_blue(),
+        ),
+        stat_field(
+            "Downloaded titles",
+            &app.library_download_counts
+                .values()
+                .filter(|count| **count > 0)
+                .count()
+                .to_string(),
+            c_teal(),
+        ),
         Line::from(""),
         Line::from(Span::styled(
             " Chapters",
@@ -6764,6 +7059,24 @@ fn draw_more_statistics(frame: &mut Frame, area: Rect, app: &AppState) {
             c_mauve(),
         ),
     ];
+    let (tracker_links, tracker_scored, tracker_mean) = app.tracker_summary();
+    let mut lines = lines;
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Trackers",
+        Style::default()
+            .fg(c_overlay0())
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(stat_field("Linked", &tracker_links.to_string(), c_mauve()));
+    lines.push(stat_field("Scored", &tracker_scored.to_string(), c_mauve()));
+    lines.push(stat_field(
+        "Mean score",
+        &tracker_mean
+            .map(|mean| format!("{mean:.1} / 10"))
+            .unwrap_or_else(|| "—".to_owned()),
+        c_mauve(),
+    ));
     let paragraph = Paragraph::new(Text::from(lines))
         .block(panel(
             Line::from(Span::styled(

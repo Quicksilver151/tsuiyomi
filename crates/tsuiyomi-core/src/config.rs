@@ -149,7 +149,7 @@ pub struct LibraryFilters {
 }
 
 /// A story's link to an external tracker.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TrackerLink {
     /// Tracker service identifier, currently `anilist`.
     pub service: String,
@@ -161,6 +161,21 @@ pub struct TrackerLink {
     /// Last progress value sent to the tracker.
     #[serde(default)]
     pub progress: u32,
+    /// Portable tracker status (`reading`, `completed`, `on_hold`, `dropped`, `planning`).
+    #[serde(default)]
+    pub status: Option<String>,
+    /// 0–10 score, matching Mihon's UI.
+    #[serde(default)]
+    pub score: Option<f32>,
+    /// `YYYY-MM-DD`.
+    #[serde(default)]
+    pub start_date: Option<String>,
+    /// `YYYY-MM-DD`.
+    #[serde(default)]
+    pub finish_date: Option<String>,
+    /// AniList private-entry flag.
+    #[serde(default)]
+    pub private: Option<bool>,
 }
 
 /// Application config, stored as TOML under the XDG config directory.
@@ -186,6 +201,18 @@ pub struct Config {
     pub auto_download_new_chapters: bool,
     /// Categories the global new-chapter download policy applies to. Empty means all.
     pub auto_download_categories: BTreeSet<String>,
+    /// Library update restrictions: skip entries with no unread chapters.
+    pub smart_update_unread_only: bool,
+    /// Skip saved entries that have never been read.
+    pub smart_update_skip_unstarted: bool,
+    /// Skip saved entries whose status is completed.
+    pub smart_update_skip_completed: bool,
+    /// Skip entries whose newest chapter is newer than this many days. Zero disables it.
+    pub smart_update_release_days: u64,
+    /// Categories the automatic library update applies to. Empty means all.
+    pub update_categories: BTreeSet<String>,
+    /// Show the new-chapter count on the Updates tab.
+    pub updates_tab_badge: bool,
     /// External extension-host base URL, e.g. `http://127.0.0.1:4567`. When unset,
     /// tsuiyomi starts the bundled host.
     pub host_url: Option<String>,
@@ -319,6 +346,12 @@ impl Default for Config {
             download_excluded_categories: BTreeSet::new(),
             auto_download_new_chapters: false,
             auto_download_categories: BTreeSet::new(),
+            smart_update_unread_only: false,
+            smart_update_skip_unstarted: false,
+            smart_update_skip_completed: false,
+            smart_update_release_days: 0,
+            update_categories: BTreeSet::new(),
+            updates_tab_badge: true,
             host_url: None,
             host_jar: None,
             flaresolverr_url: None,

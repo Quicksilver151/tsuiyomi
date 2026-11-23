@@ -4,8 +4,8 @@ use std::{
 };
 
 use tsuiyomi_core::{
-    search_anilist, search_mal, tracker_login, tracker_refresh, update_anilist_progress,
-    update_mal_progress, TrackerAuth, TrackerMedia, TrackerService,
+    search_anilist, search_mal, tracker_login, tracker_refresh, update_anilist_entry,
+    update_mal_entry, TrackerAuth, TrackerEntry, TrackerMedia, TrackerService, TrackerStatus,
 };
 
 pub(crate) enum TrackerRequest {
@@ -31,6 +31,11 @@ pub(crate) enum TrackerRequest {
         media_id: u64,
         progress: u32,
         total: Option<u32>,
+        status: Option<String>,
+        score: Option<f32>,
+        start_date: Option<String>,
+        finish_date: Option<String>,
+        private: Option<bool>,
     },
 }
 
@@ -124,11 +129,25 @@ impl TrackerWorker {
                         media_id,
                         progress,
                         total,
+                        status,
+                        score,
+                        start_date,
+                        finish_date,
+                        private,
                     } => {
+                        let entry = TrackerEntry {
+                            progress,
+                            total,
+                            status: status.as_deref().and_then(TrackerStatus::parse),
+                            score,
+                            start_date: start_date.as_deref(),
+                            finish_date: finish_date.as_deref(),
+                            private,
+                        };
                         let result = if service == "mal" {
-                            update_mal_progress(&token, media_id, progress, total)
+                            update_mal_entry(&token, media_id, &entry)
                         } else {
-                            update_anilist_progress(&token, media_id, progress, total)
+                            update_anilist_entry(&token, media_id, &entry)
                         };
                         TrackerEvent::Update {
                             result: result.map_err(|error| error.to_string()),

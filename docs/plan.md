@@ -108,13 +108,15 @@ Acceptance: every Library table row is ✅ except swipe gestures (`➖`).
 
 ### Phase 3 — Updates, History, and Stats
 
-- [ ] Add Updates settings: unread-only view, smart-update rules, category scope, and
+- [x] Add Updates settings: unread-only view, smart-update rules, category scope, and
       tab-badge toggle.
-- [ ] Make update actions category-aware where applicable.
-- [ ] Add Stats tracker overview and mean score.
-- [ ] Add unified local/downloaded/total title counts.
+- [x] Make update actions category-aware where applicable.
+- [x] Add Stats tracker overview and mean score.
+- [x] Add unified local/downloaded/total title counts.
 - [ ] Regression-test history delete/clear, time buckets, and live stats.
 - [ ] Tests: smart-update selection, update filtering, tracker stats aggregation.
+      Smart-update eligibility and tracker aggregation have tests; filtering UI
+      regressions and history delete coverage remain.
 
 Acceptance: all Updates, History, and Stats rows are ✅.
 
