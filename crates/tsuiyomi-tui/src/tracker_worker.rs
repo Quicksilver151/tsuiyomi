@@ -4,8 +4,9 @@ use std::{
 };
 
 use tsuiyomi_core::{
-    search_anilist, search_mal, tracker_login, tracker_refresh, update_anilist_entry,
-    update_mal_entry, TrackerAuth, TrackerEntry, TrackerMedia, TrackerService, TrackerStatus,
+    login_mangaupdates, search_anilist, search_mal, search_mangaupdates, tracker_login,
+    tracker_refresh, update_anilist_entry, update_mal_entry, update_mangaupdates_entry,
+    TrackerAuth, TrackerEntry, TrackerMedia, TrackerService, TrackerStatus,
 };
 
 pub(crate) enum TrackerRequest {
@@ -24,6 +25,11 @@ pub(crate) enum TrackerRequest {
         generation: u64,
         query: String,
         mal_client_id: Option<String>,
+        mangaupdates: bool,
+    },
+    MangaUpdatesLogin {
+        username: String,
+        password: String,
     },
     Update {
         service: String,
@@ -103,6 +109,7 @@ impl TrackerWorker {
                         generation,
                         query,
                         mal_client_id,
+                        mangaupdates,
                     } => {
                         let mut results = search_anilist(&query);
                         if let Some(client_id) = mal_client_id.filter(|id| !id.trim().is_empty()) {
@@ -118,9 +125,30 @@ impl TrackerWorker {
                                 }
                             }
                         }
+                        if mangaupdates {
+                            match search_mangaupdates(&query) {
+                                Ok(mut found) => match results.as_mut() {
+                                    Ok(all) => all.append(&mut found),
+                                    Err(_) => results = Ok(found),
+                                },
+                                Err(error) => {
+                                    if results.is_err() {
+                                        results = Err(error);
+                                    }
+                                }
+                            }
+                        }
                         TrackerEvent::Search {
                             generation,
                             result: results.map_err(|error| error.to_string()),
+                        }
+                    }
+                    TrackerRequest::MangaUpdatesLogin { username, password } => {
+                        let result = login_mangaupdates(&username, &password)
+                            .map_err(|error| error.to_string());
+                        TrackerEvent::Auth {
+                            service: "mangaupdates".to_owned(),
+                            result,
                         }
                     }
                     TrackerRequest::Update {
@@ -144,10 +172,10 @@ impl TrackerWorker {
                             finish_date: finish_date.as_deref(),
                             private,
                         };
-                        let result = if service == "mal" {
-                            update_mal_entry(&token, media_id, &entry)
-                        } else {
-                            update_anilist_entry(&token, media_id, &entry)
+                        let result = match service.as_str() {
+                            "mal" => update_mal_entry(&token, media_id, &entry),
+                            "mangaupdates" => update_mangaupdates_entry(&token, media_id, &entry),
+                            _ => update_anilist_entry(&token, media_id, &entry),
                         };
                         TrackerEvent::Update {
                             result: result.map_err(|error| error.to_string()),

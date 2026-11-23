@@ -391,6 +391,7 @@ Rules:
   `reader_split_wide`, `reader_rotate_wide`, `reader_dual_page`,
   `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
+  `mangaupdates_username`,
   `tracker_auth`, `backup_series_extra`, `trusted_extensions`, `series_added_at`,
   `update_interval_hours`,
   `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.

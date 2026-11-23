@@ -26,16 +26,16 @@ use tsuiyomi_core::{
     read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
     save_config, scan_library, search_anilist, series_dir_name, set_default_user_agent,
     source_dir_name, story_cache_path, title_similarity, today_key, update_anilist_entry,
-    update_anilist_progress, update_mal_entry, update_mal_progress, visible_chapters,
-    write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
-    BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore, CachedStory,
-    CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
-    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
-    HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort,
-    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
-    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
-    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    update_anilist_progress, update_mal_entry, update_mal_progress, update_mangaupdates_entry,
+    visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
+    BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore,
+    CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
+    ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
+    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
+    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
+    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
+    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
     SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerEntry, TrackerLink,
     TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
 };
@@ -335,6 +335,8 @@ pub enum TextAction {
     MalToken,
     TrackerStartDate,
     TrackerFinishDate,
+    MangaUpdatesUsername,
+    MangaUpdatesPassword,
     UserAgent,
 }
 
@@ -499,6 +501,9 @@ pub enum SettingId {
     MalClientId,
     MalClientSecret,
     MalToken,
+    MangaUpdatesUsername,
+    MangaUpdatesPassword,
+    MangaUpdatesLogin,
     TrackerLogout,
     Theme,
     Accent,
@@ -637,7 +642,7 @@ const NOTIFICATION_ROWS: [MoreRow; 5] = [
     MoreRow::Note("Uses notify-send on Linux and Notification Center on macOS."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 10] = [
+const TRACKING_ROWS: [MoreRow; 14] = [
     MoreRow::Divider("AniList"),
     MoreRow::Setting(SettingId::AniListLogin),
     MoreRow::Setting(SettingId::AniListClientId),
@@ -646,6 +651,10 @@ const TRACKING_ROWS: [MoreRow; 10] = [
     MoreRow::Setting(SettingId::MalLogin),
     MoreRow::Setting(SettingId::MalClientId),
     MoreRow::Setting(SettingId::MalClientSecret),
+    MoreRow::Divider("MangaUpdates"),
+    MoreRow::Setting(SettingId::MangaUpdatesUsername),
+    MoreRow::Setting(SettingId::MangaUpdatesPassword),
+    MoreRow::Setting(SettingId::MangaUpdatesLogin),
     MoreRow::Divider("Account"),
     MoreRow::Setting(SettingId::TrackerLogout),
 ];
@@ -6116,6 +6125,8 @@ impl AppState {
             TextAction::MalToken => self.set_mal_token(&input.value),
             TextAction::TrackerStartDate => self.set_tracker_date(false, &input.value),
             TextAction::TrackerFinishDate => self.set_tracker_date(true, &input.value),
+            TextAction::MangaUpdatesUsername => self.set_mangaupdates_username(&input.value),
+            TextAction::MangaUpdatesPassword => self.set_mangaupdates_password(&input.value),
             TextAction::UserAgent => self.set_user_agent(&input.value),
         }
     }
@@ -11738,10 +11749,10 @@ impl AppState {
     }
 
     fn tracker_service_label(service: &str) -> &'static str {
-        if service == "mal" {
-            "MyAnimeList"
-        } else {
-            "AniList"
+        match service {
+            "mal" => "MyAnimeList",
+            "mangaupdates" => "MangaUpdates",
+            _ => "AniList",
         }
     }
 
@@ -11977,10 +11988,10 @@ impl AppState {
                 finish_date: link.finish_date.as_deref(),
                 private: link.private,
             };
-            let _ = if link.service == "mal" {
-                update_mal_entry(&token, link.media_id, &entry)
-            } else {
-                update_anilist_entry(&token, link.media_id, &entry)
+            let _ = match link.service.as_str() {
+                "mal" => update_mal_entry(&token, link.media_id, &entry),
+                "mangaupdates" => update_mangaupdates_entry(&token, link.media_id, &entry),
+                _ => update_anilist_entry(&token, link.media_id, &entry),
             };
         }
     }
@@ -12109,8 +12120,9 @@ impl AppState {
                 generation: self.tracker_generation,
                 query: query.to_owned(),
                 mal_client_id: self.config.mal_client_id.clone(),
+                mangaupdates: self.tracker_token_for("mangaupdates").is_some(),
             });
-            self.set_tracker_message("Searching AniList…".to_owned(), false);
+            self.set_tracker_message("Searching trackers…".to_owned(), false);
             return;
         }
         match search_anilist(query) {
@@ -12162,10 +12174,11 @@ impl AppState {
             return;
         };
         let progress = self.current_read_chapter_count();
+        let service = media.service.clone();
         self.config.tracking.insert(
-            key,
+            key.clone(),
             TrackerLink {
-                service: media.service.clone(),
+                service: service.clone(),
                 media_id: media.id,
                 title: media.title.clone(),
                 total_chapters: media.chapters,
@@ -12174,15 +12187,16 @@ impl AppState {
             },
         );
         self.persist_settings();
-        self.remote.status = Some(if self.config.anilist_token.is_some() {
-            format!("Linked AniList {}", media.title)
-        } else {
-            format!(
-                "Linked {} · set an AniList token to sync progress",
-                media.title
-            )
-        });
-        self.remote.error = false;
+        self.push_tracker_link_update(&key);
+        let label = Self::tracker_service_label(&service);
+        self.set_tracker_message(
+            if self.tracker_token_for(&service).is_some() {
+                format!("Linked {label} {}", media.title)
+            } else {
+                format!("Linked {} · log in to {label} to sync", media.title)
+            },
+            false,
+        );
     }
 
     pub fn cancel_tracker_unlink(&mut self) {
@@ -12219,6 +12233,59 @@ impl AppState {
         };
         let id = id?.trim().to_owned();
         (!id.is_empty()).then_some((id, secret))
+    }
+
+    fn open_mangaupdates_username(&mut self) {
+        let current = self
+            .config
+            .mangaupdates_username
+            .clone()
+            .unwrap_or_default();
+        self.open_text_input(
+            TextAction::MangaUpdatesUsername,
+            "MangaUpdates username",
+            &current,
+        );
+    }
+
+    fn set_mangaupdates_username(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.mangaupdates_username = (!value.is_empty()).then(|| value.to_owned());
+        self.persist_settings();
+    }
+
+    fn open_mangaupdates_password(&mut self) {
+        self.open_text_input(
+            TextAction::MangaUpdatesPassword,
+            "MangaUpdates password",
+            "",
+        );
+    }
+
+    fn set_mangaupdates_password(&mut self, value: &str) {
+        let Some(username) = self.config.mangaupdates_username.clone() else {
+            self.set_tracker_message("Set the MangaUpdates username first.".to_owned(), true);
+            return;
+        };
+        if value.trim().is_empty() {
+            return;
+        }
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        worker.request(TrackerRequest::MangaUpdatesLogin {
+            username,
+            password: value.to_owned(),
+        });
+        self.set_tracker_message("Logging in to MangaUpdates…".to_owned(), false);
+    }
+
+    fn start_mangaupdates_login(&mut self) {
+        if self.config.mangaupdates_username.is_none() {
+            self.set_tracker_message("Set the MangaUpdates username first.".to_owned(), true);
+            return;
+        }
+        self.open_mangaupdates_password();
     }
 
     fn start_tracker_login(&mut self, service: &str) {
@@ -12483,10 +12550,22 @@ impl AppState {
                 private: link.private,
             });
         } else {
-            let _ = if link.service == "mal" {
-                update_mal_progress(&token, link.media_id, progress, total)
-            } else {
-                update_anilist_progress(&token, link.media_id, progress, total)
+            let _ = match link.service.as_str() {
+                "mal" => update_mal_progress(&token, link.media_id, progress, total),
+                "mangaupdates" => update_mangaupdates_entry(
+                    &token,
+                    link.media_id,
+                    &TrackerEntry {
+                        progress,
+                        total,
+                        status: link.status.as_deref().and_then(TrackerStatus::parse),
+                        score: link.score,
+                        start_date: link.start_date.as_deref(),
+                        finish_date: link.finish_date.as_deref(),
+                        private: link.private,
+                    },
+                ),
+                _ => update_anilist_progress(&token, link.media_id, progress, total),
             };
         }
     }
@@ -12505,10 +12584,10 @@ impl AppState {
                 match result {
                     Ok(auth) => {
                         self.config.tracker_auth.insert(service.clone(), auth);
-                        if service == "mal" {
-                            self.config.mal_token = None;
-                        } else {
-                            self.config.anilist_token = None;
+                        match service.as_str() {
+                            "mal" => self.config.mal_token = None,
+                            "anilist" => self.config.anilist_token = None,
+                            _ => {}
                         }
                         self.persist_settings();
                         self.set_tracker_message(
@@ -14950,6 +15029,9 @@ impl AppState {
             SettingId::MalClientId => self.open_mal_client_id(),
             SettingId::MalClientSecret => self.open_mal_client_secret(),
             SettingId::MalToken => self.open_mal_token(),
+            SettingId::MangaUpdatesUsername => self.open_mangaupdates_username(),
+            SettingId::MangaUpdatesPassword => self.open_mangaupdates_password(),
+            SettingId::MangaUpdatesLogin => self.start_mangaupdates_login(),
             SettingId::TrackerLogout => self.logout_trackers(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
@@ -15859,6 +15941,9 @@ impl AppState {
             | SettingId::MalClientId
             | SettingId::MalClientSecret
             | SettingId::MalToken
+            | SettingId::MangaUpdatesUsername
+            | SettingId::MangaUpdatesPassword
+            | SettingId::MangaUpdatesLogin
             | SettingId::TrackerLogout
             | SettingId::RescanLibrary
             | SettingId::HostUrl
@@ -18217,6 +18302,15 @@ fn apply_chapter_flags(settings: &mut ChapterSettings, flags: i64) {
 }
 
 fn tracker_status_code(service: &str, status: TrackerStatus) -> i64 {
+    if service == "mangaupdates" {
+        return match status {
+            TrackerStatus::Reading => 0,
+            TrackerStatus::Planning => 1,
+            TrackerStatus::Completed => 2,
+            TrackerStatus::Dropped => 3,
+            TrackerStatus::OnHold => 4,
+        };
+    }
     match status {
         TrackerStatus::Reading => 1,
         TrackerStatus::Completed => 2,
@@ -18233,6 +18327,16 @@ fn tracker_status_code(service: &str, status: TrackerStatus) -> i64 {
 }
 
 fn tracker_status_from_code(service: &str, code: i64) -> Option<TrackerStatus> {
+    if service == "mangaupdates" {
+        return match code {
+            0 => Some(TrackerStatus::Reading),
+            1 => Some(TrackerStatus::Planning),
+            2 => Some(TrackerStatus::Completed),
+            3 => Some(TrackerStatus::Dropped),
+            4 => Some(TrackerStatus::OnHold),
+            _ => None,
+        };
+    }
     match code {
         1 => Some(TrackerStatus::Reading),
         2 => Some(TrackerStatus::Completed),
@@ -18248,6 +18352,7 @@ fn tracker_service_from_sync_id(sync_id: i64) -> Option<&'static str> {
     match sync_id {
         1 => Some("mal"),
         2 => Some("anilist"),
+        7 => Some("mangaupdates"),
         _ => None,
     }
 }
@@ -18256,6 +18361,7 @@ fn backup_tracking_from_link(link: &TrackerLink) -> Option<BackupTracking> {
     let sync_id = match link.service.as_str() {
         "mal" => 1,
         "anilist" => 2,
+        "mangaupdates" => 7,
         _ => return None,
     };
     let status = link
@@ -19960,6 +20066,35 @@ mod tests {
     fn diagnostics_page_is_listed_in_settings() {
         assert!(SETTINGS_PAGES.contains(&SettingsPage::Notifications));
         assert!(SETTINGS_PAGES.contains(&SettingsPage::Advanced));
+    }
+
+    #[test]
+    fn mangaupdates_status_and_backup_mapping() {
+        for status in [
+            TrackerStatus::Reading,
+            TrackerStatus::Completed,
+            TrackerStatus::OnHold,
+            TrackerStatus::Dropped,
+            TrackerStatus::Planning,
+        ] {
+            let code = tracker_status_code("mangaupdates", status);
+            assert_eq!(tracker_status_from_code("mangaupdates", code), Some(status));
+        }
+        let link = TrackerLink {
+            service: "mangaupdates".to_owned(),
+            media_id: 42,
+            title: "Berserk".to_owned(),
+            progress: 3,
+            status: Some("reading".to_owned()),
+            score: Some(8.0),
+            ..TrackerLink::default()
+        };
+        let tracking = backup_tracking_from_link(&link).expect("tracking");
+        assert_eq!(tracking.sync_id, 7);
+        assert_eq!(tracking.status, 0);
+        let restored = tracker_link_from_backup(&tracking).expect("link");
+        assert_eq!(restored.service, "mangaupdates");
+        assert_eq!(restored.status.as_deref(), Some("reading"));
     }
 
     #[test]

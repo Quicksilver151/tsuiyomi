@@ -406,6 +406,7 @@ notify_updates = true           # desktop notifications
 notify_downloads = true
 notify_tracker_failures = true
 # user_agent = "tsuiyomi"    # direct page/cover/image fetches
+# mangaupdates_username = "..."  # session login; password is not stored
 # auto_download_categories = ["Reading"]  # scope the global policy
 # download_excluded_categories = ["Keep"]  # categories kept from delete-after-read
 theme = "catppuccin_mocha"
@@ -482,7 +483,8 @@ categories:
   `c` cancels the queue, `x`/Delete removes a series after confirmation). `D` downloads the selected remote chapter,
   and downloaded chapters are read from disk.
 - **Tracking** — log in to AniList or MyAnimeList in the browser after entering an
-  application client ID; link stories and sync read progress.
+  application client ID, or log in to MangaUpdates with a username and session password;
+  link stories and sync read progress.
 - **Browse** — local source path and the extension host (URL or bundled runtime).
 - **Data and storage** — storage locations and backup status.
 - **Security** — Incognito mode, which stops writing reading progress.

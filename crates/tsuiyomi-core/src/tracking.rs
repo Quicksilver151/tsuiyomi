@@ -6,7 +6,7 @@
 
 use serde_json::{json, Value};
 
-use crate::error::CoreError;
+use crate::{config::TrackerAuth, error::CoreError};
 
 const ENDPOINT: &str = "https://graphql.anilist.co";
 
@@ -339,6 +339,154 @@ fn mal_entry_form(entry: &TrackerEntry<'_>) -> Vec<(String, String)> {
     form
 }
 
+const MANGAUPDATES: &str = "https://api.mangaupdates.com";
+
+/// MangaUpdates list ids: reading, wish, complete, unfinished, on hold.
+fn mangaupdates_list_id(status: TrackerStatus) -> i64 {
+    match status {
+        TrackerStatus::Reading => 0,
+        TrackerStatus::Planning => 1,
+        TrackerStatus::Completed => 2,
+        TrackerStatus::Dropped => 3,
+        TrackerStatus::OnHold => 4,
+    }
+}
+
+/// Search MangaUpdates. The search endpoint does not need a session token.
+pub fn search_mangaupdates(query: &str) -> Result<Vec<TrackerMedia>, CoreError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let body = json!({
+        "search": query,
+        "filter_types": ["drama cd", "novel"],
+    });
+    let value = mangaupdates_request("POST", "/v1/series/search", Some(&body), None)?;
+    Ok(parse_mangaupdates_search(&value))
+}
+
+fn parse_mangaupdates_search(value: &Value) -> Vec<TrackerMedia> {
+    value
+        .get("results")
+        .and_then(Value::as_array)
+        .map(|results| {
+            results
+                .iter()
+                .filter_map(|item| {
+                    let record = item.get("record")?;
+                    let id = record.get("series_id")?.as_u64()?;
+                    let title = record
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .filter(|title| !title.trim().is_empty())?
+                        .to_owned();
+                    Some(TrackerMedia {
+                        service: "mangaupdates".to_owned(),
+                        id,
+                        title,
+                        chapters: None,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Log in with a MangaUpdates username and password, returning a session token.
+pub fn login_mangaupdates(username: &str, password: &str) -> Result<TrackerAuth, CoreError> {
+    let username = username.trim();
+    if username.is_empty() || password.is_empty() {
+        return Err(CoreError::Network {
+            url: MANGAUPDATES.to_owned(),
+            message: "a MangaUpdates username and password are required".to_owned(),
+        });
+    }
+    let body = json!({ "username": username, "password": password });
+    let value = mangaupdates_request("PUT", "/v1/account/login", Some(&body), None)?;
+    let token = value
+        .pointer("/context/session_token")
+        .and_then(Value::as_str)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| CoreError::Network {
+            url: MANGAUPDATES.to_owned(),
+            message: "MangaUpdates did not return a session token".to_owned(),
+        })?;
+    Ok(TrackerAuth {
+        access_token: token.to_owned(),
+        refresh_token: None,
+        expires_at: None,
+    })
+}
+
+/// Update a MangaUpdates list entry and rating.
+pub fn update_mangaupdates_entry(
+    token: &str,
+    media_id: u64,
+    entry: &TrackerEntry<'_>,
+) -> Result<(), CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: MANGAUPDATES.to_owned(),
+            message: "a MangaUpdates session token is required".to_owned(),
+        });
+    }
+    let body = json!([{
+        "series": { "id": media_id },
+        "list_id": mangaupdates_list_id(entry.effective_status()),
+        "status": { "chapter": entry.progress },
+    }]);
+    mangaupdates_request("POST", "/v1/lists/series/update", Some(&body), Some(token))?;
+
+    if let Some(score) = entry.score {
+        let path = format!("/v1/series/{media_id}/rating");
+        if score > 0.0 {
+            mangaupdates_request("PUT", &path, Some(&json!({ "rating": score })), Some(token))?;
+        } else {
+            mangaupdates_request("DELETE", &path, None, Some(token))?;
+        }
+    }
+    Ok(())
+}
+
+fn mangaupdates_request(
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    token: Option<&str>,
+) -> Result<Value, CoreError> {
+    let url = format!("{MANGAUPDATES}{path}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut request = match method {
+        "PUT" => agent.put(&url),
+        "POST" => agent.post(&url),
+        "DELETE" => agent.delete(&url),
+        _ => agent.get(&url),
+    };
+    request = request.set("Accept", "application/json");
+    if let Some(token) = token.filter(|token| !token.trim().is_empty()) {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+    let response = if let Some(body) = body {
+        request
+            .set("Content-Type", "application/json")
+            .send_json(body.clone())
+    } else {
+        request.call()
+    }
+    .map_err(|error| CoreError::Network {
+        url: url.clone(),
+        message: error.to_string(),
+    })?;
+    match response.into_json::<Value>() {
+        Ok(value) => Ok(value),
+        Err(_) => Ok(Value::Null),
+    }
+}
+
 fn post(body: Value, token: Option<&str>) -> Result<Value, CoreError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(30))
@@ -503,6 +651,29 @@ mod tests {
             Some("on_hold")
         );
         assert_eq!(TrackerStatus::parse("PAUSED"), Some(TrackerStatus::OnHold));
+    }
+
+    #[test]
+    fn parses_mangaupdates_search_results() {
+        let value = json!({
+            "results": [
+                { "record": { "series_id": 42, "title": "Berserk" } },
+                { "record": { "series_id": 7 } }
+            ]
+        });
+        let results = parse_mangaupdates_search(&value);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, 42);
+        assert_eq!(results[0].service, "mangaupdates");
+    }
+
+    #[test]
+    fn maps_mangaupdates_list_ids() {
+        assert_eq!(mangaupdates_list_id(TrackerStatus::Reading), 0);
+        assert_eq!(mangaupdates_list_id(TrackerStatus::Planning), 1);
+        assert_eq!(mangaupdates_list_id(TrackerStatus::Completed), 2);
+        assert_eq!(mangaupdates_list_id(TrackerStatus::Dropped), 3);
+        assert_eq!(mangaupdates_list_id(TrackerStatus::OnHold), 4);
     }
 
     #[test]

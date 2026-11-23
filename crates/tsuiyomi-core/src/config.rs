@@ -345,8 +345,10 @@ pub struct Config {
     pub mal_client_secret: Option<String>,
     /// Legacy MyAnimeList token, kept as a fallback and migrated into `tracker_auth`.
     pub mal_token: Option<String>,
-    /// OAuth bundles keyed by service (`anilist`, `mal`).
+    /// OAuth bundles keyed by service (`anilist`, `mal`, `mangaupdates`).
     pub tracker_auth: BTreeMap<String, TrackerAuth>,
+    /// MangaUpdates account name used for session login.
+    pub mangaupdates_username: Option<String>,
     /// Mihon flags retained for lossless backup export, keyed by story key.
     pub backup_series_extra: BTreeMap<String, BackupSeriesExtra>,
     /// Linked tracker entries, keyed by the history series key.
@@ -467,6 +469,7 @@ impl Default for Config {
             mal_client_secret: None,
             mal_token: None,
             tracker_auth: BTreeMap::new(),
+            mangaupdates_username: None,
             backup_series_extra: BTreeMap::new(),
             tracking: BTreeMap::new(),
             trusted_extensions: BTreeMap::new(),

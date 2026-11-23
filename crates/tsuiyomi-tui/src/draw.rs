@@ -6612,6 +6612,26 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "Not set".to_owned()
             },
         ),
+        SettingId::MangaUpdatesUsername => (
+            "MangaUpdates username".to_owned(),
+            if app.config.mangaupdates_username.is_some() {
+                "Set".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
+        SettingId::MangaUpdatesPassword => (
+            "MangaUpdates password".to_owned(),
+            "Enter to log in".to_owned(),
+        ),
+        SettingId::MangaUpdatesLogin => (
+            "MangaUpdates login".to_owned(),
+            if app.config.tracker_auth.contains_key("mangaupdates") {
+                "Connected".to_owned()
+            } else {
+                "Log in".to_owned()
+            },
+        ),
         SettingId::TrackerLogout => ("Log out trackers".to_owned(), "Enter".to_owned()),
         SettingId::AniListToken => (
             "AniList token".to_owned(),
