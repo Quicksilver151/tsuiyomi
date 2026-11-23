@@ -501,6 +501,8 @@ pub enum SettingId {
     KeepBookmarkedDownloads,
     SaveChaptersAsCbz,
     DownloadExcludedCategories,
+    AutoDownloadNewChapters,
+    AutoDownloadCategories,
     ImportBackup,
     ExportBackup,
 }
@@ -570,7 +572,7 @@ const READER_ROWS: [MoreRow; 8] = [
     MoreRow::Setting(SettingId::CacheMargin),
 ];
 
-const DOWNLOADS_ROWS: [MoreRow; 10] = [
+const DOWNLOADS_ROWS: [MoreRow; 12] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::DownloadsPath),
     MoreRow::Note("TSUIYOMI_DOWNLOADS overrides this for one session."),
@@ -581,6 +583,8 @@ const DOWNLOADS_ROWS: [MoreRow; 10] = [
     MoreRow::Setting(SettingId::KeepBookmarkedDownloads),
     MoreRow::Setting(SettingId::SaveChaptersAsCbz),
     MoreRow::Setting(SettingId::DownloadExcludedCategories),
+    MoreRow::Setting(SettingId::AutoDownloadNewChapters),
+    MoreRow::Setting(SettingId::AutoDownloadCategories),
 ];
 
 const TRACKING_ROWS: [MoreRow; 10] = [
@@ -1240,6 +1244,7 @@ pub struct AppState {
     pub tag_picker: Option<TagPicker>,
     pub library_filter_picker: Option<LibraryFilterPicker>,
     pub download_exclusion_picker: Option<CategorySetPicker>,
+    pub auto_download_picker: Option<CategorySetPicker>,
     pub migration_flags_picker: Option<MigrationFlagsPicker>,
     pub tracker_picker: Option<TrackerPicker>,
     pub tracker_unlink_confirm: bool,
@@ -1401,6 +1406,7 @@ impl AppState {
             tag_picker: None,
             library_filter_picker: None,
             download_exclusion_picker: None,
+            auto_download_picker: None,
             migration_flags_picker: None,
             tracker_picker: None,
             tracker_unlink_confirm: false,
@@ -8700,7 +8706,8 @@ impl AppState {
             .get(&key)
             .cloned()
             .unwrap_or_else(|| self.config.chapter_defaults.clone());
-        if !settings.download_new_chapters || self.host_client.is_none() {
+        if !self.auto_download_new_chapters_enabled(manga, &settings) || self.host_client.is_none()
+        {
             return;
         }
         let new_chapters: Vec<RemoteChapter> = chapters
@@ -8715,6 +8722,38 @@ impl AppState {
         if self.download_queue.running() {
             self.status = Some("Queued newly discovered chapters".to_owned());
         }
+    }
+
+    /// Per-series auto-download, or the global policy when the saved series matches
+    /// its category scope.
+    fn auto_download_new_chapters_enabled(
+        &self,
+        manga: &RemoteManga,
+        settings: &ChapterSettings,
+    ) -> bool {
+        if settings.download_new_chapters {
+            return true;
+        }
+        if !self.config.auto_download_new_chapters {
+            return false;
+        }
+        let Some(categories) = self
+            .library
+            .series
+            .iter()
+            .find(|series| {
+                series.remote.as_ref().is_some_and(|remote| {
+                    remote.source_id == manga.source_id && remote.url == manga.url
+                })
+            })
+            .map(|series| series.categories.clone())
+        else {
+            return false;
+        };
+        self.config.auto_download_categories.is_empty()
+            || categories
+                .iter()
+                .any(|category| self.config.auto_download_categories.contains(category))
     }
 
     fn enqueue_chapters(&mut self, manga: &RemoteManga, chapters: Vec<RemoteChapter>) {
@@ -8895,6 +8934,53 @@ impl AppState {
 
     pub fn close_download_exclusions(&mut self) {
         self.download_exclusion_picker = None;
+    }
+
+    pub fn open_auto_download_categories(&mut self) {
+        if self.library.categories.is_empty() {
+            self.status = Some("The library has no categories.".to_owned());
+            return;
+        }
+        self.auto_download_picker = Some(CategorySetPicker::default());
+    }
+
+    pub fn auto_download_previous(&mut self) {
+        if let Some(picker) = self.auto_download_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn auto_download_next(&mut self) {
+        if let Some(picker) = self.auto_download_picker.as_mut() {
+            let last = self.library.categories.len().saturating_sub(1);
+            picker.selected = (picker.selected + 1).min(last);
+        }
+    }
+
+    pub fn auto_download_toggle(&mut self) {
+        let Some(picker) = self.auto_download_picker.as_ref() else {
+            return;
+        };
+        let Some(category) = self.library.categories.get(picker.selected).cloned() else {
+            return;
+        };
+        if !self
+            .config
+            .auto_download_categories
+            .insert(category.clone())
+        {
+            self.config.auto_download_categories.remove(&category);
+        }
+        self.persist_settings();
+    }
+
+    pub fn auto_download_reset(&mut self) {
+        self.config.auto_download_categories.clear();
+        self.persist_settings();
+    }
+
+    pub fn close_auto_download_categories(&mut self) {
+        self.auto_download_picker = None;
     }
 
     pub fn queue_previous(&mut self) {
@@ -14482,6 +14568,10 @@ impl AppState {
                 self.config.save_chapters_as_cbz = !self.config.save_chapters_as_cbz;
             }
             SettingId::DownloadExcludedCategories => {}
+            SettingId::AutoDownloadNewChapters => {
+                self.config.auto_download_new_chapters = !self.config.auto_download_new_chapters;
+            }
+            SettingId::AutoDownloadCategories => {}
             SettingId::LibraryDisplay => {
                 self.cycle_library_display_mode_for(delta);
             }
@@ -17565,6 +17655,59 @@ mod tests {
             .is_some_and(|label| label.starts_with("paused")));
         app.toggle_download_pause();
         assert!(!app.download_queue.paused);
+    }
+
+    #[test]
+    fn global_new_chapter_downloads_respect_categories() {
+        let mut app = remote_app();
+        let mut saved = series("Saved", &["Default", "Keep"]);
+        saved.remote = Some(RemoteSeries {
+            source_id: "1".to_owned(),
+            url: "/manga/saved".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        });
+        app.library.series.push(saved);
+        let manga = app
+            .library
+            .series
+            .last()
+            .and_then(|series| series.remote.clone())
+            .map(|remote| RemoteManga {
+                source_id: remote.source_id,
+                url: remote.url,
+                title: "Saved".to_owned(),
+                author: None,
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "unknown".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            })
+            .unwrap();
+        let settings = ChapterSettings::default();
+        assert!(!app.auto_download_new_chapters_enabled(&manga, &settings));
+
+        app.config.auto_download_new_chapters = true;
+        assert!(app.auto_download_new_chapters_enabled(&manga, &settings));
+        app.config
+            .auto_download_categories
+            .insert("Reading".to_owned());
+        assert!(!app.auto_download_new_chapters_enabled(&manga, &settings));
+        app.config
+            .auto_download_categories
+            .insert("Keep".to_owned());
+        assert!(app.auto_download_new_chapters_enabled(&manga, &settings));
+
+        app.config.auto_download_categories.clear();
+        app.config.auto_download_new_chapters = false;
+        app.config.chapter_defaults.download_new_chapters = false;
+        let per_series = ChapterSettings {
+            download_new_chapters: true,
+            ..ChapterSettings::default()
+        };
+        assert!(app.auto_download_new_chapters_enabled(&manga, &per_series));
     }
 
     #[test]

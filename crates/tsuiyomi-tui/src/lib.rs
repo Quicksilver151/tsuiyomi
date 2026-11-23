@@ -324,6 +324,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.auto_download_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.auto_download_previous(),
+                Action::Next => app.auto_download_next(),
+                Action::Open | Action::Confirm | Action::Select => app.auto_download_toggle(),
+                Action::Refresh => app.auto_download_reset(),
+                Action::Back => app.close_auto_download_categories(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.download_exclusion_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),

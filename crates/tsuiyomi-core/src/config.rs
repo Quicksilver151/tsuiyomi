@@ -182,6 +182,10 @@ pub struct Config {
     pub save_chapters_as_cbz: bool,
     /// Categories whose downloaded chapters are kept when delete-after-read runs.
     pub download_excluded_categories: BTreeSet<String>,
+    /// Download newly discovered chapters for every saved series.
+    pub auto_download_new_chapters: bool,
+    /// Categories the global new-chapter download policy applies to. Empty means all.
+    pub auto_download_categories: BTreeSet<String>,
     /// External extension-host base URL, e.g. `http://127.0.0.1:4567`. When unset,
     /// tsuiyomi starts the bundled host.
     pub host_url: Option<String>,
@@ -313,6 +317,8 @@ impl Default for Config {
             keep_bookmarked_downloads: true,
             save_chapters_as_cbz: false,
             download_excluded_categories: BTreeSet::new(),
+            auto_download_new_chapters: false,
+            auto_download_categories: BTreeSet::new(),
             host_url: None,
             host_jar: None,
             flaresolverr_url: None,

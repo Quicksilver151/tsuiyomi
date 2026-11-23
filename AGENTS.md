@@ -378,6 +378,7 @@ Rules:
   `migration_transfer_categories`, `migration_transfer_notes`, `migration_transfer_cover`,
   `migration_remove_downloads`, `download_ahead`, `delete_after_read`,
   `keep_bookmarked_downloads`, `save_chapters_as_cbz`, `download_excluded_categories`,
+  `auto_download_new_chapters`, `auto_download_categories`,
   `library_display_mode`, `hide_missing_chapters`,
   `mark_duplicate_chapters_read`, `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,

@@ -7,7 +7,7 @@ criteria.
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **90.6%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **90.8%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`.
 
 ## Scope
@@ -143,7 +143,7 @@ verification against a live source pair is still manual.
       - [x] After read.
       - [x] Except bookmarked.
       - [x] Excluded categories.
-- [ ] Add global/category new-chapter auto-download policy.
+- [x] Add global/category new-chapter auto-download policy.
 - [x] Add CBZ output for downloaded chapters.
 - [x] Add queue pause/resume/reorder.
 - [ ] Keep Wi-Fi-only as a documented desktop deviation.

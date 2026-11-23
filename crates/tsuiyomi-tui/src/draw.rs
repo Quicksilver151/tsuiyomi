@@ -95,6 +95,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_library_filters(frame, app);
     draw_migration_flags(frame, app);
     draw_download_exclusions(frame, app);
+    draw_auto_download_categories(frame, app);
     draw_tracker_picker(frame, app);
     draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
@@ -427,6 +428,73 @@ fn draw_download_exclusions(frame: &mut Frame, app: &AppState) {
         .map(|(index, category)| {
             let selected = index == picker.selected;
             let enabled = app.config.download_excluded_categories.contains(category);
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    if enabled { "[x] " } else { "[ ] " },
+                    Style::default().fg(if enabled { c_green() } else { c_overlay1() }),
+                ),
+                Span::styled(
+                    category.clone(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(picker.selected.min(items.len().saturating_sub(1))));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_auto_download_categories(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.auto_download_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 58.min(area.width).max(24);
+    let height = (app.library.categories.len() as u16 + 4)
+        .min(area.height)
+        .max(6);
+    if width < 20 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Auto-download categories ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Space toggle · r all · Esc close ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = app
+        .library
+        .categories
+        .iter()
+        .enumerate()
+        .map(|(index, category)| {
+            let selected = index == picker.selected;
+            let enabled = app.config.auto_download_categories.contains(category);
             ListItem::new(Line::from(vec![
                 Span::styled(
                     if selected { "› " } else { "  " },
@@ -6269,6 +6337,27 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "Yes".to_owned()
             } else {
                 "No".to_owned()
+            },
+        ),
+        SettingId::AutoDownloadNewChapters => (
+            "Auto-download new chapters".to_owned(),
+            if app.config.auto_download_new_chapters {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::AutoDownloadCategories => (
+            "New chapter categories".to_owned(),
+            if app.config.auto_download_categories.is_empty() {
+                "All".to_owned()
+            } else {
+                app.config
+                    .auto_download_categories
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             },
         ),
         SettingId::DownloadExcludedCategories => (
