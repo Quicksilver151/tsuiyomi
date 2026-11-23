@@ -484,11 +484,17 @@ fn draw_tracker_picker(frame: &mut Frame, app: &AppState) {
                 .chapters
                 .map(|chapters| format!(" · {chapters} ch"))
                 .unwrap_or_default();
+            let service = if media.service == "mal" {
+                "MyAnimeList"
+            } else {
+                "AniList"
+            };
             ListItem::new(Line::from(vec![
                 Span::styled(
                     if selected { "› " } else { "  " },
                     Style::default().fg(c_accent()),
                 ),
+                Span::styled(format!("{service} · "), Style::default().fg(c_blue())),
                 Span::styled(
                     media.title.clone(),
                     if selected {
@@ -531,14 +537,22 @@ fn draw_tracker_unlink(frame: &mut Frame, app: &AppState) {
     let inner = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(&block, popup);
-    let title = app
+    let link = app
         .current_story_key()
-        .and_then(|key| app.config.tracking.get(&key))
-        .map(|link| link.title.clone())
-        .unwrap_or_default();
+        .and_then(|key| app.config.tracking.get(&key));
+    let title = link.map(|link| link.title.clone()).unwrap_or_default();
+    let service = link
+        .map(|link| {
+            if link.service == "mal" {
+                "MyAnimeList"
+            } else {
+                "AniList"
+            }
+        })
+        .unwrap_or("tracker");
     frame.render_widget(
         Paragraph::new(Text::from(vec![
-            Line::from(format!("Unlink AniList {title}?")),
+            Line::from(format!("Unlink {service} {title}?")),
             Line::from(""),
             Line::from(Span::styled(
                 "Enter / y unlink · Esc cancel",
@@ -4398,9 +4412,14 @@ fn append_story_tracking(lines: &mut Vec<Line<'static>>, app: &AppState) {
         .total_chapters
         .map(|total| format!("/{total}"))
         .unwrap_or_default();
+    let service = if link.service == "mal" {
+        "MyAnimeList"
+    } else {
+        "AniList"
+    };
     lines.push(field(
         "Tracker",
-        &format!("AniList · {}{total}", link.progress),
+        &format!("{service} · {}{total}", link.progress),
         c_mauve(),
     ));
 }
@@ -5731,6 +5750,22 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
         SettingId::AniListToken => (
             "AniList token".to_owned(),
             if app.config.anilist_token.is_some() {
+                "Set".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
+        SettingId::MalClientId => (
+            "MyAnimeList client ID".to_owned(),
+            if app.config.mal_client_id.is_some() {
+                "Set".to_owned()
+            } else {
+                "Not set".to_owned()
+            },
+        ),
+        SettingId::MalToken => (
+            "MyAnimeList token".to_owned(),
+            if app.config.mal_token.is_some() {
                 "Set".to_owned()
             } else {
                 "Not set".to_owned()

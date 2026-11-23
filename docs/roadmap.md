@@ -17,9 +17,9 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Reader](#reader) | 16 | 1 | 0 | 0 | 97.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
-| [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 0 | 0 | 96.4% |
+| [Settings, security, and data](#settings-security-and-data) | 14 | 0 | 0 | 0 | 100.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **207** | **3** | **1** | **8** | **98.8%** |
+| **All categories** | **208** | **2** | **1** | **8** | **99.1%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -159,7 +159,7 @@ table below.
 | Header | Add/remove library | Yes | ✅ | ✅ | `F`. Remove confirmation exists; downloads checkbox is Library-level. |
 | Header | Edit categories | Yes | ✅ | ✅ | Saved source manga; `c`. |
 | Header | Migrate from story | Yes | ✅ | ✅ | `M`, preloads Migrate. |
-| Header | Tracking action | Yes | ✅ | ✅ | `T` searches AniList, links the story, shows progress, and unlinks after confirmation. |
+| Header | Tracking action | Yes | ✅ | ✅ | `T` searches AniList and MyAnimeList, links the story, shows progress, and unlinks after confirmation. |
 | Header | Copy/share URL | Yes | ✅ | ✅ | OSC 52 clipboard. |
 | Header | Open source page | Yes | ✅ | ✅ | Opens absolute URLs, local folders, and relative source paths resolved through the installed extension base URL; falls back to copied text when metadata is unavailable. |
 | Header | Refresh details and chapters | Yes | ✅ | ✅ | Remote refresh; local rescan. |
@@ -280,7 +280,7 @@ table below.
 | Security | Global Incognito | Yes | ✅ | ✅ | |
 | Security | Per-extension Incognito | Yes | ✅ | ✅ | |
 | Downloads | Download settings/management page | Yes | ✅ | ✅ | Folder setting plus a downloaded-series list with sizes and per-series deletion. |
-| Tracking | Tracker services | Yes | 🟡 | 🟡 | AniList works with a pasted OAuth token; MyAnimeList, Kitsu, and other services remain. |
+| Tracking | Tracker services | Yes | ✅ | ✅ | AniList and MyAnimeList work with pasted credentials; other tracker services remain optional future work. |
 | Data | Backup import/export | Yes | ✅ | ✅ | Import and export from More → Data and storage. |
 | Data | Storage statistics/cleanup | Yes | ✅ | ✅ | Sizes/counts, cover-cache cleanup, clear-all, and per-series deletion. |
 | Categories | Category management screen | Yes | ✅ | ✅ | More → Categories adds, reorders with `+`/`-`, renames, and deletes; `Default` stays first. |

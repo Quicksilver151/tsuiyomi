@@ -180,6 +180,10 @@ pub struct Config {
     pub store_names: BTreeMap<String, String>,
     /// User-provided AniList OAuth token. Empty disables progress syncing.
     pub anilist_token: Option<String>,
+    /// MyAnimeList API client ID, used for manga search.
+    pub mal_client_id: Option<String>,
+    /// User-provided MyAnimeList OAuth token, used for progress updates.
+    pub mal_token: Option<String>,
     /// Linked tracker entries, keyed by the history series key.
     pub tracking: BTreeMap<String, TrackerLink>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
@@ -245,6 +249,8 @@ impl Default for Config {
             migration_sources: Vec::new(),
             store_names: BTreeMap::new(),
             anilist_token: None,
+            mal_client_id: None,
+            mal_token: None,
             tracking: BTreeMap::new(),
             remote_library: Vec::new(),
             series_added_at: BTreeMap::new(),

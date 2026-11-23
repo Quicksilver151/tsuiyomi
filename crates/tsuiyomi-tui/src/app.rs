@@ -25,16 +25,16 @@ use tsuiyomi_core::{
     page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page, read_state,
     remote_cover_path, save_cached_story, save_config, scan_library, search_anilist,
     series_dir_name, source_dir_name, story_cache_path, title_similarity, today_key,
-    update_anilist_progress, visible_chapters, write_comic_info, write_mihon_backup, AniListMedia,
-    BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource, BookmarkStore,
-    CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings, ChapterSort,
-    ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore, HostClient,
-    HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup,
-    NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats,
-    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries,
-    RemoteSource, RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference,
-    SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme, TrackerLink, TriState,
-    UpdateEntry, UpdateStore,
+    update_anilist_progress, update_mal_progress, visible_chapters, write_comic_info,
+    write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
+    BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
+    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
+    HostClient, HostProcess, InstallJob, Library, LibrarySort, LocalSourceOrder, MigrationMatch,
+    MihonBackup, NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode,
+    ReadingStats, RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState,
+    RemoteSeries, RemoteSource, RemoteUpdate, Series, SourceDisplayMode, SourceFilter,
+    SourcePreference, SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme,
+    TrackerLink, TrackerMedia, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -324,6 +324,8 @@ pub enum TextAction {
     SetCustomCover,
     TrackerSearch,
     AniListToken,
+    MalClientId,
+    MalToken,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,6 +471,8 @@ pub enum SettingId {
     UpdateInterval,
     RescanLibrary,
     AniListToken,
+    MalClientId,
+    MalToken,
     Theme,
     Accent,
     Fullscreen,
@@ -551,10 +555,13 @@ const DOWNLOADS_ROWS: [MoreRow; 4] = [
     MoreRow::Note("Local library chapters are read directly from disk."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 4] = [
-    MoreRow::Divider("Services"),
+const TRACKING_ROWS: [MoreRow; 7] = [
+    MoreRow::Divider("AniList"),
     MoreRow::Setting(SettingId::AniListToken),
-    MoreRow::Note("Paste an AniList OAuth token to enable progress sync."),
+    MoreRow::Divider("MyAnimeList"),
+    MoreRow::Setting(SettingId::MalClientId),
+    MoreRow::Setting(SettingId::MalToken),
+    MoreRow::Note("Paste tracker credentials to enable search and progress sync."),
     MoreRow::Note("Tokens are stored in the config file in plain text."),
 ];
 
@@ -880,7 +887,7 @@ pub struct TagPicker {
 
 #[derive(Debug, Default)]
 pub struct TrackerPicker {
-    pub results: Vec<AniListMedia>,
+    pub results: Vec<TrackerMedia>,
     pub selected: usize,
 }
 
@@ -5844,6 +5851,8 @@ impl AppState {
             TextAction::SetCustomCover => self.set_custom_cover(&input.value),
             TextAction::TrackerSearch => self.run_tracker_search(&input.value),
             TextAction::AniListToken => self.set_anilist_token(&input.value),
+            TextAction::MalClientId => self.set_mal_client_id(&input.value),
+            TextAction::MalToken => self.set_mal_token(&input.value),
         }
     }
 
@@ -10118,6 +10127,14 @@ impl AppState {
         }
     }
 
+    fn tracker_service_label(service: &str) -> &'static str {
+        if service == "mal" {
+            "MyAnimeList"
+        } else {
+            "AniList"
+        }
+    }
+
     fn current_story_title(&self) -> Option<String> {
         if let Some(manga) = self.remote_story_manga() {
             return Some(manga.title.clone());
@@ -10156,7 +10173,8 @@ impl AppState {
         if let Some(link) = self.config.tracking.get(&key).cloned() {
             self.tracker_unlink_confirm = true;
             self.status = Some(format!(
-                "Unlink AniList {}? Enter/y confirm · Esc cancel",
+                "Unlink {} {}? Enter/y confirm · Esc cancel",
+                Self::tracker_service_label(&link.service),
                 link.title
             ));
             return;
@@ -10175,6 +10193,7 @@ impl AppState {
             worker.request(TrackerRequest::Search {
                 generation: self.tracker_generation,
                 query: query.to_owned(),
+                mal_client_id: self.config.mal_client_id.clone(),
             });
             self.set_tracker_message("Searching AniList…".to_owned(), false);
             return;
@@ -10185,7 +10204,7 @@ impl AppState {
         }
     }
 
-    fn show_tracker_results(&mut self, results: Vec<AniListMedia>) {
+    fn show_tracker_results(&mut self, results: Vec<TrackerMedia>) {
         if results.is_empty() {
             self.set_tracker_message("No AniList manga found.".to_owned(), true);
             return;
@@ -10231,7 +10250,7 @@ impl AppState {
         self.config.tracking.insert(
             key,
             TrackerLink {
-                service: "anilist".to_owned(),
+                service: media.service.clone(),
                 media_id: media.id,
                 title: media.title.clone(),
                 total_chapters: media.chapters,
@@ -10260,10 +10279,13 @@ impl AppState {
         let Some(key) = self.current_story_key() else {
             return;
         };
-        let removed = self.config.tracking.remove(&key).is_some();
-        if removed {
+        let removed = self.config.tracking.remove(&key);
+        if let Some(link) = removed {
             self.persist_settings();
-            self.set_tracker_message("Unlinked AniList".to_owned(), false);
+            self.set_tracker_message(
+                format!("Unlinked {}", Self::tracker_service_label(&link.service)),
+                false,
+            );
         }
     }
 
@@ -10286,6 +10308,53 @@ impl AppState {
         );
     }
 
+    fn open_mal_client_id(&mut self) {
+        let current = self.config.mal_client_id.clone().unwrap_or_default();
+        self.open_text_input(TextAction::MalClientId, "MyAnimeList client ID", &current);
+    }
+
+    fn set_mal_client_id(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.mal_client_id = (!value.is_empty()).then(|| value.to_owned());
+        self.persist_settings();
+        self.set_tracker_message(
+            if self.config.mal_client_id.is_some() {
+                "Saved MyAnimeList client ID".to_owned()
+            } else {
+                "Cleared MyAnimeList client ID".to_owned()
+            },
+            false,
+        );
+    }
+
+    fn open_mal_token(&mut self) {
+        let current = self.config.mal_token.clone().unwrap_or_default();
+        self.open_text_input(TextAction::MalToken, "MyAnimeList token", &current);
+    }
+
+    fn set_mal_token(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.mal_token = (!value.is_empty()).then(|| value.to_owned());
+        self.persist_settings();
+        self.set_tracker_message(
+            if self.config.mal_token.is_some() {
+                "Saved MyAnimeList token".to_owned()
+            } else {
+                "Cleared MyAnimeList token".to_owned()
+            },
+            false,
+        );
+    }
+
+    fn tracker_token_for(&self, service: &str) -> Option<String> {
+        (if service == "mal" {
+            self.config.mal_token.clone()
+        } else {
+            self.config.anilist_token.clone()
+        })
+        .filter(|token| !token.trim().is_empty())
+    }
+
     fn sync_tracker_progress(&mut self) {
         let Some(key) = self.current_story_key() else {
             return;
@@ -10297,12 +10366,7 @@ impl AppState {
         if progress <= link.progress {
             return;
         }
-        let Some(token) = self
-            .config
-            .anilist_token
-            .clone()
-            .filter(|token| !token.trim().is_empty())
-        else {
+        let Some(token) = self.tracker_token_for(&link.service) else {
             return;
         };
         if let Some(link) = self.config.tracking.get_mut(&key) {
@@ -10312,13 +10376,18 @@ impl AppState {
         let total = link.total_chapters;
         if let Some(worker) = self.tracker_worker.as_ref() {
             worker.request(TrackerRequest::Update {
+                service: link.service.clone(),
                 token,
                 media_id: link.media_id,
                 progress,
                 total,
             });
         } else {
-            let _ = update_anilist_progress(&token, link.media_id, progress, total);
+            let _ = if link.service == "mal" {
+                update_mal_progress(&token, link.media_id, progress, total)
+            } else {
+                update_anilist_progress(&token, link.media_id, progress, total)
+            };
         }
     }
 
@@ -12627,6 +12696,8 @@ impl AppState {
             }
             SettingId::RescanLibrary => self.refresh_async(),
             SettingId::AniListToken => self.open_anilist_token(),
+            SettingId::MalClientId => self.open_mal_client_id(),
+            SettingId::MalToken => self.open_mal_token(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
                 self.open_text_input(TextAction::SetHostUrl, "Extension host URL", &current);
@@ -13395,6 +13466,8 @@ impl AppState {
             }
             SettingId::LibraryPath
             | SettingId::AniListToken
+            | SettingId::MalClientId
+            | SettingId::MalToken
             | SettingId::RescanLibrary
             | SettingId::HostUrl
             | SettingId::FlareSolverr
