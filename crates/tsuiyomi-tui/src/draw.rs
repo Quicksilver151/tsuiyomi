@@ -105,6 +105,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_tracker_picker(frame, app);
     draw_tracker_edit(frame, app);
     draw_diagnostics(frame, app);
+    draw_backup_report(frame, app);
     draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
     draw_migration_search(frame, app);
@@ -872,6 +873,43 @@ fn draw_tracker_picker(frame: &mut Frame, app: &AppState) {
         picker.selected.min(picker.results.len().saturating_sub(1)),
     ));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_backup_report(frame: &mut Frame, app: &AppState) {
+    let Some(text) = app.backup_report.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 66.min(area.width).max(24);
+    let height = 18.min(area.height);
+    if width < 20 || height < 6 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Backup import ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Esc close ", Style::default().fg(c_overlay0())),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    frame.render_widget(
+        Paragraph::new(text.clone())
+            .style(Style::default().fg(c_text()))
+            .wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 fn draw_diagnostics(frame: &mut Frame, app: &AppState) {

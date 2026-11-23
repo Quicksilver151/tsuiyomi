@@ -192,7 +192,8 @@ and a working fallback.
 - [x] Confirm which custom-cover fields current Mihon actually stores; no custom-cover
       byte field exists in backup manga entries, so none is invented.
 - [x] Add fixture-based protobuf tests for every new field.
-- [x] Add `tsuiyomi backup-info <file>` to inspect a real backup without importing.
+- [x] Add `tsuiyomi backup-info <file>` to inspect a real backup without importing, and
+      an import report with counts plus unmatched entries.
 - [ ] Verify a full round-trip with an Android Mihon build, or document the exact manual
       verification steps and mark the row accordingly. The CLI and import report are the
       pre-import half; an Android restore still needs a device.

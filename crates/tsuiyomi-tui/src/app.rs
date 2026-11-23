@@ -1344,6 +1344,7 @@ pub struct AppState {
     pub tracker_picker: Option<TrackerPicker>,
     pub tracker_edit: Option<TrackerEditState>,
     pub diagnostics: Option<String>,
+    pub backup_report: Option<String>,
     pub tracker_unlink_confirm: bool,
     pub migration_source_picker: Option<MigrationSourcePicker>,
     pub migration_search: Option<MigrationSearchState>,
@@ -1509,6 +1510,7 @@ impl AppState {
             tracker_picker: None,
             tracker_edit: None,
             diagnostics: None,
+            backup_report: None,
             tracker_unlink_confirm: false,
             migration_source_picker: None,
             migration_search: None,
@@ -7604,6 +7606,7 @@ impl AppState {
         let mut local_categories_changed = false;
         let mut remote_imported = 0usize;
         let mut categories_to_apply: Vec<(String, Vec<String>)> = Vec::new();
+        let mut unmatched: Vec<String> = Vec::new();
 
         // Local entries do not need the extension host. Restore them first so a
         // local-only backup works with no JVM installed.
@@ -7619,7 +7622,10 @@ impl AppState {
                     local_categories_changed |= changed;
                     imported += 1;
                 }
-                None => skipped += 1,
+                None => {
+                    skipped += 1;
+                    unmatched.push(format!("{} (local)", manga.title));
+                }
             }
         }
 
@@ -7634,6 +7640,7 @@ impl AppState {
                 local_categories_changed,
                 remote_imported,
                 categories_to_apply,
+                unmatched,
             );
             return;
         }
@@ -7657,6 +7664,11 @@ impl AppState {
             .cloned();
             let Some(source) = source else {
                 skipped += 1;
+                let name = source_names
+                    .get(&manga.source_id)
+                    .map(String::as_str)
+                    .unwrap_or("unknown source");
+                unmatched.push(format!("{} ({name})", manga.title));
                 continue;
             };
             let remote_manga = RemoteManga {
@@ -7799,6 +7811,7 @@ impl AppState {
             local_categories_changed,
             remote_imported,
             categories_to_apply,
+            unmatched,
         );
     }
 
@@ -7814,6 +7827,7 @@ impl AppState {
         local_categories_changed: bool,
         remote_imported: usize,
         categories_to_apply: Vec<(String, Vec<String>)>,
+        unmatched: Vec<String>,
     ) {
         if imported > 0 {
             if remote_imported > 0 {
@@ -7858,6 +7872,32 @@ impl AppState {
         }
         self.status = Some(parts.join(" · "));
         self.remote.error = failed > 0;
+
+        let local = imported.saturating_sub(remote_imported);
+        let mut report = vec![
+            format!("Imported {imported} manga"),
+            format!("Local {local} · saved source {remote_imported}"),
+            format!("Chapter states {progress_count} · bookmarks {bookmark_count}"),
+            format!("History {history_count}"),
+            format!("Skipped {skipped} · failed {failed}"),
+        ];
+        if !unmatched.is_empty() {
+            report.push(String::new());
+            report.push("Unmatched entries:".to_owned());
+            report.extend(
+                unmatched
+                    .into_iter()
+                    .take(12)
+                    .map(|title| format!("- {title}")),
+            );
+        }
+        report.push(String::new());
+        report.push("Esc closes".to_owned());
+        self.backup_report = Some(report.join("\n"));
+    }
+
+    pub fn close_backup_report(&mut self) {
+        self.backup_report = None;
     }
 
     fn set_downloads_path(&mut self, value: &str) {
@@ -22448,6 +22488,30 @@ mod tests {
         let input = app.text_input.as_ref().expect("search input");
         assert_eq!(input.action, TextAction::MigrationSearch);
         assert_eq!(input.value, "Old Title");
+    }
+
+    #[test]
+    fn backup_import_report_lists_counts_and_unmatched() {
+        let mut app = AppState::new(library(), None);
+        app.finish_backup_import(
+            2,
+            1,
+            0,
+            4,
+            3,
+            2,
+            false,
+            1,
+            Vec::new(),
+            vec!["Missing (Source)".to_owned()],
+        );
+        let report = app.backup_report.clone().expect("report");
+        assert!(report.contains("Imported 2 manga"));
+        assert!(report.contains("Local 1 · saved source 1"));
+        assert!(report.contains("Unmatched entries"));
+        assert!(report.contains("Missing (Source)"));
+        app.close_backup_report();
+        assert!(app.backup_report.is_none());
     }
 
     #[test]

@@ -394,6 +394,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.backup_report.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Back | Action::Open | Action::Confirm => app.close_backup_report(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.diagnostics.is_some() {
             match action {
                 Action::Quit => return Ok(()),

@@ -46,8 +46,9 @@ architecture below.
 ## Backup inspection
 
 `tsuiyomi backup-info <file>` parses a Mihon backup without touching the library and
-prints counts plus per-series source, tracker, and flag fields. Use it when verifying a
-real Android backup before importing.
+prints counts plus per-series source, tracker, and flag fields. The import dialog also
+shows counts and unmatched entries afterward. Use both when verifying a real Android
+backup.
 
 ## Build and test
 
