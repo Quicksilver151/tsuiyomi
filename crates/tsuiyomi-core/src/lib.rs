@@ -73,8 +73,8 @@ pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
 pub use progress::{ProgressEntry, ProgressStore};
 pub use reading_stats::{date_key_for_unix, today_key, ReadingStats, SeriesReadingTime};
 pub use runtime::{
-    covers_dir, ensure_runtime, host_data_dir, legacy_remote_cover_path, remote_cover_path,
-    HostProcess, HostRuntime, HOST_VERSION,
+    covers_dir, ensure_runtime, extension_fingerprint, fingerprint_bytes, host_data_dir,
+    legacy_remote_cover_path, remote_cover_path, HostProcess, HostRuntime, HOST_VERSION,
 };
 pub use source_prefs::{
     preference_body, SourcePreference, SourcePreferenceKind, SourcePreferenceValue,

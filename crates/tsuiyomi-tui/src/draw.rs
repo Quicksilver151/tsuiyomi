@@ -3905,6 +3905,47 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
             if extension.nsfw { "NSFW" } else { "safe" },
             if extension.nsfw { c_peach() } else { c_green() },
         ),
+        {
+            let fingerprint = state.fingerprint.as_deref();
+            let trusted = fingerprint.is_some_and(|fingerprint| {
+                app.config
+                    .trusted_extensions
+                    .get(&extension.pkg)
+                    .is_some_and(|known| known == fingerprint)
+            });
+            let changed = fingerprint.is_some_and(|fingerprint| {
+                app.config
+                    .trusted_extensions
+                    .get(&extension.pkg)
+                    .is_some_and(|known| known != fingerprint)
+            });
+            field(
+                "Trust",
+                if trusted {
+                    "trusted fingerprint"
+                } else if changed {
+                    "fingerprint changed"
+                } else {
+                    "untrusted"
+                },
+                if trusted {
+                    c_green()
+                } else if changed {
+                    c_peach()
+                } else {
+                    c_overlay1()
+                },
+            )
+        },
+        field(
+            "Fingerprint",
+            &state
+                .fingerprint
+                .as_deref()
+                .map(|fingerprint| fingerprint.chars().take(16).collect::<String>())
+                .unwrap_or_else(|| "unavailable".to_owned()),
+            c_overlay0(),
+        ),
         field(
             "Sources",
             &format!(
@@ -3922,14 +3963,14 @@ fn draw_extension_details(frame: &mut Frame, area: Rect, app: &mut AppState) {
     ];
     frame.render_widget(
         Paragraph::new(Text::from(info)),
-        Rect::new(body.x, body.y + 1, body.width, 7),
+        Rect::new(body.x, body.y + 1, body.width, 9),
     );
 
     let list_area = Rect::new(
         body.x,
-        body.y + 8,
+        body.y + 10,
         body.width,
-        body.height.saturating_sub(8),
+        body.height.saturating_sub(10),
     );
     let rows = app.extension_detail_rows();
     let items: Vec<ListItem> =
@@ -6688,6 +6729,7 @@ mod tests {
                 supports_latest: true,
             }],
             list_state: ListState::default(),
+            fingerprint: None,
         });
 
         let text = render(&mut app, 100, 30);

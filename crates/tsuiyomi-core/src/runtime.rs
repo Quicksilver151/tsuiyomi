@@ -5,6 +5,7 @@
 //! and stops it when the TUI exits. If the user points `host_url` at an existing server,
 //! none of this runs.
 
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{self, Cursor, Write},
@@ -484,9 +485,30 @@ fn looks_like_host(_pid: u32) -> bool {
     false
 }
 
+/// SHA-256 fingerprint of an installed extension file.
+pub fn extension_fingerprint(apk_name: &str) -> Option<String> {
+    let dir = host_data_dir()?.join("extensions");
+    std::fs::read(dir.join(apk_name))
+        .ok()
+        .map(|bytes| fingerprint_bytes(&bytes))
+}
+
+pub fn fingerprint_bytes(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fingerprints_are_stable_sha256_hex() {
+        let first = fingerprint_bytes(b"extension");
+        assert_eq!(first.len(), 64);
+        assert_eq!(first, fingerprint_bytes(b"extension"));
+        assert_ne!(first, fingerprint_bytes(b"other"));
+        assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn cover_cache_paths_are_stable_and_distinct() {

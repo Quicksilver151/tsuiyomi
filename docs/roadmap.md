@@ -12,14 +12,14 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [On-disk compatibility](#on-disk-compatibility) | 21 | 0 | 0 | 1 | 100.0% |
 | [Library](#library) | 16 | 0 | 0 | 0 | 100.0% |
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
-| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 1 | 1 | 95.8% |
+| [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 1 | 0 | 1 | 97.9% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
 | [Reader](#reader) | 16 | 1 | 0 | 0 | 97.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 14 | 0 | 0 | 0 | 100.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **209** | **1** | **1** | **8** | **99.3%** |
+| **All categories** | **209** | **2** | **0** | **8** | **99.5%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -129,7 +129,7 @@ table below.
 | Install | Desktop JVM jar preference | Yes | ✅ | ✅ | Avoids dex2jar corruption. |
 | Not loaded | Section and reason | Yes | ✅ | ✅ | Package, file, reason, message. |
 | Not loaded | Inspect / delete failed file | Yes | ✅ | ✅ | `o`, `x`/Delete with confirmation. |
-| Trust | Signature verification / trust action | Yes | ❌ | ❌ | Host cannot verify signatures; intentionally not faked. |
+| Trust | Signature verification / trust action | Yes | 🟡 | 🟡 | `Y` trusts a SHA-256 file fingerprint (TOFU) and flags changes; the host cannot verify APK signatures, so no signature-trusted state is fabricated. |
 | Uninstall | Confirmation and batch uninstall | Yes | ✅ | ✅ | |
 | Details | Package, version, store, sources | Yes | ✅ | ✅ | |
 | Details | Enable/disable all sources | Yes | ✅ | ✅ | |

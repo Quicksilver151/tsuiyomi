@@ -987,7 +987,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::CopyTags => {
-                if app.story_screen_active() {
+                if app.tab == 3 && app.browse_view == BrowseView::ExtensionDetails {
+                    app.toggle_extension_trust();
+                } else if app.story_screen_active() {
                     app.copy_story_tags();
                 }
             }

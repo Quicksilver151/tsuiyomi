@@ -167,8 +167,9 @@ Browse follows Mihon's source model with three tabs, switched with `[` and `]`:
   can be restricted in Sources `o`; NSFW extensions can be hidden from Settings → Browse.
   Rows show their store name, and not-loaded rows show their failure reason and can be
   inspected with `o` or deleted.
-  Signature trust is not implemented because the host does not verify extension
-  signatures.
+  Details show a SHA-256 file fingerprint; `Y` marks it trusted or untrusted and warns if
+  a later update changes it. This is trust-on-first-use, not APK signature verification:
+  the host does not verify signatures.
 - **Migrate** — saved remote manga grouped by source. Open a source, select one or more
   favorites with `Space`, and press `M` to search enabled sources and preview matches.
   `t` chooses which enabled sources matching may use, with `+`/`-` reordering them;

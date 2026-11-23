@@ -216,10 +216,11 @@ Rules:
   accepts comma-separated terms matched against names, packages, languages, source
   names, and installed source IDs/base URLs. `o` on Extensions
   opens extension details with per-source toggles, enable/disable-all actions, source
-  preferences, per-extension Incognito, clear-cookies, and uninstall. Signature trust is
-  not implemented: the host cannot verify extension signatures, so there is no trust
-  action. Migrate lists saved manga by source, multi-selects favorites, matches
-  titles against enabled sources with regular/deep queries, previews targets, skips a
+  preferences, per-extension Incognito, clear-cookies, and uninstall. Details show a
+  SHA-256 file fingerprint and `Y` trusts/untrusts it (TOFU, warning on change). This is
+  not APK signature verification: the host cannot verify signatures. Migrate lists saved
+  manga by source, multi-selects favorites, matches titles against enabled sources with
+  regular/deep queries, previews targets, skips a
   preview (`s`), hides unmatched rows (`h`), hides targets without newer chapters (`u`),
   prioritizes the source with the latest chapter (`p`),
   and migrates (`M`) or copies (`C`) progress/bookmarks/history/categories.
@@ -367,8 +368,8 @@ Rules:
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
   `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
   `remote_library`, `store_names`, `tracking`, `anilist_token`, `mal_client_id`,
-  `mal_token`, `series_added_at`, `update_interval_hours`, `downloads_path`, and
-  `hidden_series`, and preserves unknown keys from existing files.
+  `mal_token`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,
+  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,

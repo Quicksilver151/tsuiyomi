@@ -19,11 +19,11 @@ use ratatui_image::{
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
-    downloads_dir, ensure_runtime, ensure_series_cover, fetch_bytes, host_data_dir, import_series,
-    is_downloaded, latest_chapter_number, legacy_remote_cover_path, load_cached_story,
-    merge_extensions, missing_chapter_count, move_series_downloads, normalized_title,
-    page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page, read_state,
-    remote_cover_path, save_cached_story, save_config, scan_library, search_anilist,
+    downloads_dir, ensure_runtime, ensure_series_cover, extension_fingerprint, fetch_bytes,
+    host_data_dir, import_series, is_downloaded, latest_chapter_number, legacy_remote_cover_path,
+    load_cached_story, merge_extensions, missing_chapter_count, move_series_downloads,
+    normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
+    read_state, remote_cover_path, save_cached_story, save_config, scan_library, search_anilist,
     series_dir_name, source_dir_name, story_cache_path, title_similarity, today_key,
     update_anilist_progress, update_mal_progress, visible_chapters, write_comic_info,
     write_mihon_backup, BackupCategory, BackupChapter, BackupHistory, BackupManga, BackupSource,
@@ -250,6 +250,7 @@ pub struct ExtensionDetailsState {
     pub extension: ExtensionInfo,
     pub sources: Vec<RemoteSource>,
     pub list_state: ListState,
+    pub fingerprint: Option<String>,
 }
 
 pub struct SourcePrefsState {
@@ -6394,14 +6395,44 @@ impl AppState {
             return;
         }
         let sources = self.resolved_extension_sources(&extension);
+        let fingerprint = extension_fingerprint(&extension.apk);
         self.extension_details = Some(ExtensionDetailsState {
             extension,
             sources,
             list_state: ListState::default(),
+            fingerprint,
         });
         self.browse_view = BrowseView::ExtensionDetails;
         self.browse_selection = 0;
         self.select_browse_entry(0);
+    }
+
+    pub fn toggle_extension_trust(&mut self) {
+        let Some(state) = self.extension_details.as_ref() else {
+            return;
+        };
+        let extension = state.extension.clone();
+        let Some(fingerprint) = state.fingerprint.clone() else {
+            self.remote.status = Some("Cannot fingerprint this extension file.".to_owned());
+            self.remote.error = true;
+            return;
+        };
+        let trusted = self
+            .config
+            .trusted_extensions
+            .get(&extension.pkg)
+            .is_some_and(|known| known == &fingerprint);
+        if trusted {
+            self.config.trusted_extensions.remove(&extension.pkg);
+            self.remote.status = Some(format!("No longer trusting {}", extension.name));
+        } else {
+            self.config
+                .trusted_extensions
+                .insert(extension.pkg.clone(), fingerprint);
+            self.remote.status = Some(format!("Trusted {}", extension.name));
+        }
+        self.persist_settings();
+        self.remote.error = false;
     }
 
     pub fn extension_detail_rows(&self) -> Vec<ExtensionDetailRow> {
@@ -18903,6 +18934,7 @@ mod tests {
             extension,
             sources,
             list_state: ListState::default(),
+            fingerprint: None,
         });
         app.browse_view = BrowseView::ExtensionDetails;
 
@@ -19036,6 +19068,7 @@ mod tests {
                 supports_latest: true,
             }],
             list_state: ListState::default(),
+            fingerprint: None,
         });
         app.browse_view = BrowseView::ExtensionDetails;
         app.browse_selection = 0;

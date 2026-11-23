@@ -186,6 +186,8 @@ pub struct Config {
     pub mal_token: Option<String>,
     /// Linked tracker entries, keyed by the history series key.
     pub tracking: BTreeMap<String, TrackerLink>,
+    /// Trusted extension file fingerprints, keyed by package name.
+    pub trusted_extensions: BTreeMap<String, String>,
     /// Saved remote manga, mirrored from the host so the library renders offline.
     pub remote_library: Vec<RemoteFavorite>,
     /// When a series first appeared in the library, keyed by the history series key
@@ -252,6 +254,7 @@ impl Default for Config {
             mal_client_id: None,
             mal_token: None,
             tracking: BTreeMap::new(),
+            trusted_extensions: BTreeMap::new(),
             remote_library: Vec::new(),
             series_added_at: BTreeMap::new(),
             hidden_series: Vec::new(),
