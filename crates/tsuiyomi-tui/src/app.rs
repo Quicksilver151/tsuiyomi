@@ -492,6 +492,9 @@ pub enum SettingId {
     ShowNsfw,
     FlareSolverr,
     DownloadsPath,
+    DownloadAhead,
+    DeleteAfterRead,
+    KeepBookmarkedDownloads,
     ImportBackup,
     ExportBackup,
 }
@@ -558,11 +561,15 @@ const READER_ROWS: [MoreRow; 8] = [
     MoreRow::Setting(SettingId::CacheMargin),
 ];
 
-const DOWNLOADS_ROWS: [MoreRow; 4] = [
+const DOWNLOADS_ROWS: [MoreRow; 8] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::DownloadsPath),
     MoreRow::Note("TSUIYOMI_DOWNLOADS overrides this for one session."),
     MoreRow::Note("Local library chapters are read directly from disk."),
+    MoreRow::Divider("Policies"),
+    MoreRow::Setting(SettingId::DownloadAhead),
+    MoreRow::Setting(SettingId::DeleteAfterRead),
+    MoreRow::Setting(SettingId::KeepBookmarkedDownloads),
 ];
 
 const TRACKING_ROWS: [MoreRow; 10] = [
@@ -5672,6 +5679,7 @@ impl AppState {
                 self.build_scroll(terminal_width());
             }
         }
+        self.download_read_ahead();
     }
 
     pub fn close_remote_reader(&mut self) {
@@ -8460,6 +8468,23 @@ impl AppState {
         let position = self.story_chapter_position();
         let selected: Vec<usize> = indices.into_iter().skip(position).take(count).collect();
         self.download_indices(selected);
+    }
+
+    fn download_read_ahead(&mut self) {
+        let count = self.config.download_ahead;
+        if count == 0 {
+            return;
+        }
+        let indices = self.story_chapter_indices();
+        let position = self.story_chapter_position();
+        let selected: Vec<usize> = indices
+            .into_iter()
+            .skip(position.saturating_add(1))
+            .take(count)
+            .collect();
+        if !selected.is_empty() {
+            self.download_indices(selected);
+        }
     }
 
     pub fn download_unread(&mut self) {
@@ -12751,8 +12776,59 @@ impl AppState {
         self.progress.update(chapter, page, pages);
         self.record_history(chapter, page, pages);
         self.sync_tracker_progress();
+        self.maybe_delete_read_download(chapter, page, pages);
         self.progress_dirty = true;
         self.progress_changed_at = Some(Instant::now());
+    }
+
+    fn maybe_delete_read_download(&mut self, chapter: &std::path::Path, page: usize, pages: usize) {
+        if !self.config.delete_after_read || page.saturating_add(1) < pages {
+            return;
+        }
+        let (manga, remote_chapter) = match self.reader_origin {
+            ReaderOrigin::Remote => {
+                let Some(manga) = self.remote.manga.clone() else {
+                    return;
+                };
+                let Some(chapter) = self.remote.chapters.get(self.remote.chapter_index).cloned()
+                else {
+                    return;
+                };
+                (manga, chapter)
+            }
+            ReaderOrigin::LibraryRemote => {
+                let Some(manga) = self.library_remote.manga.clone() else {
+                    return;
+                };
+                let Some(chapter) = self
+                    .library_remote
+                    .chapters
+                    .get(self.library_remote.chapter_index)
+                    .cloned()
+                else {
+                    return;
+                };
+                (manga, chapter)
+            }
+            ReaderOrigin::Library
+            | ReaderOrigin::BrowseLocal
+            | ReaderOrigin::Updates
+            | ReaderOrigin::History => return,
+        };
+        let key = remote_progress_key(&manga.source_id, &manga.url, &remote_chapter.url);
+        if self.config.keep_bookmarked_downloads && self.bookmarks.is_bookmarked(&key) {
+            return;
+        }
+        let Some(dir) = self.downloaded_chapter_dir(&manga, &remote_chapter) else {
+            return;
+        };
+        let _ = chapter;
+        if std::fs::remove_dir_all(&dir).is_ok() {
+            self.download_states
+                .remove(&key.to_string_lossy().into_owned());
+            self.refresh_download_marks();
+            self.status = Some(format!("Removed downloaded {}", remote_chapter.name));
+        }
     }
 
     fn record_history(&mut self, chapter: &std::path::Path, page: usize, pages: usize) {
@@ -13882,6 +13958,16 @@ impl AppState {
                 let value = (self.config.update_interval_hours as i32 + delta).clamp(0, 168);
                 self.config.update_interval_hours = value as u64;
                 self.auto_update_checked_at = None;
+            }
+            SettingId::DownloadAhead => {
+                self.config.download_ahead =
+                    (self.config.download_ahead as i32 + delta).clamp(0, 10) as usize;
+            }
+            SettingId::DeleteAfterRead => {
+                self.config.delete_after_read = !self.config.delete_after_read;
+            }
+            SettingId::KeepBookmarkedDownloads => {
+                self.config.keep_bookmarked_downloads = !self.config.keep_bookmarked_downloads;
             }
             SettingId::LibrarySort => {
                 let sorts = [
@@ -15368,6 +15454,7 @@ impl AppState {
                 self.build_scroll(terminal_width());
             }
         }
+        self.download_read_ahead();
     }
 
     /// Human-readable extension host state for the About page.

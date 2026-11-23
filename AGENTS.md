@@ -371,7 +371,8 @@ Rules:
   `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
   `global_search_scope`, `global_search_only_results`, `source_display_mode`,
   `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
-  `remote_library`, `store_names`, `tracking`, `anilist_token`, `anilist_client_id`,
+  `remote_library`, `store_names`, `tracking`, `download_ahead`, `delete_after_read`,
+  `keep_bookmarked_downloads`, `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
   `tracker_auth`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,
   `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
@@ -381,8 +382,8 @@ Rules:
   About. Entry pages are listed in `SettingsPage`; each page is a gray-divider grouped
   row list. Implemented real options: appearance/theme/accent/thumbnail size, library
   path/rescan/sort/default category, reader mode/zoom/fit/prefetch/cache, downloads
-  folder, backup import, AniList/MyAnimeList tracking, and Security → Incognito (stops
-  progress writes). Tracking uses browser OAuth with configurable application client
+  folder, read-ahead/delete-after-read policies, backup import, AniList/MyAnimeList
+  tracking, and Security → Incognito (stops progress writes). Tracking uses browser OAuth with configurable application client
   credentials and syncs chapter progress through `tracker_worker`; other tracker services
   remain. More → Downloads lists
   downloaded series with chapter counts and sizes (`r` refreshes, `c` cancels the queue,

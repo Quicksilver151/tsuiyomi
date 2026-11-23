@@ -149,6 +149,12 @@ pub struct Config {
     /// Root of downloaded chapters. Defaults to the sibling `downloads/` directory
     /// when the library lives in a Mihon-style `local/` folder.
     pub downloads_path: Option<PathBuf>,
+    /// Number of following chapters to queue while reading. Zero disables read-ahead.
+    pub download_ahead: usize,
+    /// Delete a downloaded chapter after its last page is read.
+    pub delete_after_read: bool,
+    /// Keep downloaded chapters that are bookmarked when delete-after-read is on.
+    pub keep_bookmarked_downloads: bool,
     /// External extension-host base URL, e.g. `http://127.0.0.1:4567`. When unset,
     /// tsuiyomi starts the bundled host.
     pub host_url: Option<String>,
@@ -259,6 +265,9 @@ impl Default for Config {
         Self {
             library_path: default_library_path(),
             downloads_path: None,
+            download_ahead: 0,
+            delete_after_read: false,
+            keep_bookmarked_downloads: true,
             host_url: None,
             host_jar: None,
             flaresolverr_url: None,

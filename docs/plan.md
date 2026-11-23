@@ -135,10 +135,10 @@ Acceptance: all Migrate rows are ✅.
 ### Phase 5 — Downloads
 
 - [ ] Add page/source concurrency settings and respect them in the queue.
-- [ ] Add download-ahead and auto-download-while-reading settings.
+- [x] Add download-ahead and auto-download-while-reading settings.
 - [ ] Add delete-after-read policies:
-      - [ ] After read.
-      - [ ] Except bookmarked.
+      - [x] After read.
+      - [x] Except bookmarked.
       - [ ] Excluded categories.
 - [ ] Add global/category new-chapter auto-download policy.
 - [ ] Add CBZ output for downloaded chapters.

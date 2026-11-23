@@ -5953,6 +5953,30 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "Not set".to_owned()
             },
         ),
+        SettingId::DownloadAhead => (
+            "Download ahead".to_owned(),
+            if app.config.download_ahead == 0 {
+                "Off".to_owned()
+            } else {
+                format!("{} chapters", app.config.download_ahead)
+            },
+        ),
+        SettingId::DeleteAfterRead => (
+            "Delete after read".to_owned(),
+            if app.config.delete_after_read {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::KeepBookmarkedDownloads => (
+            "Keep bookmarked".to_owned(),
+            if app.config.keep_bookmarked_downloads {
+                "Yes".to_owned()
+            } else {
+                "No".to_owned()
+            },
+        ),
         SettingId::UpdateInterval => (
             "Update interval".to_owned(),
             if app.config.update_interval_hours == 0 {

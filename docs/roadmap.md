@@ -18,10 +18,10 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [History and Stats](#history-and-stats) | 19 | 1 | 1 | 0 | 92.9% |
 | [Migrate](#migrate) | 20 | 1 | 2 | 0 | 89.1% |
 | [Tracking](#tracking) | 2 | 2 | 3 | 0 | 42.9% |
-| [Downloads](#downloads) | 1 | 2 | 4 | 1 | 28.6% |
+| [Downloads](#downloads) | 2 | 3 | 2 | 1 | 50.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **212** | **15** | **28** | **11** | **86.1%** |
+| **All categories** | **213** | **16** | **26** | **11** | **86.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -314,8 +314,8 @@ table below.
 |---|---|---|---|---|---|
 | Management | Folder, queue, series list, cancel, delete | Yes | ✅ | ✅ | More → Downloads. |
 | Policies | Concurrent pages/sources settings | Yes | ❌ | ❌ | One chapter at a time. |
-| Policies | Download ahead / auto-download while reading | Yes | ❌ | ❌ | Planned. |
-| Policies | Delete after read/bookmarked/excluded categories | Yes | ❌ | ❌ | Planned. |
+| Policies | Download ahead / auto-download while reading | Yes | ✅ | ✅ | Queues the next N chapters when a remote chapter opens. |
+| Policies | Delete after read/bookmarked/excluded categories | Yes | 🟡 | 🟡 | Delete-after-read and keep-bookmarked work; excluded-category policy remains. |
 | Policies | Global/category new-chapter downloads | Yes | 🟡 | 🟡 | Per-series auto-download only. |
 | Format | Save chapters as CBZ | Yes | ❌ | ❌ | Folder downloads only. |
 | Queue | Pause, resume, reorder | Yes | 🟡 | 🟡 | Cancel only. |
