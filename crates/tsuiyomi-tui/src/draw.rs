@@ -4739,8 +4739,8 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
         .split(area);
 
     let detail = match mode {
-        ReaderMode::Page => protocol_name.to_owned(),
-        ReaderMode::Scroll => format!("{protocol_name} {zoom}%"),
+        ReaderMode::Page if zoom == 100 => protocol_name.to_owned(),
+        ReaderMode::Page | ReaderMode::Scroll => format!("{protocol_name} {zoom}%"),
     };
     let status = Line::from(vec![
         Span::raw(" "),

@@ -14,12 +14,12 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 1 | 1 | 95.8% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 45 | 0 | 1 | 1 | 97.8% |
-| [Reader](#reader) | 16 | 0 | 1 | 0 | 94.1% |
+| [Reader](#reader) | 16 | 1 | 0 | 0 | 97.1% |
 | [History and Stats](#history-and-stats) | 19 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 20 | 0 | 0 | 0 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 0 | 1 | 0 | 92.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **206** | **1** | **4** | **8** | **97.9%** |
+| **All categories** | **206** | **2** | **3** | **8** | **98.1%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -208,8 +208,8 @@ table below.
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
 | Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
-| Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`, no upscaling at 100%. |
-| Zoom | Retransmit-free Kitty placement zoom | Yes | ❌ | ❌ | Pending. |
+| Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads the page, scroll zoom rebuilds rows, no upscaling at 100%. |
+| Zoom | Retransmit-free Kitty placement zoom | Yes | 🟡 | 🟡 | Page zoom works but re-encodes the page; placement-only Kitty zoom is still pending. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |
 | Progress | Read-state derivation | Yes | ✅ | ✅ | Page/pages. |
 | Progress | Host read-state mirror | Yes | ✅ | ✅ | Remote progress/bookmarks upload in batches and merge back when local state is missing. |

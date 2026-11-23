@@ -174,8 +174,8 @@ Rules:
   in `$XDG_DATA_HOME/tsuiyomi/bookmarks.json`; `b` toggles them from a story screen or the
   reader. Chapter rows use fixed bookmark/download columns. Right-to-left page mode
   reverses the left/right keys; paged vertical mode uses up/down page turns. Page images
-  support Fit, Fill/crop, and Stretch modes. Retransmit-free Kitty placement zoom is not
-  implemented yet.
+  support Fit, Fill/crop, and Stretch modes. Page-mode zoom crops/pads the decoded page
+  and re-encodes it; retransmit-free Kitty placement zoom is not implemented yet.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching

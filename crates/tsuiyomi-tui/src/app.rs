@@ -13179,8 +13179,11 @@ impl AppState {
             return;
         }
         self.zoom = zoom;
-        if self.reader.is_some() && self.reader_mode == ReaderMode::Scroll {
-            self.build_scroll(terminal_width());
+        if self.reader.is_some() {
+            match self.reader_mode {
+                ReaderMode::Page => self.load_page(),
+                ReaderMode::Scroll => self.build_scroll(terminal_width()),
+            }
         }
     }
 
@@ -13441,6 +13444,7 @@ impl AppState {
                 return;
             }
         };
+        let image = zoomed_page_image(image, self.zoom);
 
         let Some(picker) = self.image_picker.as_ref() else {
             reader.error = Some("No terminal graphics backend.".to_owned());
@@ -14988,6 +14992,35 @@ fn directory_size(path: &Path) -> u64 {
         .sum()
 }
 
+/// Crop or pad a page for the current page-mode zoom.
+///
+/// Zoom-in crops the center; zoom-out pads the image so fitting it into the viewport
+/// makes the page smaller. This re-encodes the page when zoom changes.
+fn zoomed_page_image(image: image::DynamicImage, zoom: u16) -> image::DynamicImage {
+    let scale = f32::from(zoom) / 100.0;
+    if (scale - 1.0).abs() < f32::EPSILON {
+        return image;
+    }
+    let (width, height) = (image.width(), image.height());
+    if scale > 1.0 {
+        let crop_width = ((width as f32) / scale).round().max(1.0) as u32;
+        let crop_height = ((height as f32) / scale).round().max(1.0) as u32;
+        let x = (width.saturating_sub(crop_width)) / 2;
+        let y = (height.saturating_sub(crop_height)) / 2;
+        image.crop_imm(x, y, crop_width, crop_height)
+    } else {
+        let canvas_width = ((width as f32) / scale).round().max(1.0) as u32;
+        let canvas_height = ((height as f32) / scale).round().max(1.0) as u32;
+        let mut canvas =
+            image::RgbaImage::from_pixel(canvas_width, canvas_height, image::Rgba([0, 0, 0, 255]));
+        let rgba = image.to_rgba8();
+        let x = (canvas_width.saturating_sub(rgba.width())) / 2;
+        let y = (canvas_height.saturating_sub(rgba.height())) / 2;
+        image::imageops::overlay(&mut canvas, &rgba, i64::from(x), i64::from(y));
+        image::DynamicImage::ImageRgba8(canvas)
+    }
+}
+
 fn current_unix_seconds() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -16016,6 +16049,19 @@ mod tests {
         app.chapter_index = 1;
         app.continue_reading();
         assert_eq!(app.chapter_index, 0);
+    }
+
+    #[test]
+    fn page_zoom_crops_and_pads_the_source_image() {
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            100,
+            200,
+            image::Rgb([10, 20, 30]),
+        ));
+        let zoomed_in = zoomed_page_image(image.clone(), 200);
+        assert_eq!((zoomed_in.width(), zoomed_in.height()), (50, 100));
+        let zoomed_out = zoomed_page_image(image, 50);
+        assert_eq!((zoomed_out.width(), zoomed_out.height()), (200, 400));
     }
 
     #[test]
