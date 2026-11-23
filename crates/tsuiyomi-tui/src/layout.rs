@@ -1,4 +1,5 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use tsuiyomi_core::LibraryDisplayMode;
 
 pub const TAB_COUNT: usize = 5;
 pub const TAB_NAMES: [&str; TAB_COUNT] = ["Library", "Updates", "History", "Browse", "More"];
@@ -127,6 +128,26 @@ pub fn tile_cover_height(min_width: u16, area_height: u16) -> u16 {
         .saturating_sub(TILE_TEXT_HEIGHT)
         .max(4);
     ideal.min(cap)
+}
+
+/// Columns used by the library grid, or one column for the list layout.
+pub fn library_grid_columns(mode: LibraryDisplayMode, area: Rect, min_width: u16) -> usize {
+    match mode {
+        LibraryDisplayMode::List => 1,
+        LibraryDisplayMode::Comfortable | LibraryDisplayMode::Compact => {
+            grid_columns(area, min_width)
+        }
+    }
+}
+
+/// Height of one library grid tile for the active layout.
+pub fn library_tile_height(mode: LibraryDisplayMode, min_width: u16, area_height: u16) -> u16 {
+    let cover = tile_cover_height(min_width, area_height);
+    match mode {
+        LibraryDisplayMode::Comfortable => cover.saturating_add(TILE_TEXT_HEIGHT),
+        LibraryDisplayMode::Compact => cover.saturating_add(1),
+        LibraryDisplayMode::List => 1,
+    }
 }
 
 pub fn grid_columns(area: Rect, min_width: u16) -> usize {

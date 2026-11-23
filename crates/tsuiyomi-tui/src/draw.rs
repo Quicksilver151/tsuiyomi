@@ -19,9 +19,10 @@ use ratatui_image::{
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
     date_key_for_unix, downloads_dir, parse_chapter_number, read_state, remote_cover_path,
-    today_key, BookmarkStore, Chapter, ChapterDisplay, ChapterSettings, HistoryEntry, LibrarySort,
-    ProgressStore, ReadState, ReadingMode, RemoteChapter, RemoteManga, RemoteSource, Series,
-    SourceDisplayMode, SourceFilter, SourcePreferenceKind, Theme, UpdateEntry,
+    today_key, BookmarkStore, Chapter, ChapterDisplay, ChapterSettings, HistoryEntry,
+    LibraryDisplayMode, LibrarySort, ProgressStore, ReadState, ReadingMode, RemoteChapter,
+    RemoteManga, RemoteSource, Series, SourceDisplayMode, SourceFilter, SourcePreferenceKind,
+    Theme, UpdateEntry,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -34,9 +35,9 @@ use crate::{
     },
     layout::{
         app_layout_with_commands, grid_columns, grid_margin, grid_row_offset, grid_tile_rect,
-        grid_tile_width, grid_visible_rows, library_grid_area, library_layout, more_layout,
-        reader_bar_layout, setting_columns, settings_rows, tab_layouts, tile_cover_height,
-        TAB_NAMES, TILE_GAP, TILE_TEXT_HEIGHT,
+        grid_tile_width, grid_visible_rows, library_grid_area, library_grid_columns,
+        library_layout, library_tile_height, more_layout, reader_bar_layout, setting_columns,
+        settings_rows, tab_layouts, tile_cover_height, TAB_NAMES, TILE_GAP, TILE_TEXT_HEIGHT,
     },
     palette::{
         accent_choices, c_accent, c_base, c_blue, c_green, c_mauve, c_overlay0, c_overlay1,
@@ -464,7 +465,7 @@ fn draw_library_filters(frame: &mut Frame, app: &AppState) {
     };
     let area = frame.area();
     let width = 58.min(area.width).max(24);
-    let height = 8.min(area.height);
+    let height = 10.min(area.height);
     if width < 20 || height < 5 {
         return;
     }
@@ -493,9 +494,11 @@ fn draw_library_filters(frame: &mut Frame, app: &AppState) {
     let filters = app.config.library_filters;
     let rows = [
         ("Unread", filters.unread),
+        ("In progress", filters.in_progress),
         ("Bookmarked", filters.bookmarked),
         ("Tracked", filters.tracked),
         ("Missing chapters", filters.missing_chapters),
+        ("Downloaded", filters.downloaded),
     ];
     let items: Vec<ListItem> = rows
         .iter()
@@ -1894,6 +1897,8 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("/", "search"),
                 ("i", "import"),
                 ("z", "filter"),
+                ("B", "random"),
+                ("v", "layout"),
                 ("r", "rescan"),
                 ("U", "update saved"),
                 ("c", "config"),
@@ -2095,14 +2100,15 @@ fn draw_library(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 );
             }
             let indices = app.visible_indices();
+            let mode = app.config.library_display_mode;
             let (columns, offset) = draw_series_grid(
                 frame,
                 grid_area,
                 app,
                 &indices,
                 app.selected,
-                app.library_grid_offset,
                 SelectionScope::LibrarySeries,
+                mode,
             );
             app.library_columns = columns;
             app.library_grid_offset = offset;
@@ -2263,12 +2269,16 @@ fn draw_series_grid(
     app: &mut AppState,
     indices: &[usize],
     selected: usize,
-    current_offset: usize,
     scope: SelectionScope,
+    mode: LibraryDisplayMode,
 ) -> (usize, usize) {
-    let columns = grid_columns(area, app.config.thumbnail_width);
+    let current_offset = match scope {
+        SelectionScope::LibrarySeries => app.library_grid_offset,
+        _ => app.browse_grid_offset,
+    };
+    let columns = library_grid_columns(mode, area, app.config.thumbnail_width);
     let cover_height = tile_cover_height(app.config.thumbnail_width, area.height);
-    let tile_height = cover_height + TILE_TEXT_HEIGHT;
+    let tile_height = library_tile_height(mode, app.config.thumbnail_width, area.height);
     let selected = selected.min(indices.len().saturating_sub(1));
     if indices.is_empty() {
         let message = if app.library_query.trim().is_empty() {
@@ -2359,8 +2369,53 @@ fn draw_series_grid(
             format!("{chapter_count} ch")
         };
         let unread = app.series_unread_count(&app.library.series[*series_index]);
+        let downloaded = app.series_downloaded_count(&app.library.series[*series_index]);
+        let language = app.series_language(&app.library.series[*series_index]);
         let tile = grid_tile_rect(area, columns, offset, index, tile_height);
         let is_selected = index == selected;
+        if mode == LibraryDisplayMode::List {
+            let marker = if multi_selected { "✓ " } else { "  " };
+            let mut spans = vec![
+                Span::styled(marker, Style::default().fg(c_accent())),
+                Span::styled(
+                    truncate_text(&title, tile.width.saturating_sub(24)),
+                    if is_selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ];
+            let mut meta = vec![format!("{chapter_count} ch")];
+            if unread > 0 {
+                meta.push(format!("{unread} unread"));
+            }
+            if downloaded > 0 {
+                meta.push(format!("↓{downloaded}"));
+            }
+            if let Some(language) = language.as_deref() {
+                meta.push(language.to_uppercase());
+            }
+            if let Some(remote) = &remote {
+                meta.push(
+                    app.remote
+                        .sources
+                        .iter()
+                        .find(|source| source.id == remote.source_id)
+                        .map(|source| source.name.clone())
+                        .unwrap_or_else(|| "saved".to_owned()),
+                );
+            }
+            spans.push(Span::styled(
+                format!("  {}", meta.join(" · ")),
+                Style::default().fg(c_overlay0()),
+            ));
+            frame.render_widget(
+                Paragraph::new(Line::from(spans)),
+                Rect::new(tile.x, tile.y, tile.width, 1),
+            );
+            continue;
+        }
         if is_selected {
             frame.render_widget(
                 Block::default().style(Style::default().bg(c_surface0())),
@@ -2388,6 +2443,31 @@ fn draw_series_grid(
                     .alignment(Alignment::Right)
                     .style(Style::default().fg(c_accent()).bg(c_surface0())),
                 Rect::new(cover_area.x, cover_area.y, cover_area.width, 1),
+            );
+        }
+        if let Some(language) = language.as_deref() {
+            if cover_area.width >= 2 && cover_area.height > 1 {
+                frame.render_widget(
+                    Paragraph::new(language.to_uppercase())
+                        .style(Style::default().fg(c_overlay1()).bg(c_surface0())),
+                    Rect::new(cover_area.x, cover_area.y, cover_area.width.min(3), 1),
+                );
+            }
+        }
+        if downloaded > 0 && cover_area.width >= 4 && cover_area.height > 1 {
+            frame.render_widget(
+                Paragraph::new(format!("↓{downloaded}")).style(
+                    Style::default()
+                        .fg(c_teal())
+                        .bg(c_surface0())
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Rect::new(
+                    cover_area.x,
+                    cover_area.y + cover_area.height - 1,
+                    cover_area.width,
+                    1,
+                ),
             );
         }
         if !rendered_cover {
@@ -2425,12 +2505,14 @@ fn draw_series_grid(
                 .style(title_style),
             Rect::new(title_area.x, title_area.y, title_area.width, 1),
         );
-        frame.render_widget(
-            Paragraph::new(detail)
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(c_overlay0())),
-            count_area,
-        );
+        if mode == LibraryDisplayMode::Comfortable {
+            frame.render_widget(
+                Paragraph::new(detail)
+                    .alignment(Alignment::Center)
+                    .style(Style::default().fg(c_overlay0())),
+                count_area,
+            );
+        }
     }
 
     (columns, offset)
@@ -2479,6 +2561,38 @@ fn draw_categories(frame: &mut Frame, area: Rect, app: &AppState) {
             Style::default().fg(c_overlay1())
         };
         spans.push(Span::styled(name.clone(), style));
+        spans.push(Span::styled(
+            format!(" {count}"),
+            Style::default().fg(c_overlay0()),
+        ));
+    }
+    if !app.library.categories.is_empty() {
+        let count = app
+            .library
+            .series
+            .iter()
+            .filter(|series| {
+                series.chapters.iter().any(|chapter| {
+                    matches!(
+                        read_state(
+                            app.progress
+                                .entry(&chapter.path)
+                                .map(|entry| (entry.page, entry.pages))
+                        ),
+                        ReadState::InProgress
+                    )
+                })
+            })
+            .count();
+        spans.push(Span::styled(" · ", Style::default().fg(c_overlay0())));
+        spans.push(Span::styled(
+            "Continue",
+            if app.continue_shelf_active() {
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(c_overlay1())
+            },
+        ));
         spans.push(Span::styled(
             format!(" {count}"),
             Style::default().fg(c_overlay0()),
@@ -3128,8 +3242,8 @@ fn draw_browse(frame: &mut Frame, area: Rect, app: &mut AppState) {
                         app,
                         &indices,
                         app.browse_selection,
-                        app.browse_grid_offset,
                         SelectionScope::BrowseLocal,
+                        LibraryDisplayMode::Comfortable,
                     );
                     app.browse_columns = columns;
                     app.browse_grid_offset = offset;
@@ -5960,6 +6074,31 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 .or_else(|| app.category_name().map(str::to_owned))
                 .unwrap_or_else(|| "Default".to_owned()),
         ),
+        SettingId::LibraryDisplay => (
+            "Library layout".to_owned(),
+            match app.config.library_display_mode {
+                LibraryDisplayMode::Comfortable => "Comfortable",
+                LibraryDisplayMode::Compact => "Compact",
+                LibraryDisplayMode::List => "List",
+            }
+            .to_owned(),
+        ),
+        SettingId::HideMissingChapters => (
+            "Hide missing-chapter counts".to_owned(),
+            if app.config.hide_missing_chapters {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::MarkDuplicatesRead => (
+            "Mark duplicates read".to_owned(),
+            if app.config.mark_duplicate_chapters_read {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
         SettingId::LibrarySort => (
             "Sort order".to_owned(),
             library_sort_label(app.config.library_sort).to_owned(),
@@ -6134,6 +6273,7 @@ fn library_sort_label(sort: LibrarySort) -> &'static str {
         LibrarySort::UnreadDesc => "Most unread",
         LibrarySort::LastReadDesc => "Recently read",
         LibrarySort::DateAddedDesc => "Recently added",
+        LibrarySort::Random => "Random",
     }
 }
 
@@ -7386,7 +7526,7 @@ mod tests {
     #[test]
     fn commands_box_grows_when_items_wrap() {
         let app = test_app();
-        let wide = commands_height(&app, Rect::new(0, 0, 180, 40));
+        let wide = commands_height(&app, Rect::new(0, 0, 220, 40));
         let narrow = commands_height(&app, Rect::new(0, 0, 54, 40));
         assert_eq!(wide, 3);
         assert!(narrow > wide);

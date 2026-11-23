@@ -29,11 +29,11 @@ use tsuiyomi_core::{
     write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
     BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
     ChapterMeta, ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryFilters,
-    LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page,
-    PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
-    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
-    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
+    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
+    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
+    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
     SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerLink, TrackerMedia,
     TriState, UpdateEntry, UpdateStore,
 };
@@ -471,8 +471,11 @@ pub enum SettingId {
     PrefetchAhead,
     CacheMargin,
     LibraryPath,
+    LibraryDisplay,
     DefaultCategory,
     LibrarySort,
+    HideMissingChapters,
+    MarkDuplicatesRead,
     UpdateInterval,
     RescanLibrary,
     AniListToken,
@@ -540,13 +543,16 @@ const APPEARANCE_ROWS: [MoreRow; 7] = [
     MoreRow::Setting(SettingId::ThumbnailSize),
 ];
 
-const LIBRARY_ROWS: [MoreRow; 8] = [
+const LIBRARY_ROWS: [MoreRow; 11] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::LibraryPath),
     MoreRow::Setting(SettingId::RescanLibrary),
     MoreRow::Divider("Display"),
+    MoreRow::Setting(SettingId::LibraryDisplay),
     MoreRow::Setting(SettingId::LibrarySort),
     MoreRow::Setting(SettingId::DefaultCategory),
+    MoreRow::Setting(SettingId::HideMissingChapters),
+    MoreRow::Setting(SettingId::MarkDuplicatesRead),
     MoreRow::Divider("Updates"),
     MoreRow::Setting(SettingId::UpdateInterval),
 ];
@@ -1182,6 +1188,10 @@ pub struct AppState {
     pub browse_grid_offset: usize,
     pub library_columns: usize,
     pub library_grid_offset: usize,
+    /// Downloaded-chapter counts per series key, refreshed after downloads change.
+    pub library_download_counts: BTreeMap<String, usize>,
+    /// Seed for the random library sort so it stays stable while browsing.
+    pub library_random_seed: u64,
     pub(crate) tile_covers: TileCoverCache,
     /// Remote covers that recently failed to load, so drawing does not retry every frame.
     pub failed_covers: HashMap<String, Instant>,
@@ -1343,6 +1353,8 @@ impl AppState {
             browse_grid_offset: 0,
             library_columns: 1,
             library_grid_offset: 0,
+            library_download_counts: BTreeMap::new(),
+            library_random_seed: 0x5eed_1234,
             tile_covers: TileCoverCache::default(),
             failed_covers: HashMap::new(),
             more_section: MoreSection::Settings,
@@ -9272,7 +9284,15 @@ impl AppState {
         }
     }
 
+    /// The continue-reading shelf is the entry after the real categories.
+    pub fn continue_shelf_active(&self) -> bool {
+        !self.library.categories.is_empty() && self.category_index >= self.library.categories.len()
+    }
+
     pub fn category_name(&self) -> Option<&str> {
+        if self.continue_shelf_active() {
+            return None;
+        }
         self.library
             .categories
             .get(self.category_index)
@@ -9283,28 +9303,54 @@ impl AppState {
     pub fn visible_indices(&self) -> Vec<usize> {
         let category = self.category_name();
         let query = self.library_query.trim().to_lowercase();
+        let shelf = self.continue_shelf_active();
         let mut indices: Vec<usize> = self
             .library
             .series
             .iter()
             .enumerate()
-            .filter(|(_, series)| in_category(series, category))
+            .filter(|(_, series)| {
+                if shelf {
+                    self.series_has_in_progress(series)
+                } else {
+                    in_category(series, category)
+                }
+            })
             .filter(|(_, series)| query.is_empty() || series.title.to_lowercase().contains(&query))
             .filter(|(_, series)| {
                 let filters = self.config.library_filters;
                 (!filters.unread || self.series_unread_count(series) > 0)
+                    && (!filters.in_progress || self.series_has_in_progress(series))
                     && (!filters.bookmarked || self.series_has_bookmark(series))
                     && (!filters.tracked || self.series_is_tracked(series))
                     && (!filters.missing_chapters
                         || missing_chapter_count(
                             series.chapters.iter().map(|chapter| chapter.number),
                         ) > 0)
+                    && (!filters.downloaded || self.series_downloaded_count(series) > 0)
             })
             .map(|(index, _)| index)
             .collect();
 
+        if shelf {
+            indices.sort_by_key(|index| {
+                std::cmp::Reverse(self.series_last_read_at(&self.library.series[*index]))
+            });
+            return indices;
+        }
+
         match self.config.library_sort {
             LibrarySort::Natural => {}
+            LibrarySort::Random => {
+                let seed = self.library_random_seed;
+                indices.sort_by_key(|index| {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    self.library.series[*index].path.hash(&mut hasher);
+                    seed.hash(&mut hasher);
+                    hasher.finish()
+                });
+            }
             LibrarySort::TitleAsc => indices.sort_by(|left, right| {
                 self.library.series[*left]
                     .title
@@ -9410,7 +9456,65 @@ impl AppState {
 
     pub fn library_filters_active(&self) -> bool {
         let filters = self.config.library_filters;
-        filters.unread || filters.bookmarked || filters.tracked || filters.missing_chapters
+        filters.unread
+            || filters.in_progress
+            || filters.bookmarked
+            || filters.tracked
+            || filters.missing_chapters
+            || filters.downloaded
+    }
+
+    fn cycle_library_display_mode_for(&mut self, delta: i32) {
+        let modes = [
+            LibraryDisplayMode::Comfortable,
+            LibraryDisplayMode::Compact,
+            LibraryDisplayMode::List,
+        ];
+        let index = modes
+            .iter()
+            .position(|mode| *mode == self.config.library_display_mode)
+            .unwrap_or(0);
+        let next = (index as i32 + delta).rem_euclid(modes.len() as i32) as usize;
+        self.config.library_display_mode = modes[next];
+        self.library_grid_offset = 0;
+        self.persist_settings();
+    }
+
+    /// Cycle the library layout: comfortable, compact, then list.
+    pub fn cycle_library_display_mode(&mut self) {
+        self.config.library_display_mode = match self.config.library_display_mode {
+            LibraryDisplayMode::Comfortable => LibraryDisplayMode::Compact,
+            LibraryDisplayMode::Compact => LibraryDisplayMode::List,
+            LibraryDisplayMode::List => LibraryDisplayMode::Comfortable,
+        };
+        self.library_grid_offset = 0;
+        self.persist_settings();
+    }
+
+    /// Reseed the random library order so the next draw reshuffles.
+    pub fn reseed_library_random(&mut self) {
+        self.library_random_seed = self
+            .library_random_seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_nanos() as u64)
+                    .unwrap_or(1),
+            );
+    }
+
+    /// Open a random series from the current library view.
+    pub fn open_random_series(&mut self) {
+        let count = self.visible_count();
+        if count == 0 {
+            self.status = Some("The library is empty.".to_owned());
+            return;
+        }
+        self.reseed_library_random();
+        self.selected = (self.library_random_seed as usize) % count;
+        self.library_grid_offset = 0;
+        self.open();
     }
 
     pub fn open_library_filters(&mut self) {
@@ -9427,7 +9531,7 @@ impl AppState {
 
     pub fn library_filter_next(&mut self) {
         if let Some(picker) = self.library_filter_picker.as_mut() {
-            picker.selected = (picker.selected + 1).min(3);
+            picker.selected = (picker.selected + 1).min(5);
         }
     }
 
@@ -9435,14 +9539,14 @@ impl AppState {
         let Some(picker) = self.library_filter_picker.as_ref() else {
             return;
         };
+        let filters = &mut self.config.library_filters;
         match picker.selected {
-            0 => self.config.library_filters.unread = !self.config.library_filters.unread,
-            1 => self.config.library_filters.bookmarked = !self.config.library_filters.bookmarked,
-            2 => self.config.library_filters.tracked = !self.config.library_filters.tracked,
-            _ => {
-                self.config.library_filters.missing_chapters =
-                    !self.config.library_filters.missing_chapters
-            }
+            0 => filters.unread = !filters.unread,
+            1 => filters.in_progress = !filters.in_progress,
+            2 => filters.bookmarked = !filters.bookmarked,
+            3 => filters.tracked = !filters.tracked,
+            4 => filters.missing_chapters = !filters.missing_chapters,
+            _ => filters.downloaded = !filters.downloaded,
         }
         self.persist_settings();
         self.clamp_selection();
@@ -9489,6 +9593,94 @@ impl AppState {
             .chapters
             .iter()
             .any(|chapter| self.bookmarks.is_bookmarked(&chapter.path))
+    }
+
+    fn series_last_read_at(&self, series: &Series) -> u64 {
+        series
+            .chapters
+            .iter()
+            .filter_map(|chapter| {
+                self.history
+                    .get(&chapter.path.to_string_lossy())
+                    .map(|entry| entry.last_read)
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn series_has_in_progress(&self, series: &Series) -> bool {
+        series.chapters.iter().any(|chapter| {
+            matches!(
+                read_state(
+                    self.progress
+                        .entry(&chapter.path)
+                        .map(|entry| (entry.page, entry.pages))
+                ),
+                ReadState::InProgress
+            )
+        })
+    }
+
+    /// Downloaded chapters recorded for a saved source series.
+    pub fn series_downloaded_count(&self, series: &Series) -> usize {
+        series
+            .remote
+            .as_ref()
+            .and_then(|remote| {
+                self.library_download_counts
+                    .get(&Self::download_count_key(&remote.source_id, &remote.url))
+            })
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn download_count_key(source_id: &str, url: &str) -> String {
+        format!("{source_id}\n{url}")
+    }
+
+    /// Language code shown on a saved source tile, when the host lists the source.
+    pub fn series_language(&self, series: &Series) -> Option<String> {
+        let source_id = &series.remote.as_ref()?.source_id;
+        self.remote
+            .sources
+            .iter()
+            .find(|source| &source.id == source_id)
+            .map(|source| source.lang.clone())
+            .filter(|lang| !lang.trim().is_empty())
+    }
+
+    /// Recompute downloaded-chapter counts for every saved source series.
+    pub fn refresh_library_download_counts(&mut self) {
+        self.library_download_counts.clear();
+        let Some(root) = downloads_dir(&self.config) else {
+            return;
+        };
+        let counts: Vec<(String, usize)> = self
+            .library
+            .series
+            .iter()
+            .filter_map(|series| {
+                let remote = series.remote.as_ref()?;
+                let source = self
+                    .remote_source_display_name(&remote.source_id)
+                    .unwrap_or_else(|| remote.source_id.clone());
+                let dir = root
+                    .join(source_dir_name(&source))
+                    .join(series_dir_name(&series.title));
+                let count = std::fs::read_dir(dir)
+                    .ok()?
+                    .filter_map(Result::ok)
+                    .filter(|entry| entry.path().is_dir())
+                    .count();
+                (count > 0).then(|| {
+                    (
+                        Self::download_count_key(&remote.source_id, &remote.url),
+                        count,
+                    )
+                })
+            })
+            .collect();
+        self.library_download_counts.extend(counts);
     }
 
     pub fn library_filter_active(&self) -> bool {
@@ -9832,6 +10024,9 @@ impl AppState {
     }
 
     pub fn story_missing_chapters(&self) -> usize {
+        if self.config.hide_missing_chapters {
+            return 0;
+        }
         if self.tab == 0 && self.view == LibraryView::Chapters {
             if let Some(series) = self.selected_series() {
                 return missing_chapter_count(series.chapters.iter().map(|chapter| chapter.number));
@@ -9911,6 +10106,9 @@ impl AppState {
         }
         for index in &indices {
             self.mark_story_chapter_read(*index, read);
+        }
+        if read && self.config.mark_duplicate_chapters_read {
+            self.mark_duplicate_chapters_read(&indices);
         }
         let _ = self.progress.save();
         self.multi_select = None;
@@ -10032,6 +10230,67 @@ impl AppState {
                 .entry(&key)
                 .map(|entry| (entry.page, entry.pages)),
         )
+    }
+
+    /// Mark unselected chapters sharing a chapter number with the selection as read.
+    fn mark_duplicate_chapters_read(&mut self, selected: &[usize]) {
+        use std::collections::BTreeSet;
+        let numbers: BTreeSet<u32> = selected
+            .iter()
+            .filter_map(|index| self.story_chapter_number(*index))
+            .map(f32::to_bits)
+            .collect();
+        if numbers.is_empty() {
+            return;
+        }
+        let duplicates: Vec<usize> = (0..self.story_chapter_count())
+            .filter(|index| !selected.contains(index))
+            .filter(|index| {
+                self.story_chapter_number(*index)
+                    .is_some_and(|number| numbers.contains(&number.to_bits()))
+            })
+            .collect();
+        for index in duplicates {
+            self.mark_story_chapter_read(index, true);
+        }
+    }
+
+    /// Chapter number at a story-list index, for local and remote stories.
+    fn story_chapter_number(&self, index: usize) -> Option<f32> {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            return self
+                .selected_series()
+                .and_then(|series| series.chapters.get(index))
+                .and_then(|chapter| chapter.number);
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            return self
+                .selected_browse_local_series()
+                .and_then(|series| series.chapters.get(index))
+                .and_then(|chapter| chapter.number);
+        }
+        self.story_remote_chapters()
+            .and_then(|chapters| chapters.get(index))
+            .map(|chapter| chapter.chapter_number)
+            .filter(|number| *number >= 0.0)
+    }
+
+    fn story_chapter_count(&self) -> usize {
+        if self.tab == 0 && self.view == LibraryView::Chapters {
+            return self
+                .selected_series()
+                .map(|series| series.chapters.len())
+                .unwrap_or(0);
+        }
+        if self.tab == 3 && self.browse_view == BrowseView::Chapters {
+            return self
+                .selected_browse_local_series()
+                .map(|series| series.chapters.len())
+                .unwrap_or(0);
+        }
+        self.story_remote_chapters()
+            .map(|chapters| chapters.len())
+            .unwrap_or(0)
     }
 
     fn mark_story_chapter_read(&mut self, source_index: usize, read: bool) {
@@ -13404,8 +13663,11 @@ impl AppState {
             }
             SettingId::ReadingMode
             | SettingId::ReaderFit
+            | SettingId::LibraryDisplay
             | SettingId::LibrarySort
-            | SettingId::DefaultCategory => self.adjust_setting(1),
+            | SettingId::DefaultCategory
+            | SettingId::HideMissingChapters
+            | SettingId::MarkDuplicatesRead => self.adjust_setting(1),
             _ => {}
         }
     }
@@ -14080,6 +14342,16 @@ impl AppState {
             SettingId::KeepBookmarkedDownloads => {
                 self.config.keep_bookmarked_downloads = !self.config.keep_bookmarked_downloads;
             }
+            SettingId::LibraryDisplay => {
+                self.cycle_library_display_mode_for(delta);
+            }
+            SettingId::HideMissingChapters => {
+                self.config.hide_missing_chapters = !self.config.hide_missing_chapters;
+            }
+            SettingId::MarkDuplicatesRead => {
+                self.config.mark_duplicate_chapters_read =
+                    !self.config.mark_duplicate_chapters_read;
+            }
             SettingId::LibrarySort => {
                 let sorts = [
                     LibrarySort::Natural,
@@ -14090,6 +14362,7 @@ impl AppState {
                     LibrarySort::UnreadDesc,
                     LibrarySort::LastReadDesc,
                     LibrarySort::DateAddedDesc,
+                    LibrarySort::Random,
                 ];
                 let index = sorts
                     .iter()
@@ -14097,6 +14370,9 @@ impl AppState {
                     .unwrap_or(0);
                 let next = (index as i32 + delta).rem_euclid(sorts.len() as i32) as usize;
                 self.config.library_sort = sorts[next];
+                if self.config.library_sort == LibrarySort::Random {
+                    self.reseed_library_random();
+                }
                 self.clamp_selection();
             }
             SettingId::DefaultCategory => {
@@ -15052,7 +15328,9 @@ impl AppState {
         if count == 0 {
             return;
         }
-        self.category_index = (self.category_index + 1) % count;
+        // The shelf sits after the real categories, so navigation includes it.
+        let total = count + 1;
+        self.category_index = (self.category_index + 1) % total;
         self.reset_selection();
     }
 
@@ -15064,8 +15342,9 @@ impl AppState {
         if count == 0 {
             return;
         }
+        let total = count + 1;
         self.category_index = if self.category_index == 0 {
-            count - 1
+            total - 1
         } else {
             self.category_index - 1
         };
@@ -15405,6 +15684,7 @@ impl AppState {
         {
             self.remote.downloaded = marks;
         }
+        self.refresh_library_download_counts();
     }
 
     /// Fold saved remote manga into the one library grid, under the default category.
@@ -15741,6 +16021,9 @@ impl AppState {
     }
 
     fn category_name_or_default(&self) -> String {
+        if self.continue_shelf_active() {
+            return self.config.default_category.clone().unwrap_or_default();
+        }
         self.library
             .categories
             .get(self.category_index)
@@ -17040,6 +17323,70 @@ mod tests {
     }
 
     #[test]
+    fn library_layout_cycles_through_modes() {
+        let mut app = AppState::new(library(), None);
+        assert_eq!(
+            app.config.library_display_mode,
+            LibraryDisplayMode::Comfortable
+        );
+        app.cycle_library_display_mode();
+        assert_eq!(app.config.library_display_mode, LibraryDisplayMode::Compact);
+        app.cycle_library_display_mode();
+        assert_eq!(app.config.library_display_mode, LibraryDisplayMode::List);
+        app.cycle_library_display_mode();
+        assert_eq!(
+            app.config.library_display_mode,
+            LibraryDisplayMode::Comfortable
+        );
+    }
+
+    #[test]
+    fn continue_shelf_lists_in_progress_series() {
+        let mut app = AppState::new(library(), None);
+        app.progress.update(Path::new("Chapter 2"), 0, 10);
+        app.category_index = app.library.categories.len();
+        assert!(app.continue_shelf_active());
+        assert_eq!(app.category_name(), None);
+        assert_eq!(app.visible_indices(), vec![1]);
+
+        app.category_index = 0;
+        assert!(!app.continue_shelf_active());
+        assert_eq!(app.visible_indices(), vec![0, 1]);
+    }
+
+    #[test]
+    fn in_progress_filter_narrows_the_grid() {
+        let mut app = AppState::new(library(), None);
+        app.progress.update(Path::new("Chapter 2"), 0, 10);
+        app.config.library_filters.in_progress = true;
+        assert_eq!(app.visible_indices(), vec![1]);
+    }
+
+    #[test]
+    fn random_sort_is_stable_for_one_seed() {
+        let mut app = AppState::new(library(), None);
+        app.library.series[0].chapters = vec![chapter("Chapter 1")];
+        app.config.library_sort = LibrarySort::Random;
+        app.library_random_seed = 7;
+        let first = app.visible_indices();
+        assert_eq!(app.visible_indices(), first);
+        app.library_random_seed = 9;
+        let second = app.visible_indices();
+        assert_eq!(second.len(), first.len());
+    }
+
+    #[test]
+    fn hiding_missing_chapters_zeroes_the_count() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.view = LibraryView::Chapters;
+        app.library.series[1].chapters[0].number = Some(3.0);
+        assert!(app.story_missing_chapters() > 0);
+        app.config.hide_missing_chapters = true;
+        assert_eq!(app.story_missing_chapters(), 0);
+    }
+
+    #[test]
     fn library_search_filters_titles() {
         let mut app = AppState::new(library(), None);
         app.library_search_start();
@@ -17153,6 +17500,26 @@ mod tests {
 
         app.mark_previous_read();
         assert!(app.progress.entry(Path::new("Chapter 2")).is_some());
+    }
+
+    #[test]
+    fn marking_a_chapter_read_marks_duplicate_numbers() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.view = LibraryView::Chapters;
+        app.chapter_index = 0;
+        app.mark_selected_read(true);
+        assert_eq!(app.story_chapter_read_state(0), ReadState::Read);
+        assert_eq!(app.story_chapter_read_state(1), ReadState::Read);
+
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.view = LibraryView::Chapters;
+        app.library.series[1].chapters[1].number = Some(2.0);
+        app.chapter_index = 0;
+        app.mark_selected_read(true);
+        assert_eq!(app.story_chapter_read_state(0), ReadState::Read);
+        assert_eq!(app.story_chapter_read_state(1), ReadState::Unread);
     }
 
     #[test]
@@ -20482,8 +20849,8 @@ mod tests {
         app.more_section = MoreSection::Settings;
         app.settings_page = SettingsPage::Library;
 
-        // LIBRARY_ROWS selectable order: path, rescan, sort, category.
-        app.setting_index = 2;
+        // LIBRARY_ROWS selectable order: path, rescan, display, sort, category.
+        app.setting_index = 3;
         app.adjust_setting(1);
         assert_eq!(app.config.library_sort, LibrarySort::TitleAsc);
         let titles: Vec<&str> = app
@@ -20493,7 +20860,7 @@ mod tests {
             .collect();
         assert_eq!(titles, ["Alpha", "Zeta"]);
 
-        app.setting_index = 3;
+        app.setting_index = 4;
         app.adjust_setting(1);
         assert_eq!(app.config.default_category.as_deref(), Some("Reading"));
         assert_eq!(app.category_name(), Some("Reading"));
@@ -20502,7 +20869,7 @@ mod tests {
         assert_eq!(app.config.default_category.as_deref(), Some("Default"));
         assert_eq!(app.category_name(), Some("Default"));
 
-        app.setting_index = 4;
+        app.setting_index = 7;
         app.adjust_setting(1);
         assert_eq!(app.config.update_interval_hours, 13);
         app.adjust_setting(-20);
@@ -20696,8 +21063,17 @@ mod tests {
             Some("Berserk")
         );
 
+        // The continue-reading shelf follows the real categories.
+        app.next_category();
+        assert_eq!(app.category_name(), None);
+        assert!(app.continue_shelf_active());
+        assert_eq!(app.visible_count(), 0);
+
         app.next_category();
         assert_eq!(app.category_name(), Some("Default"));
+
+        app.previous_category();
+        assert_eq!(app.category_name(), None);
 
         app.previous_category();
         assert_eq!(app.category_name(), Some("Reading"));

@@ -36,6 +36,8 @@ pub enum LibrarySort {
     LastReadDesc,
     /// Most recently added first.
     DateAddedDesc,
+    /// Stable pseudo-random order, reseeded when the sort or random action is selected.
+    Random,
 }
 
 /// How a page image fills the reader viewport.
@@ -112,17 +114,34 @@ pub struct TrackerAuth {
     pub expires_at: Option<u64>,
 }
 
+/// Library grid layout.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryDisplayMode {
+    /// Cover grid with title and chapter count.
+    #[default]
+    Comfortable,
+    /// Cover grid with title only.
+    Compact,
+    /// One row per series.
+    List,
+}
+
 /// Library-wide filters. Each flag is an include-only constraint.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LibraryFilters {
     #[serde(default)]
     pub unread: bool,
     #[serde(default)]
+    pub in_progress: bool,
+    #[serde(default)]
     pub bookmarked: bool,
     #[serde(default)]
     pub tracked: bool,
     #[serde(default)]
     pub missing_chapters: bool,
+    #[serde(default)]
+    pub downloaded: bool,
 }
 
 /// A story's link to an external tracker.
@@ -177,6 +196,12 @@ pub struct Config {
     pub library_sort: LibrarySort,
     /// Active library-wide filters.
     pub library_filters: LibraryFilters,
+    /// Library grid layout.
+    pub library_display_mode: LibraryDisplayMode,
+    /// Hide missing-chapter counts in the story header and details.
+    pub hide_missing_chapters: bool,
+    /// Mark chapters with the same number from other scanlators as read.
+    pub mark_duplicate_chapters_read: bool,
     /// Hours between automatic saved-source chapter checks. Zero disables them.
     pub update_interval_hours: u64,
     /// Category selected on startup. `None` keeps the scanner's first category.
@@ -288,6 +313,9 @@ impl Default for Config {
             thumbnail_width: 14,
             library_sort: LibrarySort::default(),
             library_filters: LibraryFilters::default(),
+            library_display_mode: LibraryDisplayMode::default(),
+            hide_missing_chapters: false,
+            mark_duplicate_chapters_read: true,
             update_interval_hours: 12,
             default_category: None,
             incognito: false,

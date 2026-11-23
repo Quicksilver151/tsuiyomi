@@ -361,8 +361,9 @@ Rules:
   per-extension Incognito suppress history and time.
 - `C` on the Library grid opens the selected series at its next in-progress or unread
   chapter, matching Mihon's continue-reading action.
-- Library has title filtering, unread/bookmarked/tracked/missing filters (`z`), and unread
-  count badges on tiles. Downloaded/read-state filters and download/language badges remain.
+- Library has title filtering; unread, in-progress, bookmarked, tracked, missing, and
+  downloaded filters (`z`); comfortable/compact/list layouts (`v`); a Continue shelf after
+  the category names; random series (`B`); and unread/download/language badges on tiles.
 - Library title filtering and backup import/export are implemented. Import restores local
   entries without the host; remote entries need a matching extension source. Exported
   backups still need a real Mihon restore check.
@@ -376,7 +377,8 @@ Rules:
   `remote_library`, `store_names`, `tracking`, `migration_transfer_chapters`,
   `migration_transfer_categories`, `migration_transfer_notes`, `migration_transfer_cover`,
   `migration_remove_downloads`, `download_ahead`, `delete_after_read`,
-  `keep_bookmarked_downloads`, `anilist_token`, `anilist_client_id`,
+  `keep_bookmarked_downloads`, `library_display_mode`, `hide_missing_chapters`,
+  `mark_duplicate_chapters_read`, `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
   `tracker_auth`, `trusted_extensions`, `series_added_at`, `update_interval_hours`,
   `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.

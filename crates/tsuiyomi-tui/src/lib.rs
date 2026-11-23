@@ -52,8 +52,8 @@ use crate::{
     input::Action,
     layout::{
         app_layout_with_commands, contains, grid_index_at, inner, library_grid_area,
-        library_layout, more_layout, reader_bar_layout, setting_columns, settings_rows,
-        tab_layouts, tile_cover_height, TILE_TEXT_HEIGHT,
+        library_layout, library_tile_height, more_layout, reader_bar_layout, setting_columns,
+        settings_rows, tab_layouts, tile_cover_height, TILE_TEXT_HEIGHT,
     },
     scroll_worker::ScrollWorker,
     search_worker::GlobalSearchWorker,
@@ -940,6 +940,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.toggle_host();
                 }
             }
+            Action::RandomManga => {
+                if app.tab == 0 && app.view == LibraryView::Series {
+                    app.open_random_series();
+                }
+            }
             Action::Favorite => {
                 if app.tab == 2 {
                     app.favorite_selected_history();
@@ -965,6 +970,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             Action::DisplayMode => {
                 if app.story_screen_active() {
                     app.cycle_chapter_display();
+                } else if app.tab == 0 && app.view == LibraryView::Series {
+                    app.cycle_library_display_mode();
                 } else if app.tab == 3 {
                     match app.browse_view {
                         BrowseView::Local => app.toggle_local_order(),
@@ -1378,6 +1385,11 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
                 grid_area.height - 1,
             );
         }
+        let tile_height = library_tile_height(
+            app.config.library_display_mode,
+            app.config.thumbnail_width,
+            grid_area.height,
+        );
         if let Some(index) = grid_index_at(
             grid_area,
             app.library_columns.max(1),
@@ -1385,7 +1397,7 @@ fn handle_click(area: Rect, app: &mut AppState, column: u16, row: u16) {
             column,
             row,
             app.visible_count(),
-            tile_cover_height(app.config.thumbnail_width, grid_area.height) + TILE_TEXT_HEIGHT,
+            tile_height,
         ) {
             app.select_index(index);
         }

@@ -7,7 +7,7 @@ criteria.
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **87.6%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **89.8%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`.
 
 ## Scope
@@ -77,30 +77,32 @@ creating a token; all Tracking table rows are implemented or documented as devia
 
 Goal: match Mihon’s library controls without Android gestures.
 
-- [ ] Add comfortable grid, compact grid, and list layouts; persist the choice.
+- [x] Add comfortable grid, compact grid, and list layouts; persist the choice.
 - [ ] Add per-category display and sort settings, with the global setting as fallback.
 - [x] Add the library filter dialog:
       - [x] Unread.
-      - [ ] In-progress / read.
-      - [ ] Downloaded / not downloaded.
+      - [x] In-progress.
+      - [x] Downloaded.
       - [x] Bookmarked.
       - [x] Tracked.
       - [x] Missing chapters.
       - [x] Combine filters and preserve them while navigating.
-- [x] Add unread badges to tiles; download and language/source badges remain.
-- [ ] Add sort modes: tracker score, last update, chapter fetch date, random.
-- [ ] Add a continue-reading shelf or pinned row.
-- [ ] Add random-manga action.
-- [ ] Add downloaded-only library view.
-- [ ] Add hide-missing-chapter-indicator setting.
-- [ ] Add duplicate-chapter read rules (new chapters, existing chapters).
+- [x] Add unread, download, and language badges to tiles.
+- [ ] Add sort modes: tracker score, last update, and chapter fetch date; random is done.
+- [x] Add a continue-reading shelf or pinned row.
+- [x] Add random-manga action.
+- [x] Add downloaded-only library view.
+- [x] Add hide-missing-chapter-indicator setting.
+- [x] Add duplicate-chapter read rules for existing chapters (new chapters remain).
 - [ ] Add smart library update settings:
       - [ ] Unread-only updates.
       - [ ] Skip unstarted, completed, or release-period entries.
       - [ ] Category-scoped update.
       - [ ] Tab badge toggle.
 - [ ] Tests: layout persistence, filter combinations, sort ordering, badge counts,
-      duplicate rules, and smart-update selection.
+      duplicate rules, and smart-update selection. Layout cycling, filters, shelf, random
+      sort, hidden counts, and duplicate marking have tests; badge counts and persistence
+      across restarts are covered by config tests only.
 
 Acceptance: every Library table row is ✅ except swipe gestures (`➖`).
 

@@ -103,9 +103,11 @@ and bookmark apply to the whole selection.
 
 The Library tab opens as a cover tile grid, like Mihon. Each tile shows the series cover
 (or an initial placeholder), title, and chapter count. `/` or `s` filters the grid by
-title; Esc clears the filter. `z` opens library filters for unread, bookmarked, tracked,
-and missing chapters. Unread counts appear on tiles. Covers are centered without a border
-or tile background. `↑↓` moves by grid row, `←→` by one tile, `Enter` opens
+title; Esc clears the filter. `z` opens library filters for unread, in-progress,
+bookmarked, tracked, missing, and downloaded series. `v` cycles comfortable, compact, and
+list layouts, and `B` opens a random series. The Continue entry after the category names
+lists in-progress series by recency. Tiles show unread, download, and language badges.
+Covers are centered without a border or tile background. `↑↓` moves by grid row, `←→` by one tile, `Enter` opens
 the chapter list, and `C` continues the selected series at its next in-progress/unread
 chapter. Saved manga from sources open the same details screen as Browse: cover,
 source, author/artist, status, tags, description, chapters, and how long ago the cached
