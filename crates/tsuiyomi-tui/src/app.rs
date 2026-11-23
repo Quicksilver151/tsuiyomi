@@ -18,13 +18,13 @@ use ratatui_image::{
 };
 use tsuiyomi_core::progress_key as remote_progress_key;
 use tsuiyomi_core::{
-    best_match, chapter::natural_cmp, chapter_dir, chapter_dir_name, chapter_pages, deep_queries,
-    downloads_dir, ensure_runtime, ensure_series_cover, extension_fingerprint, fetch_bytes,
+    best_match, chapter::natural_cmp, chapter_dir_name, chapter_pages, deep_queries, downloads_dir,
+    ensure_runtime, ensure_series_cover, existing_chapter_path, extension_fingerprint, fetch_bytes,
     host_data_dir, import_series, is_downloaded, latest_chapter_number, legacy_remote_cover_path,
     load_cached_story, merge_extensions, missing_chapter_count, move_series_downloads,
     normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
-    read_state, remote_cover_path, remove_series_downloads, save_cached_story, save_config,
-    scan_library, search_anilist, series_dir_name, source_dir_name, story_cache_path,
+    read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
+    save_config, scan_library, search_anilist, series_dir_name, source_dir_name, story_cache_path,
     title_similarity, today_key, update_anilist_progress, update_mal_progress, visible_chapters,
     write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
     BackupManga, BackupSource, BookmarkStore, CachedStory, Chapter, ChapterDisplay, ChapterKind,
@@ -499,6 +499,8 @@ pub enum SettingId {
     DownloadAhead,
     DeleteAfterRead,
     KeepBookmarkedDownloads,
+    SaveChaptersAsCbz,
+    DownloadExcludedCategories,
     ImportBackup,
     ExportBackup,
 }
@@ -568,7 +570,7 @@ const READER_ROWS: [MoreRow; 8] = [
     MoreRow::Setting(SettingId::CacheMargin),
 ];
 
-const DOWNLOADS_ROWS: [MoreRow; 8] = [
+const DOWNLOADS_ROWS: [MoreRow; 10] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::DownloadsPath),
     MoreRow::Note("TSUIYOMI_DOWNLOADS overrides this for one session."),
@@ -577,6 +579,8 @@ const DOWNLOADS_ROWS: [MoreRow; 8] = [
     MoreRow::Setting(SettingId::DownloadAhead),
     MoreRow::Setting(SettingId::DeleteAfterRead),
     MoreRow::Setting(SettingId::KeepBookmarkedDownloads),
+    MoreRow::Setting(SettingId::SaveChaptersAsCbz),
+    MoreRow::Setting(SettingId::DownloadExcludedCategories),
 ];
 
 const TRACKING_ROWS: [MoreRow; 10] = [
@@ -849,6 +853,10 @@ pub struct DownloadQueue {
     pub completed: usize,
     pub failed: usize,
     pub cancelling: bool,
+    /// Pause after the active chapter finishes; the queue waits until resumed.
+    pub paused: bool,
+    /// Highlighted pending chapter for reordering.
+    pub selection: usize,
 }
 
 impl DownloadQueue {
@@ -870,6 +878,13 @@ impl DownloadQueue {
         }
         if self.cancelling {
             return Some(format!("cancelling · {}/{}", self.completed, total));
+        }
+        if self.paused {
+            return Some(format!(
+                "paused · {}/{}",
+                (self.completed + self.failed).min(total),
+                total
+            ));
         }
         if self.running() {
             return Some(format!(
@@ -917,6 +932,11 @@ pub struct TagPicker {
 
 #[derive(Debug, Default)]
 pub struct MigrationFlagsPicker {
+    pub selected: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct CategorySetPicker {
     pub selected: usize,
 }
 
@@ -1219,6 +1239,7 @@ pub struct AppState {
     pub save_categories: Option<SaveCategories>,
     pub tag_picker: Option<TagPicker>,
     pub library_filter_picker: Option<LibraryFilterPicker>,
+    pub download_exclusion_picker: Option<CategorySetPicker>,
     pub migration_flags_picker: Option<MigrationFlagsPicker>,
     pub tracker_picker: Option<TrackerPicker>,
     pub tracker_unlink_confirm: bool,
@@ -1379,6 +1400,7 @@ impl AppState {
             save_categories: None,
             tag_picker: None,
             library_filter_picker: None,
+            download_exclusion_picker: None,
             migration_flags_picker: None,
             tracker_picker: None,
             tracker_unlink_confirm: false,
@@ -8445,6 +8467,7 @@ impl AppState {
     fn pump_download_queue(&mut self) {
         if self.download_queue.active.is_some()
             || self.download_queue.cancelling
+            || self.download_queue.paused
             || self.download_queue.pending.is_empty()
         {
             return;
@@ -8472,6 +8495,7 @@ impl AppState {
             self.download_states
                 .retain(|_, state| *state == DownloadState::Done);
         }
+        self.download_queue.paused = false;
         for task in tasks {
             self.download_states
                 .insert(task.key.clone(), DownloadState::Queued);
@@ -8763,6 +8787,7 @@ impl AppState {
                     chapter_name: chapter.name.clone(),
                     scanlator: chapter.scanlator.clone(),
                     pages,
+                    as_cbz: self.config.save_chapters_as_cbz,
                     cancel: Arc::new(AtomicBool::new(false)),
                 },
             });
@@ -8810,6 +8835,94 @@ impl AppState {
         }
     }
 
+    /// Pause or resume the download queue. The active chapter finishes first.
+    pub fn toggle_download_pause(&mut self) {
+        if !self.download_queue.running() {
+            self.status = Some("No downloads are running.".to_owned());
+            return;
+        }
+        self.download_queue.paused = !self.download_queue.paused;
+        if self.download_queue.paused {
+            self.status = Some("Downloads paused after the active chapter.".to_owned());
+        } else {
+            self.status = Some("Downloads resumed.".to_owned());
+            self.pump_download_queue();
+        }
+    }
+
+    pub fn open_download_exclusions(&mut self) {
+        if self.library.categories.is_empty() {
+            self.status = Some("The library has no categories.".to_owned());
+            return;
+        }
+        self.download_exclusion_picker = Some(CategorySetPicker::default());
+    }
+
+    pub fn download_exclusion_previous(&mut self) {
+        if let Some(picker) = self.download_exclusion_picker.as_mut() {
+            picker.selected = picker.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn download_exclusion_next(&mut self) {
+        if let Some(picker) = self.download_exclusion_picker.as_mut() {
+            let last = self.library.categories.len().saturating_sub(1);
+            picker.selected = (picker.selected + 1).min(last);
+        }
+    }
+
+    pub fn download_exclusion_toggle(&mut self) {
+        let Some(picker) = self.download_exclusion_picker.as_ref() else {
+            return;
+        };
+        let Some(category) = self.library.categories.get(picker.selected).cloned() else {
+            return;
+        };
+        if !self
+            .config
+            .download_excluded_categories
+            .insert(category.clone())
+        {
+            self.config.download_excluded_categories.remove(&category);
+        }
+        self.persist_settings();
+    }
+
+    pub fn download_exclusion_reset(&mut self) {
+        self.config.download_excluded_categories.clear();
+        self.persist_settings();
+    }
+
+    pub fn close_download_exclusions(&mut self) {
+        self.download_exclusion_picker = None;
+    }
+
+    pub fn queue_previous(&mut self) {
+        self.download_queue.selection = self.download_queue.selection.saturating_sub(1);
+    }
+
+    pub fn queue_next(&mut self) {
+        let count = self.download_queue.pending.len();
+        if count > 0 {
+            self.download_queue.selection = (self.download_queue.selection + 1).min(count - 1);
+        }
+    }
+
+    /// Move the selected pending chapter earlier (`-1`) or later (`+1`).
+    pub fn queue_shift(&mut self, delta: i32) {
+        let count = self.download_queue.pending.len();
+        if count < 2 {
+            return;
+        }
+        let position = self.download_queue.selection.min(count - 1);
+        let target = (position as i32 + delta).clamp(0, count as i32 - 1) as usize;
+        if target == position {
+            return;
+        }
+        self.download_queue.pending.swap(position, target);
+        self.download_queue.selection = target;
+    }
+
     pub fn open_download_delete_confirm(&mut self) {
         if !self.has_downloadable_chapter() {
             self.status = Some("No downloaded chapters are selected.".to_owned());
@@ -8834,7 +8947,7 @@ impl AppState {
                 .to_string_lossy()
                 .into_owned();
             if let Some(dir) = self.downloaded_chapter_dir(&manga, chapter) {
-                if std::fs::remove_dir_all(&dir).is_ok() {
+                if remove_chapter_path(&dir).is_ok() {
                     removed += 1;
                 }
                 self.download_states.remove(&key);
@@ -8935,14 +9048,13 @@ impl AppState {
     ) -> Option<PathBuf> {
         let root = downloads_dir(&self.config)?;
         let source = self.remote_source_name(&manga.source_id);
-        let dir = chapter_dir(
+        existing_chapter_path(
             &root,
             &source,
             &manga.title,
             &chapter.name,
             chapter.scanlator.as_deref(),
-        );
-        dir.is_dir().then_some(dir)
+        )
     }
 
     /// Pages for a remote chapter: the downloaded directory when present, otherwise
@@ -8953,11 +9065,16 @@ impl AppState {
         chapter: &RemoteChapter,
     ) -> Result<Vec<Page>, String> {
         if let Some(dir) = self.downloaded_chapter_dir(manga, chapter) {
+            let kind = if dir.is_file() {
+                ChapterKind::Zip
+            } else {
+                ChapterKind::Directory
+            };
             let local = Chapter {
                 path: dir,
                 title: chapter.name.clone(),
                 number: Some(chapter.chapter_number),
-                kind: ChapterKind::Directory,
+                kind,
                 scanlator: chapter.scanlator.clone(),
                 date: None,
             };
@@ -9670,7 +9787,10 @@ impl AppState {
                 let count = std::fs::read_dir(dir)
                     .ok()?
                     .filter_map(Result::ok)
-                    .filter(|entry| entry.path().is_dir())
+                    .filter(|entry| {
+                        entry.path().is_dir()
+                            || entry.file_name().to_string_lossy().ends_with(".cbz")
+                    })
                     .count();
                 (count > 0).then(|| {
                     (
@@ -13151,6 +13271,19 @@ impl AppState {
         self.progress_changed_at = Some(Instant::now());
     }
 
+    /// Whether a saved series belongs to a category whose downloads are kept.
+    fn download_excluded_category(&self, manga: &RemoteManga) -> bool {
+        !self.config.download_excluded_categories.is_empty()
+            && self.library.series.iter().any(|series| {
+                series.remote.as_ref().is_some_and(|remote| {
+                    remote.source_id == manga.source_id && remote.url == manga.url
+                }) && series
+                    .categories
+                    .iter()
+                    .any(|category| self.config.download_excluded_categories.contains(category))
+            })
+    }
+
     fn maybe_delete_read_download(&mut self, chapter: &std::path::Path, page: usize, pages: usize) {
         if !self.config.delete_after_read || page.saturating_add(1) < pages {
             return;
@@ -13187,6 +13320,9 @@ impl AppState {
         };
         let key = remote_progress_key(&manga.source_id, &manga.url, &remote_chapter.url);
         if self.config.keep_bookmarked_downloads && self.bookmarks.is_bookmarked(&key) {
+            return;
+        }
+        if self.download_excluded_category(&manga) {
             return;
         }
         let Some(dir) = self.downloaded_chapter_dir(&manga, &remote_chapter) else {
@@ -14342,6 +14478,10 @@ impl AppState {
             SettingId::KeepBookmarkedDownloads => {
                 self.config.keep_bookmarked_downloads = !self.config.keep_bookmarked_downloads;
             }
+            SettingId::SaveChaptersAsCbz => {
+                self.config.save_chapters_as_cbz = !self.config.save_chapters_as_cbz;
+            }
+            SettingId::DownloadExcludedCategories => {}
             SettingId::LibraryDisplay => {
                 self.cycle_library_display_mode_for(delta);
             }
@@ -15650,8 +15790,11 @@ impl AppState {
         let mut names = HashSet::new();
         if let Ok(entries) = std::fs::read_dir(&series_dir) {
             for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
                 if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                    names.insert(entry.file_name().to_string_lossy().into_owned());
+                    names.insert(name);
+                } else if let Some(stem) = name.strip_suffix(".cbz") {
+                    names.insert(stem.to_owned());
                 }
             }
         }
@@ -17376,6 +17519,92 @@ mod tests {
     }
 
     #[test]
+    fn download_queue_pauses_and_reorders_pending_tasks() {
+        let mut app = AppState::new(library(), None);
+        let task = |label: &str| DownloadTask {
+            key: label.to_owned(),
+            request: DownloadRequest {
+                label: label.to_owned(),
+                root: PathBuf::from("/tmp"),
+                source_name: "Source".to_owned(),
+                series_title: "Series".to_owned(),
+                chapter_name: label.to_owned(),
+                scanlator: None,
+                pages: Vec::new(),
+                as_cbz: false,
+                cancel: Arc::new(AtomicBool::new(false)),
+            },
+        };
+        app.download_queue.pending.push_back(task("a"));
+        app.download_queue.pending.push_back(task("b"));
+        app.download_queue.pending.push_back(task("c"));
+        app.download_queue.total = 3;
+        assert_eq!(
+            app.download_queue
+                .pending
+                .iter()
+                .map(|task| task.key.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
+        app.queue_next();
+        app.queue_shift(-1);
+        assert_eq!(
+            app.download_queue
+                .pending
+                .iter()
+                .map(|task| task.key.as_str())
+                .collect::<Vec<_>>(),
+            ["b", "a", "c"]
+        );
+        app.toggle_download_pause();
+        assert!(app.download_queue.paused);
+        assert!(app
+            .download_queue
+            .label()
+            .is_some_and(|label| label.starts_with("paused")));
+        app.toggle_download_pause();
+        assert!(!app.download_queue.paused);
+    }
+
+    #[test]
+    fn excluded_download_categories_keep_read_downloads() {
+        let mut app = remote_app();
+        let mut series = series("Saved", &["Default", "Keep"]);
+        series.remote = Some(RemoteSeries {
+            source_id: "1".to_owned(),
+            url: "/manga/saved".to_owned(),
+            thumbnail_url: None,
+            memo: None,
+        });
+        app.library.series.push(series);
+        app.config
+            .download_excluded_categories
+            .insert("Keep".to_owned());
+        let manga = app
+            .library
+            .series
+            .last()
+            .and_then(|series| series.remote.clone())
+            .map(|remote| RemoteManga {
+                source_id: remote.source_id,
+                url: remote.url,
+                title: "Saved".to_owned(),
+                author: None,
+                artist: None,
+                description: None,
+                genre: Vec::new(),
+                status: "unknown".to_owned(),
+                thumbnail_url: None,
+                memo: None,
+            })
+            .unwrap();
+        assert!(app.download_excluded_category(&manga));
+        app.config.download_excluded_categories.clear();
+        assert!(!app.download_excluded_category(&manga));
+    }
+
+    #[test]
     fn hiding_missing_chapters_zeroes_the_count() {
         let mut app = AppState::new(library(), None);
         app.select_index(1);
@@ -18143,7 +18372,8 @@ mod tests {
     fn opens_a_downloaded_chapter_without_the_host() {
         let root = tempfile::tempdir().unwrap();
         let downloads = root.path().join("downloads");
-        let dir = chapter_dir(&downloads, "Alpha (EN)", "Test Manga", "Chapter 1", None);
+        let dir =
+            tsuiyomi_core::chapter_dir(&downloads, "Alpha (EN)", "Test Manga", "Chapter 1", None);
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::from_pixel(10, 20, image::Rgb([10, 20, 30]))
             .save(dir.join("001.png"))

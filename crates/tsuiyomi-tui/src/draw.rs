@@ -94,6 +94,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_tag_picker(frame, app);
     draw_library_filters(frame, app);
     draw_migration_flags(frame, app);
+    draw_download_exclusions(frame, app);
     draw_tracker_picker(frame, app);
     draw_tracker_unlink(frame, app);
     draw_migration_sources(frame, app);
@@ -381,6 +382,73 @@ fn draw_migration_sources(frame: &mut Frame, app: &AppState) {
         .collect();
     let mut state = ListState::default();
     state.select(Some(picker.selected.min(sources.len().saturating_sub(1))));
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
+}
+
+fn draw_download_exclusions(frame: &mut Frame, app: &AppState) {
+    let Some(picker) = app.download_exclusion_picker.as_ref() else {
+        return;
+    };
+    let area = frame.area();
+    let width = 58.min(area.width).max(24);
+    let height = (app.library.categories.len() as u16 + 4)
+        .min(area.height)
+        .max(6);
+    if width < 20 || height < 5 {
+        return;
+    }
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        Line::from(vec![
+            Span::styled(
+                " Keep downloads in categories ",
+                Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Space toggle · r reset · Esc close ",
+                Style::default().fg(c_overlay0()),
+            ),
+        ]),
+        c_accent(),
+    );
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(&block, popup);
+    let items: Vec<ListItem> = app
+        .library
+        .categories
+        .iter()
+        .enumerate()
+        .map(|(index, category)| {
+            let selected = index == picker.selected;
+            let enabled = app.config.download_excluded_categories.contains(category);
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    if enabled { "[x] " } else { "[ ] " },
+                    Style::default().fg(if enabled { c_green() } else { c_overlay1() }),
+                ),
+                Span::styled(
+                    category.clone(),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_text())
+                    },
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(picker.selected.min(items.len().saturating_sub(1))));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
@@ -1966,6 +2034,16 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
     if app.supports_multi_select() && !items.iter().any(|(key, _)| *key == "Space") {
         let at = items.len().saturating_sub(1);
         items.insert(at, ("Space", "select"));
+    }
+    if app.tab == 4
+        && app.more_section == MoreSection::Downloads
+        && app.more_focus == MoreFocus::Content
+        && app.download_queue.running()
+    {
+        let at = items.len().saturating_sub(1);
+        items.insert(at, ("p", "pause"));
+        items.insert(at, ("j/k", "queue"));
+        items.insert(at, ("+/-", "reorder"));
     }
     items
 }
@@ -6193,6 +6271,27 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "No".to_owned()
             },
         ),
+        SettingId::DownloadExcludedCategories => (
+            "Keep categories".to_owned(),
+            if app.config.download_excluded_categories.is_empty() {
+                "None".to_owned()
+            } else {
+                app.config
+                    .download_excluded_categories
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+        ),
+        SettingId::SaveChaptersAsCbz => (
+            "Save as CBZ".to_owned(),
+            if app.config.save_chapters_as_cbz {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
         SettingId::UpdateInterval => (
             "Update interval".to_owned(),
             if app.config.update_interval_hours == 0 {
@@ -6320,11 +6419,31 @@ fn draw_more_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
     if let Some((_, title, _)) = &app.download_queue.active {
         lines.push(field("Active", title, c_teal()));
     }
-    for label in app.download_queue.pending_labels().iter().take(3) {
-        lines.push(Line::from(Span::styled(
-            format!("  waiting · {label}"),
-            Style::default().fg(c_overlay1()),
-        )));
+    let pending = app.download_queue.pending_labels();
+    if !pending.is_empty() {
+        let selection = app.download_queue.selection.min(pending.len() - 1);
+        for (index, label) in pending.iter().enumerate().take(8) {
+            let selected = index == selection;
+            let prefix = if app.download_queue.paused {
+                "paused"
+            } else {
+                "waiting"
+            };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(c_accent()),
+                ),
+                Span::styled(
+                    format!("{prefix} · {label}"),
+                    if selected {
+                        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(c_overlay1())
+                    },
+                ),
+            ]));
+        }
     }
     lines.push(Line::from(""));
     if app.downloaded_series.is_empty() {

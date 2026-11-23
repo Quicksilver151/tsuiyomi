@@ -7,7 +7,7 @@ criteria.
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **89.8%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **90.6%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`.
 
 ## Scope
@@ -139,15 +139,17 @@ verification against a live source pair is still manual.
 
 - [ ] Add page/source concurrency settings and respect them in the queue.
 - [x] Add download-ahead and auto-download-while-reading settings.
-- [ ] Add delete-after-read policies:
+- [x] Add delete-after-read policies:
       - [x] After read.
       - [x] Except bookmarked.
-      - [ ] Excluded categories.
+      - [x] Excluded categories.
 - [ ] Add global/category new-chapter auto-download policy.
-- [ ] Add CBZ output for downloaded chapters.
-- [ ] Add queue pause/resume/reorder.
+- [x] Add CBZ output for downloaded chapters.
+- [x] Add queue pause/resume/reorder.
 - [ ] Keep Wi-Fi-only as a documented desktop deviation.
 - [ ] Tests: queue ordering, concurrency limits, policy eligibility, CBZ round-trip.
+      Queue ordering, pause state, CBZ writing/discovery, and category eligibility are
+      covered; concurrency and a full host download round-trip are not.
 
 Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
 

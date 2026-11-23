@@ -392,6 +392,8 @@ scroll_cache_margin = 4
 download_ahead = 0             # queue N following chapters while reading
 delete_after_read = false      # remove a downloaded chapter after its last page
 keep_bookmarked_downloads = true
+save_chapters_as_cbz = false   # save downloads as .cbz archives
+# download_excluded_categories = ["Keep"]  # categories kept from delete-after-read
 theme = "catppuccin_mocha"
 # accent = "#b4befe"   # optional palette color or hex override
 fullscreen = false      # start with the title and commands boxes hidden
@@ -447,8 +449,9 @@ categories:
 - **Library** — library path, rescan, sort order, default category, and the saved-story
   update interval.
 - **Reader** — reading mode, zoom, scroll prefetch and cache.
-- **Downloads** — configurable download folder, read-ahead count, and delete-after-read
-  policy, with the active queue shown in story headers.
+- **Downloads** — configurable download folder, read-ahead count, delete-after-read
+  policy, CBZ output, and category exceptions, with the active queue shown in story
+  headers. More → Downloads pauses (`p`) and reorders (`j`/`k`, `+`/`-`) the queue.
 - **Statistics** — library and chapter counts, read/in-progress/unread chapters, reading
   time for all time/today/7 days/30 days, and how many series were read.
 - **Data and storage** — storage counts and library/downloads/host sizes, refreshed

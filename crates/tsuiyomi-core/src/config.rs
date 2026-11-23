@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, env, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env,
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -174,6 +178,10 @@ pub struct Config {
     pub delete_after_read: bool,
     /// Keep downloaded chapters that are bookmarked when delete-after-read is on.
     pub keep_bookmarked_downloads: bool,
+    /// Save downloaded chapters as CBZ archives instead of folders.
+    pub save_chapters_as_cbz: bool,
+    /// Categories whose downloaded chapters are kept when delete-after-read runs.
+    pub download_excluded_categories: BTreeSet<String>,
     /// External extension-host base URL, e.g. `http://127.0.0.1:4567`. When unset,
     /// tsuiyomi starts the bundled host.
     pub host_url: Option<String>,
@@ -303,6 +311,8 @@ impl Default for Config {
             download_ahead: 0,
             delete_after_read: false,
             keep_bookmarked_downloads: true,
+            save_chapters_as_cbz: false,
+            download_excluded_categories: BTreeSet::new(),
             host_url: None,
             host_jar: None,
             flaresolverr_url: None,

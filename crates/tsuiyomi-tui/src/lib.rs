@@ -324,6 +324,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             continue;
         }
 
+        if app.download_exclusion_picker.is_some() {
+            match action {
+                Action::Quit => return Ok(()),
+                Action::Previous => app.download_exclusion_previous(),
+                Action::Next => app.download_exclusion_next(),
+                Action::Open | Action::Confirm | Action::Select => app.download_exclusion_toggle(),
+                Action::Refresh => app.download_exclusion_reset(),
+                Action::Back => app.close_download_exclusions(),
+                _ => {}
+            }
+            needs_draw = true;
+            continue;
+        }
+
         if app.migration_flags_picker.is_some() {
             match action {
                 Action::Quit => return Ok(()),
@@ -788,7 +802,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
             }
             Action::PreviousScreen => app.previous_screen(),
             Action::NextScreen => app.next_screen(),
-            Action::PreviousChapter => app.previous_chapter(),
+            Action::PreviousChapter => {
+                if app.tab == 4 && app.more_section == MoreSection::Downloads {
+                    app.toggle_download_pause();
+                } else {
+                    app.previous_chapter();
+                }
+            }
             Action::NextChapter => {
                 if app.tab == 3 && app.browse_view == BrowseView::RemoteResults {
                     app.load_next_remote_page();
@@ -834,6 +854,22 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     }
                 } else {
                     app.next();
+                }
+            }
+            Action::PanUp => {
+                if app.tab == 4
+                    && app.more_section == MoreSection::Downloads
+                    && app.more_focus == MoreFocus::Content
+                {
+                    app.queue_previous();
+                }
+            }
+            Action::PanDown => {
+                if app.tab == 4
+                    && app.more_section == MoreSection::Downloads
+                    && app.more_focus == MoreFocus::Content
+                {
+                    app.queue_next();
                 }
             }
             Action::PreviousTab => app.previous_tab(),
@@ -1242,7 +1278,12 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::ZoomIn => {
-                if app.tab == 4 && app.more_section == MoreSection::Categories {
+                if app.tab == 4
+                    && app.more_section == MoreSection::Downloads
+                    && app.more_focus == MoreFocus::Content
+                {
+                    app.queue_shift(1);
+                } else if app.tab == 4 && app.more_section == MoreSection::Categories {
                     app.move_manage_category(1);
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content
@@ -1255,7 +1296,12 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 }
             }
             Action::ZoomOut => {
-                if app.tab == 4 && app.more_section == MoreSection::Categories {
+                if app.tab == 4
+                    && app.more_section == MoreSection::Downloads
+                    && app.more_focus == MoreFocus::Content
+                {
+                    app.queue_shift(-1);
+                } else if app.tab == 4 && app.more_section == MoreSection::Categories {
                     app.move_manage_category(-1);
                 } else if app.tab == 4 {
                     if app.more_focus == MoreFocus::Content
@@ -1313,11 +1359,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                     app.open_selected_source_home();
                 }
             }
-            Action::Redraw
-            | Action::Char(_)
-            | Action::Backspace
-            | Action::PanUp
-            | Action::PanDown => {}
+            Action::Redraw | Action::Char(_) | Action::Backspace => {}
             Action::Click { column, row } => {
                 let (width, height) = crossterm::terminal::size()?;
                 handle_click(Rect::new(0, 0, width, height), app, column, row);

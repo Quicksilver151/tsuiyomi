@@ -8,7 +8,7 @@ use std::{
     thread,
 };
 
-use tsuiyomi_core::{download_chapter_with_cancel, Page};
+use tsuiyomi_core::{download_chapter_with_cancel, ChapterDownload, Page};
 
 pub(crate) struct DownloadRequest {
     pub label: String,
@@ -18,6 +18,7 @@ pub(crate) struct DownloadRequest {
     pub chapter_name: String,
     pub scanlator: Option<String>,
     pub pages: Vec<Page>,
+    pub as_cbz: bool,
     pub cancel: Arc<AtomicBool>,
 }
 
@@ -40,12 +41,15 @@ impl DownloadWorker {
         thread::spawn(move || {
             for request in request_rx {
                 let result = download_chapter_with_cancel(
-                    &request.root,
-                    &request.source_name,
-                    &request.series_title,
-                    &request.chapter_name,
-                    request.scanlator.as_deref(),
-                    &request.pages,
+                    ChapterDownload {
+                        root: &request.root,
+                        source_name: &request.source_name,
+                        series_title: &request.series_title,
+                        chapter_name: &request.chapter_name,
+                        scanlator: request.scanlator.as_deref(),
+                        pages: &request.pages,
+                        as_cbz: request.as_cbz,
+                    },
                     || request.cancel.load(Ordering::Relaxed),
                 )
                 .map_err(|error| error.to_string());

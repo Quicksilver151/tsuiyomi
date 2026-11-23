@@ -10,6 +10,7 @@
 
 use std::{
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -125,6 +126,45 @@ pub fn chapter_dir(
         .join(chapter_dir_name(chapter_name, scanlator))
 }
 
+/// Archive path for a chapter saved as CBZ.
+pub fn chapter_archive_path(
+    root: &Path,
+    source_name: &str,
+    series_title: &str,
+    chapter_name: &str,
+    scanlator: Option<&str>,
+) -> PathBuf {
+    let mut name =
+        chapter_dir(root, source_name, series_title, chapter_name, scanlator).into_os_string();
+    name.push(".cbz");
+    PathBuf::from(name)
+}
+
+/// Existing directory or CBZ archive for a chapter, if it was downloaded.
+pub fn existing_chapter_path(
+    root: &Path,
+    source_name: &str,
+    series_title: &str,
+    chapter_name: &str,
+    scanlator: Option<&str>,
+) -> Option<PathBuf> {
+    let dir = chapter_dir(root, source_name, series_title, chapter_name, scanlator);
+    if dir.is_dir() {
+        return Some(dir);
+    }
+    let archive = chapter_archive_path(root, source_name, series_title, chapter_name, scanlator);
+    archive.is_file().then_some(archive)
+}
+
+/// Remove a downloaded chapter directory or archive.
+pub fn remove_chapter_path(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+}
+
 /// Move every downloaded chapter of one series to another source/series.
 ///
 /// Migrate replace uses this so pages follow the manga to its new source. The old
@@ -221,48 +261,54 @@ pub fn is_downloaded(
     scanlator: Option<&str>,
 ) -> bool {
     let dir = chapter_dir(root, source_name, series_title, chapter_name, scanlator);
-    dir.is_dir()
+    if dir.is_dir()
         && fs::read_dir(&dir).is_ok_and(|mut entries| {
             entries.any(|entry| {
                 entry.is_ok_and(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
             })
         })
+    {
+        return true;
+    }
+    chapter_archive_path(root, source_name, series_title, chapter_name, scanlator).is_file()
+}
+
+/// One chapter download: destination identity and page sources.
+#[derive(Debug, Clone, Copy)]
+pub struct ChapterDownload<'a> {
+    pub root: &'a Path,
+    pub source_name: &'a str,
+    pub series_title: &'a str,
+    pub chapter_name: &'a str,
+    pub scanlator: Option<&'a str>,
+    pub pages: &'a [Page],
+    /// Write a single CBZ archive instead of a page directory.
+    pub as_cbz: bool,
 }
 
 /// Download every remote page of a chapter.
 ///
 /// Pages are written to a temporary sibling directory and renamed into place only
 /// after all of them succeed, so a partial download never looks complete.
-pub fn download_chapter(
-    root: &Path,
-    source_name: &str,
-    series_title: &str,
-    chapter_name: &str,
-    scanlator: Option<&str>,
-    pages: &[Page],
+pub fn download_chapter(request: ChapterDownload<'_>) -> Result<PathBuf, CoreError> {
+    download_chapter_with_cancel(request, || false)
+}
+
+/// Download a chapter, checking `cancelled` between page fetches. A cancelled
+/// download removes its temporary directory and never replaces an existing chapter.
+pub fn download_chapter_with_cancel(
+    request: ChapterDownload<'_>,
+    cancelled: impl Fn() -> bool,
 ) -> Result<PathBuf, CoreError> {
-    download_chapter_with_cancel(
+    let ChapterDownload {
         root,
         source_name,
         series_title,
         chapter_name,
         scanlator,
         pages,
-        || false,
-    )
-}
-
-/// Download a chapter, checking `cancelled` between page fetches. A cancelled
-/// download removes its temporary directory and never replaces an existing chapter.
-pub fn download_chapter_with_cancel(
-    root: &Path,
-    source_name: &str,
-    series_title: &str,
-    chapter_name: &str,
-    scanlator: Option<&str>,
-    pages: &[Page],
-    cancelled: impl Fn() -> bool,
-) -> Result<PathBuf, CoreError> {
+        as_cbz,
+    } = request;
     if cancelled() {
         return Err(CoreError::Cancelled);
     }
@@ -298,17 +344,101 @@ pub fn download_chapter_with_cancel(
         })?;
     }
 
-    if target.exists() {
-        fs::remove_dir_all(&target).map_err(|source| CoreError::WriteFile {
+    if !as_cbz {
+        if target.exists() {
+            remove_chapter_path(&target).map_err(|source| CoreError::WriteFile {
+                path: target.clone(),
+                source,
+            })?;
+        }
+        fs::rename(&temporary, &target).map_err(|source| CoreError::WriteFile {
             path: target.clone(),
             source,
         })?;
+        return Ok(target);
     }
-    fs::rename(&temporary, &target).map_err(|source| CoreError::WriteFile {
-        path: target.clone(),
+
+    let archive = chapter_archive_path(root, source_name, series_title, chapter_name, scanlator);
+    let mut temporary_archive = archive.clone().into_os_string();
+    temporary_archive.push(".tmp");
+    let temporary_archive = PathBuf::from(temporary_archive);
+    let result = write_cbz(&temporary, &temporary_archive, cancelled);
+    let _ = fs::remove_dir_all(&temporary);
+    result?;
+    if archive.exists() {
+        remove_chapter_path(&archive).map_err(|source| CoreError::WriteFile {
+            path: archive.clone(),
+            source,
+        })?;
+    }
+    fs::rename(&temporary_archive, &archive).map_err(|source| CoreError::WriteFile {
+        path: archive.clone(),
         source,
     })?;
-    Ok(target)
+    Ok(archive)
+}
+
+/// Zip the pages from `directory` into `archive`, storing entries uncompressed.
+fn write_cbz(
+    directory: &Path,
+    archive: &Path,
+    cancelled: impl Fn() -> bool,
+) -> Result<(), CoreError> {
+    if archive.exists() {
+        let _ = fs::remove_file(archive);
+    }
+    let file = fs::File::create(archive).map_err(|source| CoreError::WriteFile {
+        path: archive.to_path_buf(),
+        source,
+    })?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let mut entries: Vec<PathBuf> = fs::read_dir(directory)
+        .map_err(|source| CoreError::WriteFile {
+            path: directory.to_path_buf(),
+            source,
+        })?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect();
+    entries.sort();
+    for path in entries {
+        if cancelled() {
+            return Err(CoreError::Cancelled);
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        writer
+            .start_file(name.to_owned(), options)
+            .map_err(|error| CoreError::WriteFile {
+                path: archive.to_path_buf(),
+                source: std::io::Error::other(error),
+            })?;
+        let mut page = fs::File::open(&path).map_err(|source| CoreError::WriteFile {
+            path: path.clone(),
+            source,
+        })?;
+        let mut bytes = Vec::new();
+        page.read_to_end(&mut bytes)
+            .map_err(|source| CoreError::WriteFile {
+                path: path.clone(),
+                source,
+            })?;
+        writer
+            .write_all(&bytes)
+            .map_err(|source| CoreError::WriteFile {
+                path: archive.to_path_buf(),
+                source,
+            })?;
+    }
+    writer.finish().map_err(|error| CoreError::WriteFile {
+        path: archive.to_path_buf(),
+        source: std::io::Error::other(error),
+    })?;
+    Ok(())
 }
 
 fn image_extension(bytes: &[u8]) -> &'static str {
@@ -336,15 +466,59 @@ mod tests {
     }
 
     #[test]
+    fn finds_directory_and_cbz_downloads() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(existing_chapter_path(root.path(), "S", "T", "Chapter 1", None).is_none());
+
+        let dir = chapter_dir(root.path(), "S", "T", "Chapter 1", None);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            existing_chapter_path(root.path(), "S", "T", "Chapter 1", None),
+            Some(dir)
+        );
+        std::fs::remove_dir_all(chapter_dir(root.path(), "S", "T", "Chapter 1", None)).unwrap();
+
+        let archive = chapter_archive_path(root.path(), "S", "T", "Chapter 1", None);
+        std::fs::write(&archive, b"zip").unwrap();
+        assert_eq!(
+            existing_chapter_path(root.path(), "S", "T", "Chapter 1", None),
+            Some(archive.clone())
+        );
+        assert!(is_downloaded(root.path(), "S", "T", "Chapter 1", None));
+        remove_chapter_path(&archive).unwrap();
+        assert!(!archive.exists());
+    }
+
+    #[test]
+    fn writes_pages_into_a_cbz_archive() {
+        let root = tempfile::tempdir().unwrap();
+        let pages = root.path().join("pages");
+        std::fs::create_dir_all(&pages).unwrap();
+        std::fs::write(pages.join("001.jpg"), b"one").unwrap();
+        std::fs::write(pages.join("002.jpg"), b"two").unwrap();
+        let archive = root.path().join("Chapter 1.cbz");
+        write_cbz(&pages, &archive, || false).unwrap();
+
+        let file = std::fs::File::open(&archive).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+        assert_eq!(zip.len(), 2);
+        assert!(zip.by_name("001.jpg").is_ok());
+        assert!(zip.by_name("002.jpg").is_ok());
+    }
+
+    #[test]
     fn cancelled_downloads_do_not_create_directories() {
         let root = tempfile::tempdir().unwrap();
         let error = download_chapter_with_cancel(
-            root.path(),
-            "Source",
-            "Series",
-            "Chapter 1",
-            None,
-            &[],
+            ChapterDownload {
+                root: root.path(),
+                source_name: "Source",
+                series_title: "Series",
+                chapter_name: "Chapter 1",
+                scanlator: None,
+                pages: &[],
+                as_cbz: false,
+            },
             || true,
         )
         .unwrap_err();

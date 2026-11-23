@@ -18,10 +18,10 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [History and Stats](#history-and-stats) | 19 | 1 | 1 | 0 | 92.9% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 2 | 2 | 3 | 0 | 42.9% |
-| [Downloads](#downloads) | 2 | 3 | 2 | 1 | 50.0% |
+| [Downloads](#downloads) | 5 | 1 | 1 | 1 | 78.6% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **223** | **12** | **20** | **11** | **89.8%** |
+| **All categories** | **226** | **10** | **19** | **11** | **90.6%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -315,10 +315,10 @@ table below.
 | Management | Folder, queue, series list, cancel, delete | Yes | ✅ | ✅ | More → Downloads. |
 | Policies | Concurrent pages/sources settings | Yes | ❌ | ❌ | One chapter at a time. |
 | Policies | Download ahead / auto-download while reading | Yes | ✅ | ✅ | Queues the next N chapters when a remote chapter opens. |
-| Policies | Delete after read/bookmarked/excluded categories | Yes | 🟡 | 🟡 | Delete-after-read and keep-bookmarked work; excluded-category policy remains. |
+| Policies | Delete after read/bookmarked/excluded categories | Yes | ✅ | ✅ | Delete-after-read, keep-bookmarked, and keep-category exceptions. |
 | Policies | Global/category new-chapter downloads | Yes | 🟡 | 🟡 | Per-series auto-download only. |
-| Format | Save chapters as CBZ | Yes | ❌ | ❌ | Folder downloads only. |
-| Queue | Pause, resume, reorder | Yes | 🟡 | 🟡 | Cancel only. |
+| Format | Save chapters as CBZ | Yes | ✅ | ✅ | Optional CBZ archives; folders remain the default. |
+| Queue | Pause, resume, reorder | Yes | ✅ | ✅ | `p` pauses after the active chapter; `j`/`k` select and `+`/`-` reorder pending chapters in More → Downloads. |
 | Networking | Download only on Wi-Fi | Yes | ➖ | ➖ | Desktop has no metered-network concept. |
 
 ### Settings, security, and data
