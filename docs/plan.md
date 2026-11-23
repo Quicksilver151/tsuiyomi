@@ -149,15 +149,15 @@ Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
 
 ### Phase 6 — Reader
 
-- [ ] Add per-series viewer mode:
-      - [ ] Store viewer choice in per-series settings.
-      - [ ] Reset-to-global action in reader settings and story settings.
-      - [ ] Fall back to the global reading mode.
-- [ ] Add open-in-browser:
-      - [ ] Story/chapter-list `o` opens the series page.
-      - [ ] Reader `o` opens the current chapter page.
-      - [ ] Local series/chapters open their folder/file-manager location.
-      - [ ] Resolve relative source URLs through extension metadata; fall back to copied
+- [x] Add per-series viewer mode:
+      - [x] Store viewer choice in per-series settings.
+      - [x] Reset-to-global action in reader settings and story settings.
+      - [x] Fall back to the global reading mode.
+- [x] Add open-in-browser:
+      - [x] Story/chapter-list `o` opens the series page.
+      - [x] Reader `o` opens the current chapter page.
+      - [x] Local series/chapters open their folder/file-manager location.
+      - [x] Resolve relative source URLs through extension metadata; fall back to copied
             text when no base URL exists.
 - [ ] Add reader page actions: copy/save page, set as cover, open externally.
 - [ ] Add skip rules: read, filtered, duplicate chapters, and chapter transitions.

@@ -175,8 +175,9 @@ Rules:
   reader. Chapter rows use fixed bookmark/download columns. Right-to-left page mode
   reverses the left/right keys; paged vertical mode uses up/down page turns. Page images
   support Fit, Fill/crop, and Stretch modes. Page-mode zoom crops/pads the decoded page,
-  pans with `h`/`l` and `j`/`k`, and re-encodes it. Placement-only Kitty scaling is a
-  planned opt-in with a re-encode fallback.
+  pans with `h`/`l` and `j`/`k`, and re-encodes it. `o` opens the current chapter page or
+  local chapter folder. Placement-only Kitty scaling is a planned opt-in with a re-encode
+  fallback.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
@@ -244,7 +245,8 @@ Rules:
   chapter/reader path. The shared story screen applies persisted chapter settings
   (`chapter_settings`, falling back to `chapter_defaults`): tri-state downloaded/unread/
   bookmarked filters, excluded scanlators, source/number/date/title sorting with
-  direction, title/number display, and download-new-chapters. Rows show
+  direction, title/number display, download-new-chapters, and an optional per-series
+  viewer override with reset-to-global. Rows show
   unread/in-progress/read markers, scanlators, bookmarks, and download queue state;
   chapter dates are right-aligned and in-progress page counts follow the chapter title.
   Chapter actions cover select all/invert, mark read/unread/previous, continue reading,

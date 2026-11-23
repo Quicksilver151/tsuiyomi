@@ -798,6 +798,8 @@ pub enum ChapterSettingRow {
     Sort,
     Direction,
     Display,
+    Viewer,
+    ResetViewer,
     DownloadNewChapters,
     Reset,
     Scanlator(usize),
@@ -5606,6 +5608,7 @@ impl AppState {
     }
 
     pub fn open_remote_chapter(&mut self, index: usize) {
+        self.apply_story_viewer();
         let Some(manga) = self.remote.manga.clone() else {
             return;
         };
@@ -9348,6 +9351,32 @@ impl AppState {
     }
 
     /// Settings for the open story, falling back to the global defaults.
+    /// Apply the current story's viewer override when one is set. With no override the
+    /// current session/global mode is left untouched, so the `m` toggle survives chapter
+    /// changes.
+    pub fn apply_story_viewer(&mut self) {
+        let Some(mode) = self.chapter_settings().viewer else {
+            return;
+        };
+        self.set_reading_mode(mode);
+        if self.reader.is_some() {
+            match self.reader_mode {
+                ReaderMode::Page => self.load_page(),
+                ReaderMode::Scroll => self.build_scroll(terminal_width()),
+            }
+        }
+    }
+
+    fn reset_story_viewer_to_global(&mut self) {
+        self.set_reading_mode(self.config.reading_mode);
+        if self.reader.is_some() {
+            match self.reader_mode {
+                ReaderMode::Page => self.load_page(),
+                ReaderMode::Scroll => self.build_scroll(terminal_width()),
+            }
+        }
+    }
+
     pub fn chapter_settings(&self) -> ChapterSettings {
         self.current_story_key()
             .and_then(|key| self.config.chapter_settings.get(&key).cloned())
@@ -9397,6 +9426,8 @@ impl AppState {
             ChapterSettingRow::Sort,
             ChapterSettingRow::Direction,
             ChapterSettingRow::Display,
+            ChapterSettingRow::Viewer,
+            ChapterSettingRow::ResetViewer,
             ChapterSettingRow::DownloadNewChapters,
             ChapterSettingRow::Reset,
         ];
@@ -9931,6 +9962,66 @@ impl AppState {
             .find(|source| source.id == source_id)
             .map(|source| source.base_url.as_str())
             .filter(|base| !base.trim().is_empty())
+    }
+
+    /// Open the current reader chapter: its source page for remote chapters, or the
+    /// chapter folder/file for local chapters.
+    pub fn open_reader_chapter_source(&mut self) {
+        let origin = self.reader_origin;
+        let target = match origin {
+            ReaderOrigin::Remote => {
+                let Some(manga) = self.remote.manga.as_ref() else {
+                    return;
+                };
+                let Some(chapter) = self.remote.chapters.get(self.remote.chapter_index) else {
+                    return;
+                };
+                self.resolve_chapter_url(&manga.source_id, &chapter.url)
+            }
+            ReaderOrigin::LibraryRemote => {
+                let Some(manga) = self.library_remote.manga.as_ref() else {
+                    return;
+                };
+                let Some(chapter) = self
+                    .library_remote
+                    .chapters
+                    .get(self.library_remote.chapter_index)
+                else {
+                    return;
+                };
+                self.resolve_chapter_url(&manga.source_id, &chapter.url)
+            }
+            ReaderOrigin::Library
+            | ReaderOrigin::BrowseLocal
+            | ReaderOrigin::Updates
+            | ReaderOrigin::History => self
+                .reader
+                .as_ref()
+                .map(|reader| reader.chapter_path.display().to_string()),
+        };
+        let Some(target) = target else {
+            return;
+        };
+        if !target.starts_with("http://")
+            && !target.starts_with("https://")
+            && !Path::new(&target).exists()
+        {
+            self.status = Some(format!("Chapter source is unavailable: {target}"));
+            return;
+        }
+        match open_external_target(&target) {
+            Ok(()) => self.status = Some(format!("Opened {target}")),
+            Err(error) => self.status = Some(format!("Could not open {target}: {error}")),
+        }
+    }
+
+    fn resolve_chapter_url(&self, source_id: &str, chapter_url: &str) -> Option<String> {
+        if chapter_url.starts_with("http://") || chapter_url.starts_with("https://") {
+            return Some(chapter_url.to_owned());
+        }
+        self.source_base_url(source_id)
+            .map(|base| join_source_url(base, chapter_url))
+            .or_else(|| Some(chapter_url.to_owned()))
     }
 
     pub fn toggle_cover_overlay(&mut self) {
@@ -10998,6 +11089,33 @@ impl AppState {
                     settings.display.next()
                 };
             }),
+            ChapterSettingRow::Viewer => {
+                let modes = [
+                    None,
+                    Some(ReadingMode::LeftToRight),
+                    Some(ReadingMode::RightToLeft),
+                    Some(ReadingMode::Vertical),
+                    Some(ReadingMode::Webtoon),
+                    Some(ReadingMode::ContinuousVertical),
+                ];
+                self.update_chapter_settings(|settings| {
+                    let current = modes
+                        .iter()
+                        .position(|mode| *mode == settings.viewer)
+                        .unwrap_or(0);
+                    let next = (current as i32 + delta).rem_euclid(modes.len() as i32) as usize;
+                    settings.viewer = modes[next];
+                });
+                if self.chapter_settings().viewer.is_some() {
+                    self.apply_story_viewer();
+                } else {
+                    self.reset_story_viewer_to_global();
+                }
+            }
+            ChapterSettingRow::ResetViewer => {
+                self.update_chapter_settings(|settings| settings.viewer = None);
+                self.reset_story_viewer_to_global();
+            }
             ChapterSettingRow::DownloadNewChapters => self.update_chapter_settings(|settings| {
                 settings.download_new_chapters = !settings.download_new_chapters;
             }),
@@ -13903,6 +14021,7 @@ impl AppState {
     }
 
     fn open_chapter(&mut self) {
+        self.apply_story_viewer();
         let Some(chapter) = self.selected_chapter().cloned() else {
             return;
         };
@@ -15084,6 +15203,7 @@ impl AppState {
     }
 
     pub fn open_library_remote_chapter(&mut self, index: usize) {
+        self.apply_story_viewer();
         let Some(chapter) = self.library_remote.chapters.get(index).cloned() else {
             return;
         };
@@ -16160,6 +16280,26 @@ mod tests {
         app.set_reading_mode(ReadingMode::LeftToRight);
         assert_eq!(app.reading_direction, ReadingDirection::LeftToRight);
         assert!(!app.previous_page_key_advances());
+    }
+
+    #[test]
+    fn per_series_viewer_overrides_and_resets_to_global() {
+        let mut app = AppState::new(library(), None);
+        app.select_index(1);
+        app.view = LibraryView::Chapters;
+        app.config.reading_mode = ReadingMode::Webtoon;
+        app.set_reading_mode(app.config.reading_mode);
+
+        app.update_chapter_settings(|settings| {
+            settings.viewer = Some(ReadingMode::RightToLeft);
+        });
+        app.apply_story_viewer();
+        assert_eq!(app.reader_mode, ReaderMode::Page);
+        assert_eq!(app.reading_direction, ReadingDirection::RightToLeft);
+
+        app.update_chapter_settings(|settings| settings.viewer = None);
+        app.reset_story_viewer_to_global();
+        assert_eq!(app.reader_mode, ReaderMode::Scroll);
     }
 
     #[test]
@@ -18793,6 +18933,10 @@ mod tests {
         assert_eq!(
             join_source_url("https://example.org", "https://cdn.example/manga"),
             "https://cdn.example/manga"
+        );
+        assert_eq!(
+            app.resolve_chapter_url("1", "/chapter/2").as_deref(),
+            Some("https://example.org/chapter/2")
         );
     }
 

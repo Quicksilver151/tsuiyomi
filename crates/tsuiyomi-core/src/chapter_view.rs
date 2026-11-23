@@ -9,6 +9,8 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::ReadingMode;
+
 /// Filter state for a boolean chapter property.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -123,6 +125,8 @@ pub struct ChapterSettings {
     pub display: ChapterDisplay,
     /// Fetch newly discovered chapters after a story refresh.
     pub download_new_chapters: bool,
+    /// Per-story viewer override. `None` follows the global reading mode.
+    pub viewer: Option<ReadingMode>,
 }
 
 impl Default for ChapterSettings {
@@ -136,6 +140,7 @@ impl Default for ChapterSettings {
             descending: false,
             display: ChapterDisplay::Title,
             download_new_chapters: false,
+            viewer: None,
         }
     }
 }

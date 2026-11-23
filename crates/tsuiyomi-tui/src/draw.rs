@@ -772,6 +772,25 @@ fn draw_chapter_settings(frame: &mut Frame, app: &AppState) {
                 ChapterSettingRow::Display => {
                     ("Display".to_owned(), settings.display.label().to_owned())
                 }
+                ChapterSettingRow::Viewer => (
+                    "Viewer".to_owned(),
+                    settings
+                        .viewer
+                        .map(reading_mode_label)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            format!("{} (global)", reading_mode_label(app.config.reading_mode))
+                        }),
+                ),
+                ChapterSettingRow::ResetViewer => (
+                    "Reset viewer to global".to_owned(),
+                    if settings.viewer.is_some() {
+                        "Enter"
+                    } else {
+                        "global"
+                    }
+                    .to_owned(),
+                ),
                 ChapterSettingRow::DownloadNewChapters => (
                     "Download new chapters".to_owned(),
                     if settings.download_new_chapters {
@@ -1393,6 +1412,7 @@ fn command_items(app: &AppState) -> Vec<(&'static str, &'static str)> {
                 ("↑↓", "page"),
                 ("+/-", "zoom"),
                 ("h/l j/k", "pan"),
+                ("o", "source"),
                 ("f", "full"),
                 ("Esc", "back"),
             ]

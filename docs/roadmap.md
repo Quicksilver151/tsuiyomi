@@ -14,14 +14,14 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
-| [Reader](#reader) | 16 | 1 | 7 | 0 | 68.8% |
+| [Reader](#reader) | 18 | 1 | 5 | 0 | 77.1% |
 | [History and Stats](#history-and-stats) | 19 | 1 | 1 | 0 | 92.9% |
 | [Migrate](#migrate) | 20 | 1 | 2 | 0 | 89.1% |
 | [Tracking](#tracking) | 2 | 2 | 3 | 0 | 42.9% |
 | [Downloads](#downloads) | 1 | 2 | 4 | 1 | 28.6% |
 | [Settings, security, and data](#settings-security-and-data) | 13 | 1 | 4 | 0 | 75.0% |
 | [Documented TUI deviations](#documented-tui-deviations) | 3 | 0 | 0 | 5 | 100.0% |
-| **All categories** | **210** | **13** | **32** | **11** | **84.9%** |
+| **All categories** | **212** | **13** | **30** | **11** | **85.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -225,7 +225,7 @@ table below.
 | Modes | Page mode | Yes | ✅ | ✅ | |
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
 | Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
-| Modes | Per-series viewer mode and reset to global | Yes | ❌ | ❌ | Viewer mode is global only. |
+| Modes | Per-series viewer mode and reset to global | Yes | ✅ | ✅ | Chapter settings store a viewer override; “Reset viewer to global” clears it. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads and pans with `h/l`/`j/k`, scroll zoom rebuilds rows, no upscaling at 100%. |
 | Display | Crop borders | Yes | ❌ | ❌ | Planned. |
@@ -237,7 +237,7 @@ table below.
 | Progress | Host read-state mirror | Yes | ✅ | ✅ | Remote progress/bookmarks upload in batches and merge back when local state is missing. |
 | Navigation | Previous/next chapter | Yes | ✅ | ✅ | Follows filtered list. |
 | Navigation | Skip read/filtered/duplicate chapters and chapter transitions | Yes | ❌ | ❌ | Planned. |
-| Navigation | Open chapter page in browser | Yes | ❌ | ❌ | Planned in the reader; local chapters open their folder. |
+| Navigation | Open chapter page in browser | Yes | ✅ | ✅ | Reader `o` opens the remote chapter page; local chapters open their folder. |
 | Bookmarks | Toggle bookmark | Yes | ✅ | ✅ | `b`. |
 | Downloads | Download current chapter | Yes | ✅ | ✅ | `D`, active cancellation now works. |
 | Privacy | Incognito suppresses history/time | Yes | ✅ | ✅ | Global and per-extension. |

@@ -628,6 +628,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
                 Action::ZoomOut => app.zoom_out(),
                 Action::HideSaved => app.pan_page(-0.5, 0.0),
                 Action::Latest => app.pan_page(0.5, 0.0),
+                Action::SourceFilters => app.open_reader_chapter_source(),
                 Action::PanUp => app.pan_page(0.0, -0.5),
                 Action::PanDown => app.pan_page(0.0, 0.5),
                 Action::ToggleFullscreen => app.toggle_fullscreen(),

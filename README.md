@@ -234,7 +234,8 @@ title;
 chapter filters, sorting, and display mode persist per series. `x`/Delete removes
 selected downloads after confirmation, `c` edits categories for saved source manga,
 `M` opens Migrate with the manga selected, `N` edits notes, `T` links or unlinks an
-AniList or MyAnimeList tracker entry, `Y` copies tags, `E` writes a
+AniList or MyAnimeList tracker entry, `Y` copies tags, `o` opens the series page (or the
+current chapter page in the reader), `E` writes a
 Mihon-readable `ComicInfo.xml` for a local series, `C` copies the URL, `S` opens the cover
 in the system viewer, `o` opens the local folder or source page (resolving relative URLs
 through extension metadata), `t` searches a tag, and `w`/`W` show
@@ -410,7 +411,8 @@ works; remote dimensions are probed with small ranged requests. Set
 `TSUIYOMI_DEBUG_SCROLL=1` to write timings to `/tmp/tsuiyomi-scroll.log`.
 
 Reading mode, zoom, and scroll cache settings can also be changed in
-**More → Settings → Reader** using the thin sliders. Right-to-left mode reverses the
+**More → Settings → Reader** using the thin sliders. A series can override the global
+viewer from its chapter settings; “Reset viewer to global” clears the override. Right-to-left mode reverses the
 left/right page-turn keys in paged mode; vertical keeps paged mode but turns pages with
 up/down. Valid `reading_mode` values are `default`,
 `left_to_right`, `right_to_left`, `vertical`, `webtoon`, and `continuous_vertical`.
