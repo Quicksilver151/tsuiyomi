@@ -6481,6 +6481,14 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "Off".to_owned()
             },
         ),
+        SettingId::ReaderDualPage => (
+            "Dual-page spreads".to_owned(),
+            if app.config.reader_dual_page {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
         SettingId::ReaderGrayscale => (
             "Grayscale".to_owned(),
             if app.config.reader_grayscale {

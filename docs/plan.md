@@ -170,8 +170,8 @@ Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
             text when no base URL exists.
 - [x] Add reader page actions: copy/save page, set as cover, open externally.
 - [x] Add skip rules: read, filtered, duplicate chapters, and chapter transitions.
-- [x] Add display extras: crop borders, grayscale, and split/rotate wide pages are done;
-      dual-page spreads remain.
+- [x] Add display extras: crop borders, grayscale, dual-page spreads, and split/rotate
+      wide pages.
 - [ ] Kitty placement-only zoom:
       - [ ] Explain: Kitty can reposition/resize an already transmitted image without
             resending pixels. The current page zoom crops/pads and re-encodes.

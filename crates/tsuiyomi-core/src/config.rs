@@ -382,6 +382,8 @@ pub struct Config {
     pub reader_split_wide: bool,
     /// Rotate landscape pages to portrait in paged mode.
     pub reader_rotate_wide: bool,
+    /// Show two pages side by side in paged mode.
+    pub reader_dual_page: bool,
     /// Page-mode image fit.
     pub reader_fit: ReaderFit,
     /// Pages prepared before the viewport.
@@ -477,6 +479,7 @@ impl Default for Config {
             reader_grayscale: false,
             reader_split_wide: false,
             reader_rotate_wide: false,
+            reader_dual_page: false,
             reader_fit: ReaderFit::Fit,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,

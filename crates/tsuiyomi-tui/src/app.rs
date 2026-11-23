@@ -482,6 +482,7 @@ pub enum SettingId {
     ReaderGrayscale,
     ReaderSplitWide,
     ReaderRotateWide,
+    ReaderDualPage,
     LibraryPath,
     LibraryDisplay,
     DefaultCategory,
@@ -593,7 +594,7 @@ const LIBRARY_ROWS: [MoreRow; 17] = [
     MoreRow::Setting(SettingId::UpdatesTabBadge),
 ];
 
-const READER_ROWS: [MoreRow; 15] = [
+const READER_ROWS: [MoreRow; 16] = [
     MoreRow::Divider("Reading"),
     MoreRow::Setting(SettingId::ReadingMode),
     MoreRow::Setting(SettingId::ReaderFit),
@@ -604,6 +605,7 @@ const READER_ROWS: [MoreRow; 15] = [
     MoreRow::Setting(SettingId::ReaderGrayscale),
     MoreRow::Setting(SettingId::ReaderSplitWide),
     MoreRow::Setting(SettingId::ReaderRotateWide),
+    MoreRow::Setting(SettingId::ReaderDualPage),
     MoreRow::Divider("Continuous scroll"),
     MoreRow::Setting(SettingId::Zoom),
     MoreRow::Setting(SettingId::PrefetchBehind),
@@ -14916,6 +14918,7 @@ impl AppState {
             | SettingId::ReaderGrayscale
             | SettingId::ReaderSplitWide
             | SettingId::ReaderRotateWide
+            | SettingId::ReaderDualPage
             | SettingId::LibraryDisplay
             | SettingId::LibrarySort
             | SettingId::DefaultCategory
@@ -15574,6 +15577,12 @@ impl AppState {
                     self.load_page();
                 }
             }
+            SettingId::ReaderDualPage => {
+                self.config.reader_dual_page = !self.config.reader_dual_page;
+                if self.reader.is_some() && self.reader_mode == ReaderMode::Page {
+                    self.load_page();
+                }
+            }
             SettingId::ReaderFit => {
                 let fits = [
                     tsuiyomi_core::ReaderFit::Fit,
@@ -16017,12 +16026,22 @@ impl AppState {
                 }
             }
         }
+        let step = if self.config.reader_dual_page
+            && self
+                .reader
+                .as_ref()
+                .is_some_and(|reader| !reader.split_wide)
+        {
+            2
+        } else {
+            1
+        };
         let at_edge = {
             let Some(reader) = self.reader.as_ref() else {
                 return;
             };
             if forward {
-                reader.page_index + 1 >= reader.pages.len()
+                reader.page_index.saturating_add(step) >= reader.pages.len()
             } else {
                 reader.page_index == 0
             }
@@ -16047,11 +16066,13 @@ impl AppState {
             };
 
             if forward {
-                if reader.page_index + 1 < reader.pages.len() {
+                if reader.page_index + step < reader.pages.len() {
+                    reader.page_index += step;
+                } else if reader.page_index + 1 < reader.pages.len() {
                     reader.page_index += 1;
                 }
             } else {
-                reader.page_index = reader.page_index.saturating_sub(1);
+                reader.page_index = reader.page_index.saturating_sub(step);
             }
             reader.page_half = 0;
         }
@@ -16190,6 +16211,21 @@ impl AppState {
             reader.page_half,
         );
         reader.split_wide = split_wide;
+        let mut image = image;
+        if self.config.reader_dual_page && !split_wide {
+            if let Some(next) = reader.pages.get(reader.page_index + 1).cloned() {
+                if let Ok(bytes) = read_page(&next) {
+                    if let Ok(next_image) = image::load_from_memory(&bytes) {
+                        let next_image = prepare_page_image(
+                            next_image,
+                            self.config.reader_crop_borders,
+                            self.config.reader_grayscale,
+                        );
+                        image = combine_dual_pages(image, next_image);
+                    }
+                }
+            }
+        }
         let image = zoomed_page_image(image, self.zoom, self.page_pan);
 
         let Some(picker) = self.image_picker.as_ref() else {
@@ -18215,6 +18251,24 @@ fn layout_reader_page(
     (image, false)
 }
 
+/// Place two pages side by side, scaling the second to the first's height.
+fn combine_dual_pages(
+    first: image::DynamicImage,
+    second: image::DynamicImage,
+) -> image::DynamicImage {
+    if first.height() == 0 || second.height() == 0 {
+        return first;
+    }
+    let height = first.height();
+    let width =
+        (u64::from(second.width()) * u64::from(height) / u64::from(second.height())).max(1) as u32;
+    let second = second.resize_exact(width, height, image::imageops::FilterType::Triangle);
+    let mut canvas = image::RgbaImage::new(first.width().saturating_add(width).max(1), height);
+    image::imageops::overlay(&mut canvas, &first.to_rgba8(), 0, 0);
+    image::imageops::overlay(&mut canvas, &second.to_rgba8(), i64::from(first.width()), 0);
+    image::DynamicImage::ImageRgba8(canvas)
+}
+
 /// Apply the reader's display transforms before zoom or block slicing.
 pub(crate) fn prepare_page_image(
     image: image::DynamicImage,
@@ -19627,6 +19681,19 @@ mod tests {
         let (rotated, split) = layout_reader_page(page, false, true, 0);
         assert!(!split);
         assert_eq!((rotated.width(), rotated.height()), (20, 40));
+
+        let first = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            20,
+            10,
+            image::Rgba([0, 0, 0, 255]),
+        ));
+        let second = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            10,
+            20,
+            image::Rgba([255, 255, 255, 255]),
+        ));
+        let spread = combine_dual_pages(first, second);
+        assert_eq!((spread.width(), spread.height()), (25, 10));
     }
 
     #[test]
