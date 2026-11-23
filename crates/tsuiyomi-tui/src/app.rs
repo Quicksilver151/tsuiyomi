@@ -41,7 +41,7 @@ use crate::{
     cover_worker::{CoverRequest, CoverWorker},
     download_worker::{DownloadRequest, DownloadWorker},
     extensions_worker::{ExtensionsRequest, ExtensionsSnapshot, ExtensionsWorker},
-    favorites_worker::{FavoritesRequest, FavoritesWorker},
+    favorites_worker::{FavoritesMutation, FavoritesRequest, FavoritesWorker},
     filters_worker::{FiltersRequest, FiltersWorker},
     host_worker::{HostRequest, HostWorker},
     layout::TAB_COUNT,
@@ -1067,6 +1067,7 @@ pub struct AppState {
     pub downloads_loaded: bool,
     pub downloads_delete_confirm: bool,
     pending_states: BTreeMap<String, RemoteReadState>,
+    pending_favorite_categories: BTreeMap<String, Vec<String>>,
     host_states_loaded: bool,
     state_dirty: bool,
     pub(crate) story_worker: Option<StoryWorker>,
@@ -1227,6 +1228,7 @@ impl AppState {
             downloads_loaded: false,
             downloads_delete_confirm: false,
             pending_states: BTreeMap::new(),
+            pending_favorite_categories: BTreeMap::new(),
             host_states_loaded: false,
             state_dirty: false,
             story_worker: None,
@@ -4101,10 +4103,41 @@ impl AppState {
             worker.request(FavoritesRequest {
                 generation: self.favorites_generation,
                 client,
+                mutation: None,
+                label: None,
+                added: Vec::new(),
             });
             return;
         }
         self.load_favorites();
+    }
+
+    fn enqueue_favorites_mutation(
+        &mut self,
+        mutation: FavoritesMutation,
+        label: String,
+        added: Vec<RemoteManga>,
+    ) -> bool {
+        if self.host_client.is_none() && !self.ensure_host() {
+            return false;
+        }
+        let (Some(worker), Some(client)) =
+            (self.favorites_worker.as_ref(), self.host_client.clone())
+        else {
+            self.remote.status =
+                Some("The extension host is starting; try again shortly.".to_owned());
+            self.remote.error = false;
+            return false;
+        };
+        self.favorites_generation = self.favorites_generation.wrapping_add(1);
+        worker.request(FavoritesRequest {
+            generation: self.favorites_generation,
+            client,
+            mutation: Some(mutation),
+            label: Some(label),
+            added,
+        });
+        true
     }
 
     /// Apply a completed background favorites load. Returns whether the UI changed.
@@ -4120,8 +4153,18 @@ impl AppState {
             return false;
         }
         match event.result {
-            Ok(favorites) => self.apply_favorites(favorites),
+            Ok(favorites) => {
+                self.apply_favorites(favorites);
+                if let Some(label) = event.label {
+                    self.remote.status = Some(label);
+                    self.remote.error = false;
+                }
+            }
             Err(error) => {
+                for manga in &event.added {
+                    self.pending_favorite_categories
+                        .remove(&remote_story_key(&manga.source_id, &manga.url));
+                }
                 self.remote.status = Some(error);
                 self.remote.error = true;
             }
@@ -4141,14 +4184,26 @@ impl AppState {
                 )
             })
             .collect();
+        let default_category = self.favorite_category();
         for favorite in &mut favorites {
+            let key = remote_story_key(&favorite.source_id, &favorite.url);
+            if let Some(categories) = self.pending_favorite_categories.remove(&key) {
+                favorite.categories = categories;
+                continue;
+            }
             if favorite.categories.is_empty() {
                 if let Some(categories) =
                     existing.get(&(favorite.source_id.clone(), favorite.url.clone()))
                 {
                     favorite.categories = categories.clone();
+                } else {
+                    favorite.categories = vec![default_category.clone()];
                 }
             }
+        }
+        for favorite in &favorites {
+            self.removed_stories
+                .remove(&remote_story_key(&favorite.source_id, &favorite.url));
         }
         self.remote.favorites = favorites;
         self.remote.favorites_loaded = true;
@@ -4327,51 +4382,37 @@ impl AppState {
             self.request_save_manga(mangas[0].clone());
             return;
         }
-        if self.host_client.is_none() && !self.ensure_host() {
-            return;
-        }
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
         let all_saved = mangas
             .iter()
             .all(|manga| self.is_favorite(&manga.source_id, &manga.url));
-        let mut changed = 0usize;
-        let mut failed = 0usize;
-        for manga in &mangas {
-            let result = if all_saved {
-                client.remove_favorite(&manga.source_id, &manga.url)
-            } else if self.is_favorite(&manga.source_id, &manga.url) {
-                Ok(())
-            } else {
-                client.add_favorite(manga)
-            };
-            match result {
-                Ok(()) => {
-                    changed += 1;
-                    if !all_saved {
-                        self.removed_stories
-                            .remove(&remote_story_key(&manga.source_id, &manga.url));
-                    }
-                }
-                Err(error) => {
-                    failed += 1;
-                    self.set_remote_error(error);
-                }
-            }
-        }
-        self.load_favorites();
-        if !all_saved {
-            self.remember_favorite_categories(&mangas);
-        }
-        self.clamp_browse_selection();
-        self.remote.status = Some(if all_saved {
-            format!("Removed {changed} manga from the library")
+        let (mutation, added, label) = if all_saved {
+            let count = mangas.len();
+            (
+                FavoritesMutation::RemoveMany(
+                    mangas
+                        .iter()
+                        .map(|manga| (manga.source_id.clone(), manga.url.clone()))
+                        .collect(),
+                ),
+                Vec::new(),
+                format!("Removing {count} manga from the library…"),
+            )
         } else {
-            format!("Added {changed} manga to the library")
-        });
-        self.remote.error = failed > 0;
-        self.multi_select = None;
+            let added: Vec<RemoteManga> = mangas
+                .iter()
+                .filter(|manga| !self.is_favorite(&manga.source_id, &manga.url))
+                .cloned()
+                .collect();
+            let count = added.len();
+            (
+                FavoritesMutation::AddMany(added.clone()),
+                added,
+                format!("Adding {count} manga to the library…"),
+            )
+        };
+        if self.enqueue_favorites_mutation(mutation, label, added) {
+            self.multi_select = None;
+        }
     }
 
     pub fn toggle_current_favorite(&mut self) {
@@ -4455,46 +4496,17 @@ impl AppState {
         let mut categories: Vec<String> = dialog.chosen.into_iter().collect();
         categories.sort();
         let manga = dialog.manga.clone();
-        self.add_manga_to_library(manga.clone());
-        if self.is_favorite(&manga.source_id, &manga.url) {
-            if let Some(favorite) =
-                self.config.remote_library.iter_mut().find(|favorite| {
-                    favorite.source_id == manga.source_id && favorite.url == manga.url
-                })
-            {
-                favorite.categories = categories;
-            }
-            self.persist_settings();
-            self.merge_remote_library();
-            self.remote.status = Some(format!("Added {} to library", manga.title));
-            self.remote.error = false;
+        let key = remote_story_key(&manga.source_id, &manga.url);
+        self.pending_favorite_categories
+            .insert(key.clone(), categories);
+        if !self.add_manga_to_library(manga) {
+            self.pending_favorite_categories.remove(&key);
         }
     }
 
-    pub fn add_manga_to_library(&mut self, manga: RemoteManga) {
-        if self.host_client.is_none() && !self.ensure_host() {
-            return;
-        }
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
-        match client.add_favorite(&manga) {
-            Ok(()) => {
-                self.removed_stories
-                    .remove(&remote_story_key(&manga.source_id, &manga.url));
-                self.ensure_remote_cover(
-                    &manga.source_id,
-                    &manga.url,
-                    manga.thumbnail_url.as_deref(),
-                );
-                self.remote.status = Some(format!("Added {} to library", manga.title));
-                self.remote.error = false;
-                self.load_favorites();
-                self.remember_favorite_categories(std::slice::from_ref(&manga));
-                self.clamp_browse_selection();
-            }
-            Err(error) => self.set_remote_error(error),
-        }
+    pub fn add_manga_to_library(&mut self, manga: RemoteManga) -> bool {
+        let label = format!("Added {} to library", manga.title);
+        self.enqueue_favorites_mutation(FavoritesMutation::Add(manga.clone()), label, vec![manga])
     }
 
     pub fn duplicate_previous(&mut self) {
@@ -4565,18 +4577,14 @@ impl AppState {
         let Some(manga) = self.remove_favorite.take() else {
             return;
         };
-        let Some(client) = self.host_client.clone() else {
-            return;
-        };
-        match client.remove_favorite(&manga.source_id, &manga.url) {
-            Ok(()) => {
-                self.remote.status = Some(format!("Removed {} from library", manga.title));
-                self.remote.error = false;
-                self.load_favorites();
-                self.clamp_browse_selection();
-            }
-            Err(error) => self.set_remote_error(error),
-        }
+        self.enqueue_favorites_mutation(
+            FavoritesMutation::Remove {
+                source_id: manga.source_id.clone(),
+                url: manga.url.clone(),
+            },
+            format!("Removed {} from library", manga.title),
+            Vec::new(),
+        );
     }
 
     pub fn cancel_remove_favorite(&mut self) {
@@ -4594,29 +4602,6 @@ impl AppState {
                     .any(|known| known == category)
             })
             .unwrap_or_else(|| "Default".to_owned())
-    }
-
-    /// Record the category chosen for newly-added remote entries. The host stores only
-    /// favorite membership, so categories live in `remote_library`.
-    fn remember_favorite_categories(&mut self, mangas: &[RemoteManga]) {
-        let category = self.favorite_category();
-        let mut changed = false;
-        for manga in mangas {
-            if let Some(favorite) =
-                self.config.remote_library.iter_mut().find(|favorite| {
-                    favorite.source_id == manga.source_id && favorite.url == manga.url
-                })
-            {
-                if favorite.categories.is_empty() {
-                    favorite.categories = vec![category.clone()];
-                    changed = true;
-                }
-            }
-        }
-        if changed {
-            self.persist_settings();
-            self.merge_remote_library();
-        }
     }
 
     fn pinned_sources(&self) -> Vec<RemoteSource> {

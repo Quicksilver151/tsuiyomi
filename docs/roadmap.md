@@ -110,7 +110,7 @@ table below.
 | Stores | Add / remove repository | Yes | ✅ | ✅ | |
 | Stores | Copy / open / refresh store URL | Yes | ✅ | ✅ | `C`, `o`, `r`. |
 | Stores | Store name / website / counts | Yes | ✅ | ✅ | Rows show an editable display name, the repository URL, and extension/installed counts. |
-| Networking | Background Browse calls | Yes | 🟡 | 🟡 | Result pages, source lists, favorites, filters, preferences, extension lists, migration matching, and remote details/chapters fetch on workers; mutations and migration apply still block. |
+| Networking | Background Browse calls | Yes | 🟡 | 🟡 | Fetches, favorite add/remove, and saved-story refreshes run on workers; migration apply, library deletion, and backup import remain synchronous. |
 | Search | Extension source URL/id search terms | Yes | ✅ | ✅ | Matches names, packages, languages, source IDs, and source base URLs for installed and repository entries. |
 | Search | Debounced extension search | Yes | ➖ | ➖ | Local filtering is immediate, so a debounce would only add latency. |
 

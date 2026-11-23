@@ -190,8 +190,9 @@ Rules:
   preserve the file format.
   Replace this with the DB layer later.
 - The initial scan, refresh, and rescan run on a background scan worker after the TUI
-  opens; the Library fills in when it finishes. Browse mutations and migration apply
-  remain synchronous.
+  opens; the Library fills in when it finishes. Favorite add/remove runs through the
+  favorites worker; migration apply, library deletion, and backup import remain
+  synchronous.
 - Browse follows Mihon's source model. Sources include the built-in Local source and all
   sources exposed by the extension host (a bundled miwayomi JVM). Remote results, manga
   details, chapters, and the reader stay under the Browse tab; Browse never switches to
