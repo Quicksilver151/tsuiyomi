@@ -170,8 +170,8 @@ Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
             text when no base URL exists.
 - [x] Add reader page actions: copy/save page, set as cover, open externally.
 - [x] Add skip rules: read, filtered, duplicate chapters, and chapter transitions.
-- [ ] Add display extras: crop borders and grayscale are done; dual-page and split/rotate
-      wide pages remain.
+- [x] Add display extras: crop borders, grayscale, and split/rotate wide pages are done;
+      dual-page spreads remain.
 - [ ] Kitty placement-only zoom:
       - [ ] Explain: Kitty can reposition/resize an already transmitted image without
             resending pixels. The current page zoom crops/pads and re-encodes.
@@ -201,17 +201,19 @@ explicitly documented as an external manual check.
 
 ### Phase 8 — Advanced networking and notifications
 
-- [ ] Add custom user-agent configuration.
+- [x] Add custom user-agent configuration for direct page/cover/image fetches; the host
+      still uses its own client for extension requests.
 - [ ] Add DNS-over-HTTPS configuration where the transport supports it; otherwise apply
       it in the host and document the split.
-- [ ] Add an in-app diagnostics/log view for host, worker, and tracker failures.
-- [ ] Add desktop notifications using OSC 9/777/terminal bell, with optional
-      `notify-send`/libnotify integration:
-      - [ ] New chapters/updates.
-      - [ ] Download completion/failure.
-      - [ ] Tracker sync failure.
-- [ ] Add Settings toggles for each notification class.
-- [ ] Tests: notification payload selection and diagnostic log formatting.
+- [x] Add an in-app diagnostics view for host, worker, and tracker failures.
+- [x] Add desktop notifications through `notify-send` (Linux) and Notification Center
+      (macOS), with status/queue markers as the fallback:
+      - [x] New chapters/updates.
+      - [x] Download completion/failure.
+      - [x] Tracker sync failure.
+- [x] Add Settings toggles for each notification class.
+- [ ] Tests: notification payload selection and diagnostic log formatting. Diagnostics
+      content has a test; notification delivery is manual.
 
 ### Phase 9 — Novel mode (backlog, not current priority)
 

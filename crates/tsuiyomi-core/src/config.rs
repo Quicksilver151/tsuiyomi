@@ -246,6 +246,8 @@ pub struct Config {
     pub smart_update_release_days: u64,
     /// Categories the automatic library update applies to. Empty means all.
     pub update_categories: BTreeSet<String>,
+    /// User-Agent for direct image/page HTTP fetches. Empty means the client default.
+    pub user_agent: Option<String>,
     /// Show the new-chapter count on the Updates tab.
     pub updates_tab_badge: bool,
     /// Send desktop notifications for newly discovered chapters.
@@ -376,6 +378,10 @@ pub struct Config {
     pub reader_crop_borders: bool,
     /// Render pages in grayscale.
     pub reader_grayscale: bool,
+    /// Split landscape pages into left and right halves in paged mode.
+    pub reader_split_wide: bool,
+    /// Rotate landscape pages to portrait in paged mode.
+    pub reader_rotate_wide: bool,
     /// Page-mode image fit.
     pub reader_fit: ReaderFit,
     /// Pages prepared before the viewport.
@@ -407,6 +413,7 @@ impl Default for Config {
             smart_update_skip_completed: false,
             smart_update_release_days: 0,
             update_categories: BTreeSet::new(),
+            user_agent: None,
             updates_tab_badge: true,
             notify_updates: true,
             notify_downloads: true,
@@ -468,6 +475,8 @@ impl Default for Config {
             reader_chapter_transitions: true,
             reader_crop_borders: false,
             reader_grayscale: false,
+            reader_split_wide: false,
+            reader_rotate_wide: false,
             reader_fit: ReaderFit::Fit,
             scroll_prefetch_behind: 2,
             scroll_prefetch_ahead: 2,

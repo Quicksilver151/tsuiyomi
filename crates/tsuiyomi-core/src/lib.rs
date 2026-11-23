@@ -60,9 +60,9 @@ pub use extensions::merge_extensions;
 pub use filters::SourceFilter;
 pub use history::{HistoryEntry, HistoryStore, LocalHistory, RemoteHistory};
 pub use host::{
-    fetch_bytes, progress_key, progress_prefix, ExtensionInfo, ExtensionSource, HostClient,
-    InstallJob, InstallOutcome, NotLoadedExtension, RemoteChapter, RemoteFavorite, RemoteManga,
-    RemoteMangaPage, RemoteReadState, RemoteSource,
+    fetch_bytes, progress_key, progress_prefix, set_default_user_agent, ExtensionInfo,
+    ExtensionSource, HostClient, InstallJob, InstallOutcome, NotLoadedExtension, RemoteChapter,
+    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSource,
 };
 pub use import::import_series;
 pub use library::{

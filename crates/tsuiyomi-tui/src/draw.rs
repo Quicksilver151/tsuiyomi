@@ -6465,6 +6465,22 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "Off".to_owned()
             },
         ),
+        SettingId::ReaderSplitWide => (
+            "Split wide pages".to_owned(),
+            if app.config.reader_split_wide {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::ReaderRotateWide => (
+            "Rotate wide pages".to_owned(),
+            if app.config.reader_rotate_wide {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
         SettingId::ReaderGrayscale => (
             "Grayscale".to_owned(),
             if app.config.reader_grayscale {
@@ -6704,6 +6720,14 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "On".to_owned()
             } else {
                 "Off".to_owned()
+            },
+        ),
+        SettingId::UserAgent => (
+            "Custom User-Agent".to_owned(),
+            if app.config.user_agent.is_some() {
+                "Set".to_owned()
+            } else {
+                "Default".to_owned()
             },
         ),
         SettingId::Diagnostics => ("Show diagnostics".to_owned(), "Enter".to_owned()),
@@ -7651,6 +7675,8 @@ mod tests {
             }],
             page_sizes: Vec::new(),
             page_index: 0,
+            page_half: 0,
+            split_wide: false,
             protocol: None,
             scroll: None,
             pending_scroll: None,

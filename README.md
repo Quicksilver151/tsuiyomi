@@ -405,6 +405,7 @@ updates_tab_badge = true
 notify_updates = true           # desktop notifications
 notify_downloads = true
 notify_tracker_failures = true
+# user_agent = "tsuiyomi"    # direct page/cover/image fetches
 # auto_download_categories = ["Reading"]  # scope the global policy
 # download_excluded_categories = ["Keep"]  # categories kept from delete-after-read
 theme = "catppuccin_mocha"

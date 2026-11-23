@@ -1188,11 +1188,27 @@ impl ExtensionRow {
 }
 
 /// Read an arbitrary URL into memory. Used for cover thumbnails and remote pages.
+static USER_AGENT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Set the User-Agent used for direct page and image fetches.
+pub fn set_default_user_agent(user_agent: Option<String>) {
+    let user_agent = user_agent.filter(|value| !value.trim().is_empty());
+    if let Ok(mut current) = USER_AGENT.lock() {
+        *current = user_agent;
+    }
+}
+
 pub fn fetch_bytes(url: &str) -> Result<Vec<u8>, CoreError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(60))
         .build();
-    let response = agent.get(url).call().map_err(|error| CoreError::Network {
+    let mut request = agent.get(url);
+    if let Ok(current) = USER_AGENT.lock() {
+        if let Some(user_agent) = current.as_deref() {
+            request = request.set("User-Agent", user_agent);
+        }
+    }
+    let response = request.call().map_err(|error| CoreError::Network {
         url: url.to_owned(),
         message: error.to_string(),
     })?;

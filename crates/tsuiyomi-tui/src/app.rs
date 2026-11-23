@@ -24,17 +24,18 @@ use tsuiyomi_core::{
     load_cached_story, merge_extensions, missing_chapter_count, move_series_downloads,
     normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
     read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
-    save_config, scan_library, search_anilist, series_dir_name, source_dir_name, story_cache_path,
-    title_similarity, today_key, update_anilist_entry, update_anilist_progress, update_mal_entry,
-    update_mal_progress, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
-    BackupChapter, BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking,
-    BookmarkStore, CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
-    ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
-    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
-    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
-    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
+    save_config, scan_library, search_anilist, series_dir_name, set_default_user_agent,
+    source_dir_name, story_cache_path, title_similarity, today_key, update_anilist_entry,
+    update_anilist_progress, update_mal_entry, update_mal_progress, visible_chapters,
+    write_comic_info, write_mihon_backup, BackupCategory, BackupChapter, BackupHistory,
+    BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore, CachedStory,
+    CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta, ChapterSettings,
+    ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope, HistoryEntry, HistoryStore,
+    HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode, LibraryFilters, LibrarySort,
+    LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension, Page, PageSource,
+    ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter, RemoteFavorite,
+    RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource, RemoteUpdate,
+    Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
     SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerEntry, TrackerLink,
     TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
 };
@@ -334,6 +335,7 @@ pub enum TextAction {
     MalToken,
     TrackerStartDate,
     TrackerFinishDate,
+    UserAgent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -478,6 +480,8 @@ pub enum SettingId {
     ReaderChapterTransitions,
     ReaderCropBorders,
     ReaderGrayscale,
+    ReaderSplitWide,
+    ReaderRotateWide,
     LibraryPath,
     LibraryDisplay,
     DefaultCategory,
@@ -503,6 +507,7 @@ pub enum SettingId {
     HostUrl,
     ShowNsfw,
     FlareSolverr,
+    UserAgent,
     DownloadsPath,
     DownloadAhead,
     DeleteAfterRead,
@@ -588,7 +593,7 @@ const LIBRARY_ROWS: [MoreRow; 17] = [
     MoreRow::Setting(SettingId::UpdatesTabBadge),
 ];
 
-const READER_ROWS: [MoreRow; 13] = [
+const READER_ROWS: [MoreRow; 15] = [
     MoreRow::Divider("Reading"),
     MoreRow::Setting(SettingId::ReadingMode),
     MoreRow::Setting(SettingId::ReaderFit),
@@ -597,6 +602,8 @@ const READER_ROWS: [MoreRow; 13] = [
     MoreRow::Setting(SettingId::ReaderChapterTransitions),
     MoreRow::Setting(SettingId::ReaderCropBorders),
     MoreRow::Setting(SettingId::ReaderGrayscale),
+    MoreRow::Setting(SettingId::ReaderSplitWide),
+    MoreRow::Setting(SettingId::ReaderRotateWide),
     MoreRow::Divider("Continuous scroll"),
     MoreRow::Setting(SettingId::Zoom),
     MoreRow::Setting(SettingId::PrefetchBehind),
@@ -666,9 +673,10 @@ const SECURITY_ROWS: [MoreRow; 3] = [
     MoreRow::Note("Incognito stops writing reading progress."),
 ];
 
-const ADVANCED_ROWS: [MoreRow; 6] = [
+const ADVANCED_ROWS: [MoreRow; 7] = [
     MoreRow::Divider("Network"),
     MoreRow::Setting(SettingId::FlareSolverr),
+    MoreRow::Setting(SettingId::UserAgent),
     MoreRow::Divider("Diagnostics"),
     MoreRow::Setting(SettingId::Diagnostics),
     MoreRow::Note("Log level comes from TSUIYOMI_LOG."),
@@ -1070,6 +1078,10 @@ pub struct ReaderState {
     /// Cached pixel dimensions, filled on first scroll layout.
     pub page_sizes: Vec<(u32, u32)>,
     pub page_index: usize,
+    /// Left/right half when a wide page is split in paged mode.
+    pub page_half: usize,
+    /// Whether the current page is displayed as two halves.
+    pub split_wide: bool,
     pub protocol: Option<StatefulProtocol>,
     pub scroll: Option<ScrollState>,
     /// New zoom/width layout being prepared while the old one stays on screen.
@@ -5868,6 +5880,8 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_half: 0,
+            split_wide: false,
             protocol: None,
             scroll: None,
             pending_scroll: None,
@@ -6100,6 +6114,7 @@ impl AppState {
             TextAction::MalToken => self.set_mal_token(&input.value),
             TextAction::TrackerStartDate => self.set_tracker_date(false, &input.value),
             TextAction::TrackerFinishDate => self.set_tracker_date(true, &input.value),
+            TextAction::UserAgent => self.set_user_agent(&input.value),
         }
     }
 
@@ -8031,6 +8046,8 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_half: 0,
+            split_wide: false,
             protocol: None,
             scroll: None,
             pending_scroll: None,
@@ -11946,6 +11963,23 @@ impl AppState {
         self.notify("Tracker update failed", detail);
     }
 
+    fn open_user_agent(&mut self) {
+        let current = self.config.user_agent.clone().unwrap_or_default();
+        self.open_text_input(TextAction::UserAgent, "Custom User-Agent", &current);
+    }
+
+    fn set_user_agent(&mut self, value: &str) {
+        let value = value.trim();
+        self.config.user_agent = (!value.is_empty()).then(|| value.to_owned());
+        set_default_user_agent(self.config.user_agent.clone());
+        self.persist_settings();
+        self.status = Some(if self.config.user_agent.is_some() {
+            "Saved custom User-Agent".to_owned()
+        } else {
+            "Cleared custom User-Agent".to_owned()
+        });
+    }
+
     pub fn open_diagnostics(&mut self) {
         let downloads = downloads_dir(&self.config)
             .map(|path| path.display().to_string())
@@ -13097,6 +13131,7 @@ impl AppState {
         self.accent = config.accent.clone();
         palette::apply(self.theme, self.accent.as_deref());
         self.fullscreen = config.fullscreen;
+        set_default_user_agent(config.user_agent.clone());
         self.host_client = None;
         self.remote.host = None;
         self.remote.host_hint = None;
@@ -14278,6 +14313,8 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_half: 0,
+            split_wide: false,
             protocol: None,
             scroll: None,
             pending_scroll: None,
@@ -14865,6 +14902,11 @@ impl AppState {
                     .unwrap_or_default();
                 self.open_text_input(TextAction::SetDownloadsPath, "Downloads folder", &current);
             }
+            SettingId::DownloadExcludedCategories => self.open_download_exclusions(),
+            SettingId::AutoDownloadCategories => self.open_auto_download_categories(),
+            SettingId::UpdateCategories => self.open_update_categories(),
+            SettingId::UserAgent => self.open_user_agent(),
+            SettingId::Diagnostics => self.open_diagnostics(),
             SettingId::ReadingMode
             | SettingId::ReaderFit
             | SettingId::ReaderSkipRead
@@ -14872,6 +14914,8 @@ impl AppState {
             | SettingId::ReaderChapterTransitions
             | SettingId::ReaderCropBorders
             | SettingId::ReaderGrayscale
+            | SettingId::ReaderSplitWide
+            | SettingId::ReaderRotateWide
             | SettingId::LibraryDisplay
             | SettingId::LibrarySort
             | SettingId::DefaultCategory
@@ -15490,6 +15534,7 @@ impl AppState {
 
         match setting {
             SettingId::Diagnostics => {}
+            SettingId::UserAgent => {}
             SettingId::ReaderSkipRead => {
                 self.config.reader_skip_read = !self.config.reader_skip_read;
             }
@@ -15515,6 +15560,18 @@ impl AppState {
                         ReaderMode::Page => self.load_page(),
                         ReaderMode::Scroll => self.build_scroll(terminal_width()),
                     }
+                }
+            }
+            SettingId::ReaderSplitWide => {
+                self.config.reader_split_wide = !self.config.reader_split_wide;
+                if self.reader.is_some() && self.reader_mode == ReaderMode::Page {
+                    self.load_page();
+                }
+            }
+            SettingId::ReaderRotateWide => {
+                self.config.reader_rotate_wide = !self.config.reader_rotate_wide;
+                if self.reader.is_some() && self.reader_mode == ReaderMode::Page {
+                    self.load_page();
                 }
             }
             SettingId::ReaderFit => {
@@ -15916,6 +15973,8 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_half: 0,
+            split_wide: false,
             protocol: None,
             scroll: None,
             pending_scroll: None,
@@ -15944,6 +16003,20 @@ impl AppState {
 
     fn change_page(&mut self, forward: bool) {
         self.page_pan = (0.0, 0.0);
+        if let Some(reader) = self.reader.as_mut() {
+            if reader.split_wide {
+                if forward && reader.page_half == 0 {
+                    reader.page_half = 1;
+                    self.load_page();
+                    return;
+                }
+                if !forward && reader.page_half == 1 {
+                    reader.page_half = 0;
+                    self.load_page();
+                    return;
+                }
+            }
+        }
         let at_edge = {
             let Some(reader) = self.reader.as_ref() else {
                 return;
@@ -15980,6 +16053,7 @@ impl AppState {
             } else {
                 reader.page_index = reader.page_index.saturating_sub(1);
             }
+            reader.page_half = 0;
         }
 
         if let Some((path, page, pages)) = self.reader.as_ref().map(|reader| {
@@ -16109,6 +16183,13 @@ impl AppState {
             self.config.reader_crop_borders,
             self.config.reader_grayscale,
         );
+        let (image, split_wide) = layout_reader_page(
+            image,
+            self.config.reader_split_wide,
+            self.config.reader_rotate_wide,
+            reader.page_half,
+        );
+        reader.split_wide = split_wide;
         let image = zoomed_page_image(image, self.zoom, self.page_pan);
 
         let Some(picker) = self.image_picker.as_ref() else {
@@ -17165,6 +17246,8 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_half: 0,
+            split_wide: false,
             protocol: None,
             scroll: None,
             pending_scroll: None,
@@ -18112,6 +18195,24 @@ fn plural_chapters(count: usize) -> String {
     } else {
         format!("{count} chapters")
     }
+}
+
+/// Split or rotate landscape pages for paged reading.
+fn layout_reader_page(
+    image: image::DynamicImage,
+    split_wide: bool,
+    rotate_wide: bool,
+    half: usize,
+) -> (image::DynamicImage, bool) {
+    if split_wide && image.width() > image.height() {
+        let half_width = (image.width() / 2).max(1);
+        let x = if half == 1 { half_width } else { 0 };
+        return (image.crop_imm(x, 0, half_width, image.height()), true);
+    }
+    if rotate_wide && image.width() > image.height() {
+        return (image.rotate90(), false);
+    }
+    (image, false)
 }
 
 /// Apply the reader's display transforms before zoom or block slicing.
@@ -19508,6 +19609,56 @@ mod tests {
         let pixel = gray.to_rgba8().get_pixel(0, 0).0;
         assert_eq!(pixel[0], pixel[1]);
         assert_eq!(pixel[1], pixel[2]);
+    }
+
+    #[test]
+    fn wide_pages_split_and_rotate() {
+        let page = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            40,
+            20,
+            image::Rgba([1, 2, 3, 255]),
+        ));
+        let (left, split) = layout_reader_page(page.clone(), true, false, 0);
+        assert!(split);
+        assert_eq!((left.width(), left.height()), (20, 20));
+        let (right, _) = layout_reader_page(page.clone(), true, false, 1);
+        assert_eq!((right.width(), right.height()), (20, 20));
+
+        let (rotated, split) = layout_reader_page(page, false, true, 0);
+        assert!(!split);
+        assert_eq!((rotated.width(), rotated.height()), (20, 40));
+    }
+
+    #[test]
+    fn settings_activation_opens_editors() {
+        let mut app = AppState::new(library(), None);
+        app.tab = 4;
+        app.more_section = MoreSection::Settings;
+        app.settings_page = SettingsPage::Downloads;
+        let index = (0..)
+            .find(|index| app.setting_at(*index) == Some(SettingId::DownloadExcludedCategories))
+            .expect("download exclusions row");
+        app.setting_index = index;
+        app.activate_setting();
+        assert!(app.download_exclusion_picker.is_some());
+        app.close_download_exclusions();
+
+        app.settings_page = SettingsPage::Advanced;
+        let index = (0..)
+            .find(|index| app.setting_at(*index) == Some(SettingId::UserAgent))
+            .expect("user agent row");
+        app.setting_index = index;
+        app.activate_setting();
+        assert!(app.text_input.is_some());
+        app.input_cancel();
+
+        let index = (0..)
+            .find(|index| app.setting_at(*index) == Some(SettingId::Diagnostics))
+            .expect("diagnostics row");
+        app.setting_index = index;
+        app.activate_setting();
+        assert!(app.diagnostics.is_some());
+        app.close_diagnostics();
     }
 
     #[test]

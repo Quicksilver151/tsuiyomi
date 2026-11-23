@@ -177,8 +177,8 @@ Rules:
   support Fit, Fill/crop, and Stretch modes. Page-mode zoom crops/pads the decoded page,
   pans with `h`/`l` and `j`/`k`, and re-encodes it. `o` opens the current chapter page or
   local chapter folder; `S`/`Y`/`E`/`W` open, copy, save, or cover the page. Reader settings
-  skip read/duplicate chapters, transition at page edges, crop borders, and render
-  grayscale. Placement-only Kitty scaling is a planned opt-in with a re-encode fallback.
+  skip read/duplicate chapters, transition at page edges, crop borders, render grayscale,
+  and split or rotate wide pages. Placement-only Kitty scaling is a planned opt-in with a re-encode fallback.
 - `ComicInfo.xml` is parsed in `comic_info.rs` for series and for chapters in
   directories, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, and `tar`/`cbt` archives. EPUB
   chapter metadata comes from the OPF (`dc:title`, publisher/creator, date), matching
@@ -383,10 +383,11 @@ Rules:
   `auto_download_new_chapters`, `auto_download_categories`, `smart_update_unread_only`,
   `smart_update_skip_unstarted`, `smart_update_skip_completed`,
   `smart_update_release_days`, `update_categories`, `updates_tab_badge`,
-  `notify_updates`, `notify_downloads`, `notify_tracker_failures`,
+  `notify_updates`, `notify_downloads`, `notify_tracker_failures`, `user_agent`,
   `library_display_mode`, `category_display`, `hide_missing_chapters`,
   `mark_duplicate_chapters_read`, `reader_skip_read`, `reader_skip_duplicates`,
   `reader_chapter_transitions`, `reader_crop_borders`, `reader_grayscale`,
+  `reader_split_wide`, `reader_rotate_wide`,
   `anilist_token`, `anilist_client_id`,
   `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
   `tracker_auth`, `backup_series_extra`, `trusted_extensions`, `series_added_at`,

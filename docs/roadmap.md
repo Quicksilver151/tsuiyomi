@@ -14,14 +14,14 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 31 | 0 | 0 | 1 | 100.0% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
-| [Reader](#reader) | 22 | 1 | 1 | 0 | 93.8% |
+| [Reader](#reader) | 22 | 2 | 0 | 0 | 95.8% |
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 4 | 2 | 1 | 0 | 71.4% |
 | [Downloads](#downloads) | 7 | 0 | 0 | 1 | 100.0% |
-| [Settings, security, and data](#settings-security-and-data) | 16 | 0 | 2 | 0 | 88.9% |
+| [Settings, security, and data](#settings-security-and-data) | 16 | 1 | 1 | 0 | 91.7% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **247** | **5** | **4** | **10** | **97.5%** |
+| **All categories** | **247** | **7** | **2** | **10** | **97.9%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -230,7 +230,7 @@ table below.
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads and pans with `h/l`/`j/k`, scroll zoom rebuilds rows, no upscaling at 100%. |
 | Display | Crop borders | Yes | ✅ | ✅ | Uniform borders are trimmed; Reader setting. |
 | Display | Color filters / grayscale | Yes | ✅ | ✅ | Grayscale toggle; custom color filters remain. |
-| Display | Dual-page, split wide pages, rotate wide pages | Yes | ❌ | ❌ | Still planned. |
+| Display | Dual-page, split wide pages, rotate wide pages | Yes | 🟡 | 🟡 | Split and rotate wide pages are implemented; dual-page spread remains. |
 | Zoom | Kitty placement-only zoom with disable toggle | Yes | 🟡 | 🟡 | Page zoom works by re-encoding; placement-only scaling and its disable setting are planned. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |
 | Progress | Read-state derivation | Yes | ✅ | ✅ | Page/pages. |
@@ -331,7 +331,7 @@ table below.
 | Reader | Mode / zoom / prefetch / cache | Yes | ✅ | ✅ | |
 | Browse | Host URL / NSFW extensions | Yes | ✅ | ✅ | |
 | Advanced | FlareSolverr URL | Yes | ✅ | ✅ | Validated, persisted, host restart. |
-| Advanced | Custom user agent | Yes | ❌ | ❌ | Planned. |
+| Advanced | Custom user agent | Yes | 🟡 | 🟡 | Applied to direct page/cover/image fetches; extension-source requests still use the host’s client. |
 | Advanced | DNS-over-HTTPS | Yes | ❌ | ❌ | Planned. |
 | Advanced | Diagnostics / verbose logging | Yes | ✅ | ✅ | Advanced → Diagnostics shows version, paths, host state, tracker links, queue, and log level. |
 | Notifications | Update notifications | Yes | ✅ | ✅ | Desktop notifications for local scans and saved-source refreshes. |
