@@ -4,12 +4,12 @@ use std::{
 };
 
 use tsuiyomi_core::{
-    login_bangumi, login_kitsu, login_mangabaka, login_mangaupdates, login_shikimori,
-    search_anilist, search_bangumi, search_kitsu, search_mal, search_mangabaka,
+    login_bangumi, login_hikka, login_kitsu, login_mangabaka, login_mangaupdates, login_shikimori,
+    search_anilist, search_bangumi, search_hikka, search_kitsu, search_mal, search_mangabaka,
     search_mangaupdates, search_shikimori, tracker_login, tracker_refresh, update_anilist_entry,
-    update_bangumi_entry, update_kitsu_entry, update_mal_entry, update_mangabaka_entry,
-    update_mangaupdates_entry, update_shikimori_entry, TrackerAuth, TrackerEntry, TrackerMedia,
-    TrackerService, TrackerStatus,
+    update_bangumi_entry, update_hikka_entry, update_kitsu_entry, update_mal_entry,
+    update_mangabaka_entry, update_mangaupdates_entry, update_shikimori_entry, TrackerAuth,
+    TrackerEntry, TrackerMedia, TrackerService, TrackerStatus,
 };
 
 pub(crate) enum TrackerRequest {
@@ -33,6 +33,7 @@ pub(crate) enum TrackerRequest {
         bangumi: bool,
         kitsu: bool,
         mangabaka: bool,
+        hikka_token: Option<String>,
     },
     MangaUpdatesLogin {
         username: String,
@@ -50,6 +51,9 @@ pub(crate) enum TrackerRequest {
     MangaBakaLogin {
         token: String,
     },
+    HikkaLogin {
+        token: String,
+    },
     Update {
         service: String,
         token: String,
@@ -61,6 +65,7 @@ pub(crate) enum TrackerRequest {
         start_date: Option<String>,
         finish_date: Option<String>,
         private: Option<bool>,
+        remote_url: Option<String>,
         account_id: Option<String>,
     },
 }
@@ -134,6 +139,7 @@ impl TrackerWorker {
                         bangumi,
                         kitsu,
                         mangabaka,
+                        hikka_token,
                     } => {
                         let mut results = search_anilist(&query);
                         if let Some(client_id) = mal_client_id.filter(|id| !id.trim().is_empty()) {
@@ -214,6 +220,19 @@ impl TrackerWorker {
                                 }
                             }
                         }
+                        if let Some(token) = hikka_token.filter(|token| !token.trim().is_empty()) {
+                            match search_hikka(&query, Some(&token)) {
+                                Ok(mut found) => match results.as_mut() {
+                                    Ok(all) => all.append(&mut found),
+                                    Err(_) => results = Ok(found),
+                                },
+                                Err(error) => {
+                                    if results.is_err() {
+                                        results = Err(error);
+                                    }
+                                }
+                            }
+                        }
                         TrackerEvent::Search {
                             generation,
                             result: results.map_err(|error| error.to_string()),
@@ -255,6 +274,13 @@ impl TrackerWorker {
                             result,
                         }
                     }
+                    TrackerRequest::HikkaLogin { token } => {
+                        let result = login_hikka(&token).map_err(|error| error.to_string());
+                        TrackerEvent::Auth {
+                            service: "hikka".to_owned(),
+                            result,
+                        }
+                    }
                     TrackerRequest::Update {
                         service,
                         token,
@@ -266,6 +292,7 @@ impl TrackerWorker {
                         start_date,
                         finish_date,
                         private,
+                        remote_url,
                         account_id,
                     } => {
                         let entry = TrackerEntry {
@@ -294,6 +321,11 @@ impl TrackerWorker {
                                 &entry,
                             ),
                             "mangabaka" => update_mangabaka_entry(&token, media_id, &entry),
+                            "hikka" => update_hikka_entry(
+                                &token,
+                                remote_url.as_deref().unwrap_or_default(),
+                                &entry,
+                            ),
                             _ => update_anilist_entry(&token, media_id, &entry),
                         };
                         TrackerEvent::Update {

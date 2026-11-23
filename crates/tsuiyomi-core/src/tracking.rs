@@ -101,6 +101,8 @@ pub struct TrackerMedia {
     pub id: u64,
     pub title: String,
     pub chapters: Option<u32>,
+    /// Canonical remote page when the service needs a slug or URL for updates.
+    pub remote_url: Option<String>,
 }
 
 pub fn search_anilist(query: &str) -> Result<Vec<TrackerMedia>, CoreError> {
@@ -259,6 +261,7 @@ fn parse_mal_search(value: &Value) -> Vec<TrackerMedia> {
                         id,
                         title,
                         chapters,
+                        remote_url: None,
                     })
                 })
                 .collect()
@@ -386,6 +389,7 @@ fn parse_mangaupdates_search(value: &Value) -> Vec<TrackerMedia> {
                         id,
                         title,
                         chapters: None,
+                        remote_url: None,
                     })
                 })
                 .collect()
@@ -534,6 +538,7 @@ fn parse_shikimori_search(value: &Value) -> Vec<TrackerMedia> {
                         id,
                         title,
                         chapters,
+                        remote_url: None,
                     })
                 })
                 .collect()
@@ -731,6 +736,7 @@ fn parse_bangumi_search(value: &Value) -> Vec<TrackerMedia> {
                         id,
                         title,
                         chapters,
+                        remote_url: None,
                     })
                 })
                 .collect()
@@ -888,6 +894,7 @@ fn parse_kitsu_search(value: &Value) -> Vec<TrackerMedia> {
                         id,
                         title,
                         chapters,
+                        remote_url: None,
                     })
                 })
                 .collect()
@@ -1086,6 +1093,7 @@ fn parse_mangabaka_search(value: &Value) -> Vec<TrackerMedia> {
                         id,
                         title,
                         chapters: None,
+                        remote_url: None,
                     })
                 })
                 .collect()
@@ -1197,6 +1205,196 @@ fn mangabaka_request(
     }
 }
 
+const HIKKA: &str = "https://api.hikka.io";
+
+fn hikka_status(status: TrackerStatus) -> &'static str {
+    match status {
+        TrackerStatus::Reading => "reading",
+        TrackerStatus::Completed => "completed",
+        TrackerStatus::OnHold => "on_hold",
+        TrackerStatus::Dropped => "dropped",
+        TrackerStatus::Planning => "planned",
+    }
+}
+
+/// Stable numeric id for a Hikka slug; the slug itself is kept in the link URL.
+fn hikka_id(slug: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in slug.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Search Hikka. The optional token enables authenticated searches.
+pub fn search_hikka(query: &str, token: Option<&str>) -> Result<Vec<TrackerMedia>, CoreError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let body = json!({
+        "media_type": [],
+        "status": [],
+        "only_translated": false,
+        "magazines": [],
+        "genres": [],
+        "score": [0, 10],
+        "query": query,
+        "sort": ["score:desc", "scored_by:desc"],
+    });
+    let value = hikka_request("POST", "/manga?page=1&size=50", Some(&body), token)?;
+    Ok(parse_hikka_search(&value))
+}
+
+fn parse_hikka_search(value: &Value) -> Vec<TrackerMedia> {
+    value
+        .get("list")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let slug = item.get("slug")?.as_str()?.to_owned();
+                    let title = item
+                        .get("title_ua")
+                        .and_then(Value::as_str)
+                        .filter(|title| !title.trim().is_empty())
+                        .or_else(|| {
+                            item.get("title_en")
+                                .and_then(Value::as_str)
+                                .filter(|title| !title.trim().is_empty())
+                        })
+                        .or_else(|| item.get("title_original").and_then(Value::as_str))?
+                        .to_owned();
+                    let chapters = item
+                        .get("chapters")
+                        .and_then(Value::as_u64)
+                        .and_then(|chapters| u32::try_from(chapters).ok());
+                    Some(TrackerMedia {
+                        service: "hikka".to_owned(),
+                        id: hikka_id(&slug),
+                        title,
+                        chapters,
+                        remote_url: Some(format!("https://hikka.io/manga/{slug}")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Verify a pasted Hikka access token.
+pub fn login_hikka(token: &str) -> Result<TrackerAuth, CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: HIKKA.to_owned(),
+            message: "a Hikka access token is required".to_owned(),
+        });
+    }
+    let value = hikka_request("GET", "/user/me", None, Some(token))?;
+    let account_id = value
+        .get("reference")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("username").and_then(Value::as_str))
+        .map(str::to_owned)
+        .ok_or_else(|| CoreError::Network {
+            url: HIKKA.to_owned(),
+            message: "Hikka did not return the current user".to_owned(),
+        })?;
+    Ok(TrackerAuth {
+        access_token: token.to_owned(),
+        refresh_token: None,
+        expires_at: None,
+        account_id: Some(account_id),
+    })
+}
+
+/// Create or update a Hikka read entry using the slug stored in the link URL.
+pub fn update_hikka_entry(
+    token: &str,
+    remote_url: &str,
+    entry: &TrackerEntry<'_>,
+) -> Result<(), CoreError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(CoreError::Network {
+            url: HIKKA.to_owned(),
+            message: "a Hikka token is required".to_owned(),
+        });
+    }
+    let slug = remote_url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|slug| !slug.trim().is_empty())
+        .ok_or_else(|| CoreError::Network {
+            url: HIKKA.to_owned(),
+            message: "Hikka needs the manga slug from the linked result".to_owned(),
+        })?;
+    let body = json!({
+        "note": "",
+        "chapters": entry.progress,
+        "volumes": 0,
+        "rereads": 0,
+        "score": entry.score.unwrap_or(0.0).clamp(0.0, 10.0).round() as i64,
+        "status": hikka_status(entry.effective_status()),
+        "start_date": entry.start_date.and_then(tracker_date_seconds),
+        "end_date": entry.finish_date.and_then(tracker_date_seconds),
+    });
+    hikka_request(
+        "PUT",
+        &format!("/read/manga/{slug}"),
+        Some(&body),
+        Some(token),
+    )
+    .map(|_| ())
+}
+
+fn tracker_date_seconds(value: &str) -> Option<i64> {
+    chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
+        .ok()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+        .map(|date| date.and_utc().timestamp())
+}
+
+fn hikka_request(
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    token: Option<&str>,
+) -> Result<Value, CoreError> {
+    let url = format!("{HIKKA}{path}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut request = match method {
+        "PUT" => agent.put(&url),
+        "POST" => agent.post(&url),
+        _ => agent.get(&url),
+    };
+    request = request.set("Accept", "application/json");
+    if let Some(token) = token.filter(|token| !token.trim().is_empty()) {
+        request = request.set("auth", token);
+    }
+    let response = if let Some(body) = body {
+        request
+            .set("Content-Type", "application/json")
+            .send_json(body.clone())
+    } else {
+        request.call()
+    }
+    .map_err(|error| CoreError::Network {
+        url: url.clone(),
+        message: error.to_string(),
+    })?;
+    match response.into_json::<Value>() {
+        Ok(value) => Ok(value),
+        Err(_) => Ok(Value::Null),
+    }
+}
+
 fn post(body: Value, token: Option<&str>) -> Result<Value, CoreError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(30))
@@ -1265,6 +1463,7 @@ fn parse_search(value: &Value) -> Result<Vec<TrackerMedia>, CoreError> {
                 id,
                 title,
                 chapters,
+                remote_url: None,
             })
         })
         .collect())
@@ -1500,6 +1699,36 @@ mod tests {
         assert_eq!(mangabaka_status(TrackerStatus::OnHold), "paused");
         assert_eq!(mangabaka_status(TrackerStatus::Dropped), "dropped");
         assert_eq!(mangabaka_status(TrackerStatus::Planning), "plan_to_read");
+    }
+
+    #[test]
+    fn parses_hikka_search_results() {
+        let value = json!({
+            "list": [
+                { "slug": "berserk", "title_en": "Berserk", "title_original": "Berserk", "chapters": 380 },
+                { "slug": "solo", "title_original": "Solo" }
+            ]
+        });
+        let results = parse_hikka_search(&value);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "Berserk");
+        assert_eq!(results[0].chapters, Some(380));
+        assert_eq!(
+            results[0].remote_url.as_deref(),
+            Some("https://hikka.io/manga/berserk")
+        );
+        assert_eq!(results[0].id, hikka_id("berserk"));
+    }
+
+    #[test]
+    fn maps_hikka_statuses_and_dates() {
+        assert_eq!(hikka_status(TrackerStatus::Reading), "reading");
+        assert_eq!(hikka_status(TrackerStatus::Completed), "completed");
+        assert_eq!(hikka_status(TrackerStatus::OnHold), "on_hold");
+        assert_eq!(hikka_status(TrackerStatus::Dropped), "dropped");
+        assert_eq!(hikka_status(TrackerStatus::Planning), "planned");
+        assert_eq!(tracker_date_seconds("2024-02-03"), Some(1_706_918_400));
+        assert!(tracker_date_seconds("not-a-date").is_none());
     }
 
     #[test]

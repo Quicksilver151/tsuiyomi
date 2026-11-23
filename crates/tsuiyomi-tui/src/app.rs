@@ -26,11 +26,11 @@ use tsuiyomi_core::{
     read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
     save_config, scan_library, search_anilist, series_dir_name, set_default_user_agent,
     source_dir_name, story_cache_path, title_similarity, today_key, update_anilist_entry,
-    update_anilist_progress, update_bangumi_entry, update_kitsu_entry, update_mal_entry,
-    update_mal_progress, update_mangabaka_entry, update_mangaupdates_entry, update_shikimori_entry,
-    visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
-    BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore,
-    CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
+    update_anilist_progress, update_bangumi_entry, update_hikka_entry, update_kitsu_entry,
+    update_mal_entry, update_mal_progress, update_mangabaka_entry, update_mangaupdates_entry,
+    update_shikimori_entry, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
+    BackupChapter, BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking,
+    BookmarkStore, CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
     ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
     HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
     LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
@@ -342,6 +342,7 @@ pub enum TextAction {
     BangumiToken,
     KitsuToken,
     MangaBakaToken,
+    HikkaToken,
     UserAgent,
 }
 
@@ -513,6 +514,7 @@ pub enum SettingId {
     BangumiToken,
     KitsuToken,
     MangaBakaToken,
+    HikkaToken,
     TrackerLogout,
     Theme,
     Accent,
@@ -651,7 +653,7 @@ const NOTIFICATION_ROWS: [MoreRow; 5] = [
     MoreRow::Note("Uses notify-send on Linux and Notification Center on macOS."),
 ];
 
-const TRACKING_ROWS: [MoreRow; 22] = [
+const TRACKING_ROWS: [MoreRow; 24] = [
     MoreRow::Divider("AniList"),
     MoreRow::Setting(SettingId::AniListLogin),
     MoreRow::Setting(SettingId::AniListClientId),
@@ -672,6 +674,8 @@ const TRACKING_ROWS: [MoreRow; 22] = [
     MoreRow::Setting(SettingId::KitsuToken),
     MoreRow::Divider("MangaBaka"),
     MoreRow::Setting(SettingId::MangaBakaToken),
+    MoreRow::Divider("Hikka"),
+    MoreRow::Setting(SettingId::HikkaToken),
     MoreRow::Divider("Account"),
     MoreRow::Setting(SettingId::TrackerLogout),
 ];
@@ -6148,6 +6152,7 @@ impl AppState {
             TextAction::BangumiToken => self.set_bangumi_token(&input.value),
             TextAction::KitsuToken => self.set_kitsu_token(&input.value),
             TextAction::MangaBakaToken => self.set_mangabaka_token(&input.value),
+            TextAction::HikkaToken => self.set_hikka_token(&input.value),
             TextAction::UserAgent => self.set_user_agent(&input.value),
         }
     }
@@ -11777,6 +11782,7 @@ impl AppState {
             "bangumi" => "Bangumi",
             "kitsu" => "Kitsu",
             "mangabaka" => "MangaBaka",
+            "hikka" => "Hikka",
             _ => "AniList",
         }
     }
@@ -12002,6 +12008,7 @@ impl AppState {
                 start_date: link.start_date.clone(),
                 finish_date: link.finish_date.clone(),
                 private: link.private,
+                remote_url: link.remote_url.clone(),
                 account_id: self.tracker_account_id(&link.service),
             });
         } else {
@@ -12035,6 +12042,11 @@ impl AppState {
                     &entry,
                 ),
                 "mangabaka" => update_mangabaka_entry(&token, link.media_id, &entry),
+                "hikka" => update_hikka_entry(
+                    &token,
+                    link.remote_url.as_deref().unwrap_or_default(),
+                    &entry,
+                ),
                 _ => update_anilist_entry(&token, link.media_id, &entry),
             };
         }
@@ -12169,6 +12181,7 @@ impl AppState {
                 bangumi: self.tracker_token_for("bangumi").is_some(),
                 kitsu: self.tracker_token_for("kitsu").is_some(),
                 mangabaka: self.tracker_token_for("mangabaka").is_some(),
+                hikka_token: self.tracker_token_for("hikka"),
             });
             self.set_tracker_message("Searching trackers…".to_owned(), false);
             return;
@@ -12231,6 +12244,7 @@ impl AppState {
                 title: media.title.clone(),
                 total_chapters: media.chapters,
                 progress,
+                remote_url: media.remote_url.clone(),
                 ..TrackerLink::default()
             },
         );
@@ -12415,6 +12429,24 @@ impl AppState {
         self.set_tracker_message("Verifying MangaBaka token…".to_owned(), false);
     }
 
+    fn open_hikka_token(&mut self) {
+        self.open_text_input(TextAction::HikkaToken, "Hikka access token", "");
+    }
+
+    fn set_hikka_token(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            return;
+        }
+        let Some(worker) = self.tracker_worker.as_ref() else {
+            return;
+        };
+        worker.request(TrackerRequest::HikkaLogin {
+            token: value.to_owned(),
+        });
+        self.set_tracker_message("Verifying Hikka token…".to_owned(), false);
+    }
+
     fn start_tracker_login(&mut self, service: &str) {
         let Some((client_id, client_secret)) = self.tracker_client(service) else {
             self.set_tracker_message(
@@ -12501,6 +12533,7 @@ impl AppState {
                 start_date: link.start_date.clone(),
                 finish_date: link.finish_date.clone(),
                 private: link.private,
+                remote_url: link.remote_url.clone(),
                 account_id: self.tracker_account_id(&link.service),
             });
         }
@@ -12676,6 +12709,7 @@ impl AppState {
                 start_date: link.start_date.clone(),
                 finish_date: link.finish_date.clone(),
                 private: link.private,
+                remote_url: link.remote_url.clone(),
                 account_id: self.tracker_account_id(&link.service),
             });
         } else {
@@ -12709,6 +12743,11 @@ impl AppState {
                     &entry,
                 ),
                 "mangabaka" => update_mangabaka_entry(&token, link.media_id, &entry),
+                "hikka" => update_hikka_entry(
+                    &token,
+                    link.remote_url.as_deref().unwrap_or_default(),
+                    &entry,
+                ),
                 _ => update_anilist_progress(&token, link.media_id, progress, total),
             };
         }
@@ -15182,6 +15221,7 @@ impl AppState {
             SettingId::BangumiToken => self.open_bangumi_token(),
             SettingId::KitsuToken => self.open_kitsu_token(),
             SettingId::MangaBakaToken => self.open_mangabaka_token(),
+            SettingId::HikkaToken => self.open_hikka_token(),
             SettingId::TrackerLogout => self.logout_trackers(),
             SettingId::HostUrl => {
                 let current = self.config.host_url.clone().unwrap_or_default();
@@ -16098,6 +16138,7 @@ impl AppState {
             | SettingId::BangumiToken
             | SettingId::KitsuToken
             | SettingId::MangaBakaToken
+            | SettingId::HikkaToken
             | SettingId::TrackerLogout
             | SettingId::RescanLibrary
             | SettingId::HostUrl
@@ -18465,6 +18506,15 @@ fn tracker_status_code(service: &str, status: TrackerStatus) -> i64 {
             TrackerStatus::OnHold => 4,
         };
     }
+    if service == "hikka" {
+        return match status {
+            TrackerStatus::Reading => 0,
+            TrackerStatus::Completed => 1,
+            TrackerStatus::OnHold => 2,
+            TrackerStatus::Dropped => 3,
+            TrackerStatus::Planning => 4,
+        };
+    }
     if service == "bangumi" {
         return match status {
             TrackerStatus::Planning => 1,
@@ -18500,6 +18550,16 @@ fn tracker_status_from_code(service: &str, code: i64) -> Option<TrackerStatus> {
             _ => None,
         };
     }
+    if service == "hikka" {
+        return match code {
+            0 => Some(TrackerStatus::Reading),
+            1 => Some(TrackerStatus::Completed),
+            2 => Some(TrackerStatus::OnHold),
+            3 => Some(TrackerStatus::Dropped),
+            4 => Some(TrackerStatus::Planning),
+            _ => None,
+        };
+    }
     if service == "bangumi" {
         return match code {
             1 => Some(TrackerStatus::Planning),
@@ -18531,6 +18591,7 @@ fn tracker_service_from_sync_id(sync_id: i64) -> Option<&'static str> {
         3 => Some("kitsu"),
         5 => Some("bangumi"),
         7 => Some("mangaupdates"),
+        10 => Some("hikka"),
         11 => Some("mangabaka"),
         _ => None,
     }
@@ -18544,6 +18605,7 @@ fn backup_tracking_from_link(link: &TrackerLink) -> Option<BackupTracking> {
         "bangumi" => 5,
         "kitsu" => 3,
         "mangaupdates" => 7,
+        "hikka" => 10,
         "mangabaka" => 11,
         _ => return None,
     };
@@ -18561,7 +18623,7 @@ fn backup_tracking_from_link(link: &TrackerLink) -> Option<BackupTracking> {
         library_id: 0,
         media_id_int: i32::try_from(link.media_id).unwrap_or(0) as i64,
         media_id: link.media_id as i64,
-        tracking_url: String::new(),
+        tracking_url: link.remote_url.clone().unwrap_or_default(),
         title: link.title.clone(),
         last_chapter_read: link.progress as f32,
         total_chapters: link.total_chapters.unwrap_or(0) as i64,
@@ -18594,6 +18656,8 @@ fn tracker_link_from_backup(tracking: &BackupTracking) -> Option<TrackerLink> {
         start_date: tracker_date_string(tracking.started_reading_date),
         finish_date: tracker_date_string(tracking.finished_reading_date),
         private: (service == "anilist").then_some(tracking.private),
+        remote_url: (!tracking.tracking_url.trim().is_empty())
+            .then(|| tracking.tracking_url.clone()),
     })
 }
 
@@ -20385,6 +20449,37 @@ mod tests {
         assert_eq!(tracking.status, 5);
         let restored = tracker_link_from_backup(&tracking).expect("link");
         assert_eq!(restored.service, "mangabaka");
+    }
+
+    #[test]
+    fn hikka_status_and_backup_mapping() {
+        for status in [
+            TrackerStatus::Reading,
+            TrackerStatus::Completed,
+            TrackerStatus::OnHold,
+            TrackerStatus::Dropped,
+            TrackerStatus::Planning,
+        ] {
+            let code = tracker_status_code("hikka", status);
+            assert_eq!(tracker_status_from_code("hikka", code), Some(status));
+        }
+        let link = TrackerLink {
+            service: "hikka".to_owned(),
+            media_id: 42,
+            title: "Berserk".to_owned(),
+            status: Some("reading".to_owned()),
+            remote_url: Some("https://hikka.io/manga/berserk".to_owned()),
+            ..TrackerLink::default()
+        };
+        let tracking = backup_tracking_from_link(&link).expect("tracking");
+        assert_eq!(tracking.sync_id, 10);
+        assert_eq!(tracking.tracking_url, "https://hikka.io/manga/berserk");
+        let restored = tracker_link_from_backup(&tracking).expect("link");
+        assert_eq!(restored.service, "hikka");
+        assert_eq!(
+            restored.remote_url.as_deref(),
+            Some("https://hikka.io/manga/berserk")
+        );
     }
 
     #[test]
@@ -22371,6 +22466,7 @@ mod tests {
                 start_date: Some("2024-02-03".to_owned()),
                 finish_date: None,
                 private: Some(true),
+                remote_url: None,
             },
         );
         let link = app.config.tracking["1\n/manga/alpha"].clone();

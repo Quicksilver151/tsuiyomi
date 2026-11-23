@@ -17,11 +17,11 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Reader](#reader) | 23 | 1 | 0 | 0 | 97.9% |
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
-| [Tracking](#tracking) | 9 | 2 | 1 | 0 | 83.3% |
+| [Tracking](#tracking) | 10 | 2 | 0 | 0 | 91.7% |
 | [Downloads](#downloads) | 7 | 0 | 0 | 1 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 16 | 1 | 1 | 0 | 91.7% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **254** | **5** | **2** | **10** | **98.3%** |
+| **All categories** | **255** | **5** | **1** | **10** | **98.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -308,7 +308,7 @@ table below.
 | Services | Bangumi | Yes | ✅ | ✅ | Access-token login, search, link, progress/status/score/privacy sync, and backup round-trip. |
 | Services | Kitsu | Yes | ✅ | ✅ | Access-token login, search, link, progress/status/score sync, and backup round-trip. |
 | Services | MangaBaka | Yes | ✅ | ✅ | Access-token login, search, link, progress/status/score/privacy/date sync, and backup round-trip. |
-| Services | Hikka | Yes | ❌ | ❌ | Planned; its API is slug-based and needs a stored remote URL. |
+| Services | Hikka | Yes | ✅ | ✅ | Access-token login, search with stored slug URL, link, progress/status/score/date sync, and backup round-trip. |
 | Metadata | Status, score, start/end dates, private flag | Yes | ✅ | ✅ | `T` on a linked story edits status, score, dates, AniList privacy, and unlink; updates sync when logged in. |
 | Overview | Tracker stats and mean score | Yes | ✅ | ✅ | More → Statistics shows linked entries, scored entries, and the mean local score. |
 | Actions | Link/unlink/search and background progress sync | Yes | ✅ | ✅ | Worker-backed. |

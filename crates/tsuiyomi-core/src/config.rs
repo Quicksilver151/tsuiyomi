@@ -194,6 +194,9 @@ pub struct TrackerLink {
     /// AniList private-entry flag.
     #[serde(default)]
     pub private: Option<bool>,
+    /// Canonical remote page/slug when the tracker needs it for updates.
+    #[serde(default)]
+    pub remote_url: Option<String>,
 }
 
 /// Raw Mihon per-series flags preserved across backup round-trips.
