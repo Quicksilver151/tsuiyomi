@@ -571,7 +571,10 @@ The phased plan and full parity tables live in [`docs/roadmap.md`](docs/roadmap.
 
 ## AI disclosure
 
-Portions of this project's code, tests, and documentation were produced with AI
-assistance.
+This project follows the [0rwx](https://0rwx.com/) framework. The project-level label is
+**AI:W** (WRITE — AI collaboration): recent code and documentation were produced with an
+AI under human direction, and the maintainer reads, tests, and fixes the output.
 
-AI:0rwx
+Different parts of the repository sit at different 0rwx levels, so `AI:0rwx` is used here
+as a project descriptor spanning levels 0, R, W, and X — not as a single 0rwx level. The
+official labels are `AI:0`, `AI:R`, `AI:W`, and `AI:X`.
