@@ -21,8 +21,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| [Publishing](#publishing) | 6 | 5 | 4 | 1 | 56.7% |
-| **All categories** | **257** | **15** | **5** | **11** | **95.5%** |
+| [Publishing](#publishing) | 6 | 6 | 3 | 1 | 60.0% |
+| **All categories** | **257** | **16** | **4** | **11** | **95.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -372,13 +372,13 @@ table below.
 | Licensing | MIT `LICENSE` and Cargo metadata | Yes | Yes | ✅ | `LICENSE`, workspace `license`/repository/homepage/readme/keywords/categories, and per-crate inheritance are committed. |
 | Licensing | Third-party notices | Yes | Yes | ✅ | `THIRD_PARTY_NOTICES`, Apache-2.0/GPLv2+CE/UnRAR texts, and a generated Rust dependency inventory are committed. |
 | Portability | Windows portability gate | Yes | Partial | 🟡 | Shared openers, `java.exe`/`PATHEXT` discovery, `taskkill`, reserved-name sanitizing, a native clipboard, PowerShell toasts, and a PowerShell runtime packager are implemented. Windows x64/ARM64 tests pass; the release smoke test still exercises host startup, openers, and notifications. |
-| Host | Bundled host runtime build | Yes | Yes | ✅ | The Bash script builds the patched jar and a `jlink` JRE; `build-host-runtime.ps1` packages the published jar with a native Windows JRE. ARM64 release packaging is untested. |
+| Host | Bundled host runtime build | Yes | Yes | ✅ | The Bash script builds the patched jar and a `jlink` JRE; `build-host-runtime.ps1` packages the published jar with a native Windows JRE. `host-v0.2.9` is published; ARM64 release packaging is untested. |
 | CI | Formatting, lint, and test workflows | Yes | Yes | ✅ | `.github/workflows/ci.yml` passes fmt, clippy, MSRV, notices, and tests on Linux, macOS, and Windows x86_64/ARM64. |
-| CI | Host jar and per-target runtime artifacts | Yes | Partial | 🟡 | `host-release.yml` publishes the patched jar and checksum; `release.yml` builds and uploads six native host runtimes. First workflow runs are pending. |
+| CI | Host jar and per-target runtime artifacts | Yes | Partial | 🟡 | `host-v0.2.9` published the patched jar and checksum; `release.yml` builds six native host runtimes. The first release run is pending. |
 | Release | Six-target binary matrix | Yes | Yes | 🟡 | `.github/workflows/release.yml` builds all six targets with native host runtimes; the first tag run is pending. |
 | Release | SHA-256 checksums | Yes | Yes | 🟡 | The release workflow combines per-archive checksums into `SHA256SUMS` and verifies them before publishing; the first run is pending. |
 | Release | GitHub release automation | Yes | Yes | 🟡 | Tag-driven release workflow creates pre-releases for 0.x/`-suffix` tags and marks stable releases latest; the first run is pending. |
-| Nix | Flake package and app outputs | Yes | No | ❌ | The flake only exposes the devshell and formatter. |
+| Nix | Flake package and app outputs | Yes | Yes | 🟡 | The flake exposes `packages.default`, `apps.default`, and `checks.default` for four systems, fetching the published host jar and wrapping with `jdk21`; the release workflow builds all four systems, but the first run is pending. |
 | Nix | Cachix binary cache | Yes | No | ❌ | No cache, public key, CI push, or pins yet. |
 | Release | `v0.2.0` test release | Yes | No | ❌ | Planned as the first end-to-end release exercise. |
 | Release | `v1.0.0` public release | Yes | No | ❌ | Planned after the test release and documentation pass. |
@@ -400,6 +400,8 @@ table below.
 | Live checks | Extension jobs, not-loaded delete, story filtering, downloads, cover overlay, history, categories, read-state mirroring |
 | Docs audit | 2026-11-24: stale phase checklists archived; parity tables reconciled with plan; Publishing category added |
 | CI | 2026-11-25: green on Linux, macOS, and Windows x86_64/ARM64; Windows path assertions fixed; one macOS arm64 runner-capacity failure passed on rerun |
+| Host jar | 2026-11-25: `host-v0.2.9` published with `miwayomi-0.2.9-patched.jar` and SHA-256 `c9779f95…47c` |
+| Nix package | Flake evaluation succeeds for the four systems; derivation build and Cachix push are pending |
 | Portability | 2026-11-24: shared opener, `java.exe`/`PATHEXT`, `taskkill`, reserved filenames, native clipboard, PowerShell notifications, Windows runtime package |
 | Licensing | 2026-11-25: MIT license, workspace metadata, changelog, third-party notices, license texts, dependency inventory |
 

@@ -61,7 +61,8 @@ These must be resolved before any release workflow is enabled:
   sanitizing, native clipboard, and PowerShell notification/runtime packaging.
 - CI is green on all six desktop targets, including Windows x86_64/ARM64 and the Rust
   1.90 MSRV. The host-jar workflow has not run yet.
-- The flake has no package output and no Cachix configuration.
+- The flake package is defined but has not been built; Cachix has no cache, public key, or
+  CI push yet.
 - No binary release workflow exists yet.
 
 ## Implementation order
@@ -166,7 +167,7 @@ Workflow `.github/workflows/host-release.yml`, triggered by `host-v*`:
    - `eu/kanade/tachiyomi/source/model/SMangaUpdate.class`
 6. [x] Publish `miwayomi-0.2.9-patched.jar` plus its SHA-256.
 7. [x] Tag or release as `host-v0.2.9`; the tag must match `HOST_VERSION` in the script.
-8. [ ] First `host-v0.2.9` workflow run green.
+8. [x] First `host-v0.2.9` workflow run green.
 
 `TSUIYOMI_HOST_SKIP_JRE=1` builds only the jar; each release target creates its own JRE.
 
@@ -197,8 +198,8 @@ Triggered by `v*` tags.
 | `host-jar` | validate | Patched host jar |
 | `host-runtime` × 6 | host-jar | Native `host.zip` per target |
 | `build` × 6 | host-runtime | Binary and archive per target |
-| `nix-cache` × 4 | validate | Cached Nix package per system |
-| `publish` | build | GitHub release, archives, `SHA256SUMS` |
+| `nix` × 4 | validate | Nix package built per system |
+| `publish` | build, nix | GitHub release, archives, `SHA256SUMS` |
 
 Per target:
 
@@ -210,9 +211,9 @@ Per target:
 5. Run smoke tests.
 6. Upload the archive as a workflow artifact.
 
-`publish` currently depends on the native builds. Add the `nix-cache` job and make
-`publish` depend on it once the flake package lands, so a release is not visible before
-its Nix outputs are available. Use `permissions: contents: write`. No signing steps.
+`publish` depends on the native builds and the four Nix package builds. Add Cachix push
+to the `nix` job once the cache exists so the release also waits for cached outputs. Use
+`permissions: contents: write`. No signing steps.
 
 Release behavior:
 
@@ -227,11 +228,11 @@ Release behavior:
 
 Add to `flake.nix`:
 
-- `packages.<system>.default`
-- `apps.<system>.default`
-- `checks.<system>.default`
-- existing `devShells`
-- existing `formatter`
+- [x] `packages.<system>.default`
+- [x] `apps.<system>.default`
+- [x] `checks.<system>.default`
+- [x] existing `devShells`
+- [x] existing `formatter`
 
 Systems: `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`.
 
@@ -239,17 +240,19 @@ Systems: `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`.
 
 Use `rustPlatform.buildRustPackage`:
 
-- version read from `Cargo.toml`
-- `cargoLock.lockFile = ./Cargo.lock`
-- source filter includes only `Cargo.toml`, `Cargo.lock`, and `crates/`
-- this keeps README/docs changes from invalidating the cache
-- `doCheck = false`; CI owns test coverage
-- wrap the binary with `jre21`/`jdk21` on `PATH`
-- set `TSUIYOMI_HOST_JAR` to the patched host jar
-- include license and notices in the output
+- [x] version fixed at `0.2.0`
+- [x] `cargoLock.lockFile = ./Cargo.lock`
+- [x] source filter (`lib.fileset`) includes only `Cargo.toml`, `Cargo.lock`, `README.md`,
+      and `crates/`, excluding the local `host.zip`
+- [x] docs changes do not invalidate the cache
+- [x] `doCheck = false`; CI owns test coverage
+- [x] wrap the binary with `jdk21` on `PATH`
+- [x] set `TSUIYOMI_HOST_JAR` to the patched host jar
+- [ ] include license and notices in the output
+- [ ] build on all four systems (release workflow) and push to Cachix
 
-The host jar is fetched with `fetchurl` from the `host-v0.2.9` release. Keep its hash in a
-small `nix/host-jar.nix` so host changes are explicit.
+The host jar is fetched with `fetchurl` from the `host-v0.2.9` release. Its SRI hash is
+pinned in `flake.nix` next to the URL so host changes are explicit.
 
 ### Cachix
 
@@ -353,8 +356,8 @@ Update before bumping the version:
 - [x] MIT `LICENSE`, Cargo metadata, notices, and changelog committed.
 - [ ] Windows portability tests green.
 - [x] CI green on all desktop platforms.
-- [ ] `host-v0.2.9` jar release exists and has a stable hash.
-- [ ] All six host runtimes built natively.
+- [x] `host-v0.2.9` jar release exists and has a stable hash.
+- [ ] All six host runtimes built natively (release workflow pending).
 - [ ] All six binaries pass smoke tests.
 - [ ] `SHA256SUMS` generated and verified.
 - [ ] Cachix cache public key added to the flake.

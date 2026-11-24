@@ -76,20 +76,19 @@ git push origin :refs/tags/host-v0.2.9
 
 ## 3. Add the Nix package and Cachix cache
 
-This step needs the checksum from step 2. The host jar URL is:
+The flake package is committed and pins the published jar:
 
 ```text
 https://github.com/Quicksilver151/tsuiyomi/releases/download/host-v0.2.9/miwayomi-0.2.9-patched.jar
 ```
 
-The flake package will:
+It builds with `rustPlatform.buildRustPackage` and `Cargo.lock`, wraps `tsuiyomi` with
+`jdk21` and `TSUIYOMI_HOST_JAR`, and exposes `packages.<system>.default`,
+`apps.<system>.default`, and `checks.<system>.default` for `x86_64-linux`,
+`aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`.
 
-- fetch that jar with the published SHA-256;
-- build with `rustPlatform.buildRustPackage` and `Cargo.lock`;
-- wrap `tsuiyomi` with `jre21` and `TSUIYOMI_HOST_JAR`;
-- expose `packages.<system>.default`, `apps.<system>.default`, and
-  `checks.<system>.default` for `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and
-  `aarch64-darwin`.
+What remains is building the derivation, creating the cache, and adding the `nix-cache`
+release job.
 
 ### Cachix setup
 
@@ -139,7 +138,8 @@ gh run list --workflow Release --limit 1
 gh run watch --exit-status
 ```
 
-`v0.2.0` is published as a pre-release because it is a `0.x` version. It contains:
+`v0.2.0` is published as a pre-release because it is a `0.x` version. The workflow also
+builds the Nix package on four systems before publishing. It contains:
 
 ```text
 tsuiyomi-v0.2.0-<target>.tar.gz / .zip   (six targets)
@@ -192,6 +192,5 @@ After the test release is healthy:
 
 ## What to send back
 
-After step 2, send the SHA-256 line from the host release (or the 64-character digest).
-The Nix package needs it, and the release workflow cannot proceed to a cached Nix build
-without it.
+After creating the Cachix cache, send its public key (`tsuiyomi.cachix.org-1:...`). It goes
+into the flake so users can substitute cached builds.

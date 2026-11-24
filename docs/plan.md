@@ -5,14 +5,14 @@ live in the [roadmap](roadmap.md); this file tracks scope, phases, and acceptanc
 criteria.
 
 > Checkbox completion here is **not** the parity percentage. The roadmap tables are the
-> authoritative implementation measure (95.5% today). Unchecked boxes include tests,
+> authoritative implementation measure (95.7% today). Unchecked boxes include tests,
 > live/external verification, portability work, and backlog items, so counting plan
 > checkboxes will understate feature parity.
 
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **95.5%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **95.7%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`. Release and distribution
 work is tracked separately in [`publishing.md`](publishing.md).
 
