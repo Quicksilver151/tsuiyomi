@@ -55,9 +55,10 @@ just test
 Machine-local paths and log settings live in `.env.local`, which is gitignored. The
 devshell sources it automatically.
 
-Documentation: [`docs/plan.md`](docs/plan.md). All parity tables, percentages,
-verification, and remaining work live in [`docs/roadmap.md`](docs/roadmap.md), with
-category plans under [`docs/parity/`](docs/parity/).
+Documentation: [`docs/plan.md`](docs/plan.md), the
+[`docs/roadmap.md`](docs/roadmap.md) parity tables, and the
+[`docs/publishing.md`](docs/publishing.md) release plan. Category plans live under
+[`docs/parity/`](docs/parity/).
 
 ## Library layout
 

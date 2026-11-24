@@ -7,8 +7,9 @@ criteria.
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **90.8%**; the target is **100% of the expanded,
-in-scope rows**, with deliberate deviations recorded as `➖`.
+The expanded roadmap currently scores **98.7%**; the target is **100% of the expanded,
+in-scope rows**, with deliberate deviations recorded as `➖`. Release and distribution
+work is tracked separately in [`publishing.md`](publishing.md).
 
 ## Scope
 
