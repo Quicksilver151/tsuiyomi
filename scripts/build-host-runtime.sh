@@ -72,6 +72,13 @@ jar --list --file "${JAR}" | grep -q "eu/kanade/tachiyomi/AppInfo.class" \
 jar --list --file "${JAR}" | grep -q "eu/kanade/tachiyomi/source/model/SMangaUpdate.class" \
     || die "host jar is missing the SMangaUpdate patch; rebuild with scripts/host-patches"
 
+# The host jar is platform-independent and published once. Release workflows that only
+# need the jar can skip the native JRE build.
+if [[ -n "${TSUIYOMI_HOST_SKIP_JRE:-}" ]]; then
+    echo "host-runtime: wrote ${JAR} (JRE skipped)"
+    exit 0
+fi
+
 # A fixed module list is more reliable than `jdeps` on a shaded jar. Modules that are
 # genuinely unused cost little; a missing one breaks the host at runtime.
 MODULES="java.base,java.desktop,java.logging,java.management,java.naming,java.net.http"

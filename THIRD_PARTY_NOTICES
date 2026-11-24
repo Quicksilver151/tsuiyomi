@@ -1,0 +1,59 @@
+# Third-party notices
+
+tsuiyomi itself is licensed under the MIT License. See [`LICENSE`](LICENSE).
+
+Release archives bundle the components below. Their licenses are reproduced in
+[`licenses/`](licenses/) and are included in release archives.
+
+## miwayomi extension host
+
+- Project: <https://github.com/miwayomi/miwayomi>
+- License: Apache License 2.0 — [`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt)
+- Version: 0.2.9, patched by tsuiyomi (`scripts/host-patches/`).
+
+miwayomi adapts code from Aniyomi and Mihon. The upstream attribution notice applies:
+
+> `miwayomi` is an independent project that reuses and adapts code from
+> [Aniyomi](https://github.com/aniyomiorg/aniyomi) (Copyright © Aniyomi Open Source
+> Project), licensed under the Apache License 2.0.
+>
+> The following modules contain files adapted from Aniyomi (Apache-2.0):
+>
+> - `source-api/` — the extensions API (manga and anime), adapted to pure JVM.
+> - `core-common/` — network helpers, coroutines, preferences, and logcat, adapted to
+>   pure JVM.
+>
+> Copyright © 2015 Javier Tomás
+> Copyright © 2024 Mihon Open Source Project
+> Copyright © 2024 Aniyomi Open Source Project
+
+## OpenJDK runtime
+
+- Project: Eclipse Temurin / OpenJDK 21 — <https://adoptium.net/>
+- License: GNU General Public License version 2 with the Classpath Exception —
+  [`licenses/GPL-2.0-with-Classpath-Exception.txt`](licenses/GPL-2.0-with-Classpath-Exception.txt)
+- Source: <https://github.com/adoptium/temurin21-binaries>
+
+A `jlink` runtime is embedded in each release binary so users do not need a separate JVM.
+The runtime archive keeps the JDK's `legal/` notices; the corresponding source is
+available from the Temurin and OpenJDK projects above.
+
+## UnRAR
+
+- Project: UnRAR by Alexander Roshal, used through the `unrar` and `unrar_sys` crates.
+- License: UnRAR freeware terms — [`licenses/UnRAR.txt`](licenses/UnRAR.txt)
+
+UnRAR supports `.rar`/`.cbr` chapters. It is used only to read archives; tsuiyomi does not
+create RAR files.
+
+## Rust crates
+
+The binary statically links Rust crates under their respective permissive licenses,
+including MIT, Apache-2.0, BSD, ISC, Zlib, MPL-2.0, Unicode, CC0, and public-domain
+terms. [`licenses/RUST-DEPENDENCIES.txt`](licenses/RUST-DEPENDENCIES.txt) lists every
+crate and its license expression, generated from `Cargo.lock` by
+`scripts/dependency-notices.py`.
+
+Each crate's full license text and copyright notice are available from its published
+package and from <https://crates.io/>. The MIT and Apache-2.0 texts used by most of the
+tree are [`LICENSE`](LICENSE) and [`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt).

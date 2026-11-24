@@ -21,8 +21,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| [Publishing](#publishing) | 2 | 1 | 12 | 1 | 16.7% |
-| **All categories** | **253** | **11** | **13** | **11** | **93.3%** |
+| [Publishing](#publishing) | 4 | 3 | 8 | 1 | 36.7% |
+| **All categories** | **255** | **13** | **9** | **11** | **94.4%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -369,12 +369,12 @@ table below.
 | Area | Feature | Required | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
 | Planning | Release plan and target matrix | Yes | Yes | ✅ | [`publishing.md`](publishing.md) defines targets, artifacts, workflows, Nix, and Cachix. |
-| Licensing | MIT `LICENSE` and Cargo metadata | Yes | No | ❌ | No license file or workspace `license`/repository metadata yet. |
-| Licensing | Third-party notices | Yes | No | ❌ | Release binaries bundle miwayomi and a JRE; notices and licenses are not packaged yet. |
+| Licensing | MIT `LICENSE` and Cargo metadata | Yes | Yes | ✅ | `LICENSE`, workspace `license`/repository/homepage/readme/keywords/categories, and per-crate inheritance are committed. |
+| Licensing | Third-party notices | Yes | Yes | ✅ | `THIRD_PARTY_NOTICES`, Apache-2.0/GPLv2+CE/UnRAR texts, and a generated Rust dependency inventory are committed. |
 | Portability | Windows portability gate | Yes | Partial | 🟡 | Shared openers, `java.exe`/`PATHEXT` discovery, `taskkill`, reserved-name sanitizing, a native clipboard, PowerShell toasts, and a PowerShell runtime packager are implemented; execution on Windows CI is still pending. |
 | Host | Bundled host runtime build | Yes | Yes | ✅ | The Bash script builds the patched jar and a `jlink` JRE; `build-host-runtime.ps1` packages the published jar with a native Windows JRE. ARM64 release packaging is untested. |
-| CI | Formatting, lint, and test workflows | Yes | No | ❌ | No `.github/workflows/ci.yml` yet. |
-| CI | Host jar and per-target runtime artifacts | Yes | No | ❌ | The jar release and per-target host zips are not published. |
+| CI | Formatting, lint, and test workflows | Yes | Yes | 🟡 | `.github/workflows/ci.yml` covers fmt, clippy, notices, and tests on six desktop targets; the first GitHub run is pending. |
+| CI | Host jar and per-target runtime artifacts | Yes | Partial | 🟡 | `.github/workflows/host-release.yml` publishes the patched jar and checksum from a `host-v*` tag; per-target runtime artifacts wait on the release workflow. |
 | Release | Six-target binary matrix | Yes | No | ❌ | Linux/macOS/Windows x86_64 and ARM64 releases are not built. |
 | Release | SHA-256 checksums | Yes | No | ❌ | No release checksums are generated or verified. |
 | Release | GitHub release automation | Yes | No | ❌ | Tag-driven build and publish workflows do not exist. |
@@ -399,6 +399,7 @@ table below.
 | Live checks | Extension jobs, not-loaded delete, story filtering, downloads, cover overlay, history, categories, read-state mirroring |
 | Docs audit | 2026-11-24: stale phase checklists archived; parity tables reconciled with plan; Publishing category added |
 | Portability | 2026-11-24: shared opener, `java.exe`/`PATHEXT`, `taskkill`, reserved filenames, native clipboard, PowerShell notifications, Windows runtime package |
+| Licensing | 2026-11-25: MIT license, workspace metadata, changelog, third-party notices, license texts, dependency inventory |
 
 ## Remaining work
 

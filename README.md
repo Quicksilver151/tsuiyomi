@@ -61,9 +61,10 @@ devshell sources it automatically.
 
 Documentation: [`docs/plan.md`](docs/plan.md), the
 [`docs/roadmap.md`](docs/roadmap.md) parity tables, the
-[`docs/publishing.md`](docs/publishing.md) release plan, and the
-[`docs/history.md`](docs/history.md) historical development log. Category design plans
-live under [`docs/parity/`](docs/parity/).
+[`docs/publishing.md`](docs/publishing.md) release plan, the
+[`docs/history.md`](docs/history.md) historical development log, and the
+[`CHANGELOG.md`](CHANGELOG.md). Category design plans live under
+[`docs/parity/`](docs/parity/).
 
 ## Library layout
 
@@ -579,6 +580,12 @@ The phased plan and full parity tables live in [`docs/roadmap.md`](docs/roadmap.
       category in the roadmap).
 - [ ] Verify live OAuth/token tracking and a real Android Mihon restore.
 - [ ] Publish to `crates.io` and release `v1.0.0`.
+
+## License
+
+tsuiyomi is released under the [MIT License](LICENSE). Release binaries also bundle
+miwayomi, an OpenJDK runtime, and UnRAR support; see
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) and [`licenses/`](licenses/) for their terms.
 
 ## AI disclosure
 

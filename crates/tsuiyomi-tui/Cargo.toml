@@ -1,8 +1,15 @@
 [package]
 name = "tsuiyomi-tui"
+description = "Ratatui frontend for tsuiyomi, a terminal UI for Mihon-compatible manga libraries."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 chrono.workspace = true

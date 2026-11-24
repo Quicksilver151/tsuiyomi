@@ -55,15 +55,12 @@ Archives include:
 
 These must be resolved before any release workflow is enabled:
 
-- No `LICENSE` file yet.
-- No `CHANGELOG.md` yet.
-- No `THIRD_PARTY_NOTICES` yet, although release binaries bundle miwayomi (Apache-2.0)
-  and a Temurin/OpenJDK JRE (GPLv2 with Classpath Exception).
 - Windows code paths are implemented but have not run on Windows CI: shared openers,
   `java.exe`/`PATHEXT` discovery, `taskkill` stale-host cleanup, reserved-name
   sanitizing, native clipboard, and PowerShell notification/runtime packaging.
+- The CI and host-jar workflows are committed but have not had a first GitHub run.
 - The flake has no package output and no Cachix configuration.
-- No CI or release workflows exist.
+- No binary release workflow exists yet.
 
 ## Implementation order
 
@@ -82,17 +79,20 @@ These must be resolved before any release workflow is enabled:
 
 ### License and metadata
 
-- Add `LICENSE` with the MIT text.
-- Add `CHANGELOG.md` using Keep a Changelog.
-- Add `THIRD_PARTY_NOTICES` with:
+- [x] Add `LICENSE` with the MIT text.
+- [x] Add `CHANGELOG.md` using Keep a Changelog.
+- [x] Add `THIRD_PARTY_NOTICES` with:
   - miwayomi (Apache-2.0)
   - Temurin/OpenJDK JRE (GPLv2 + Classpath Exception)
-  - bundled dependency licenses
-- Add workspace metadata:
+  - UnRAR freeware terms
+  - bundled Rust dependency licenses
+- [x] Add workspace metadata:
   - `license = "MIT"`
   - `repository = "https://github.com/Quicksilver151/tsuiyomi"`
   - `homepage`, `readme`, `keywords`, `categories`
-- Make each crate inherit the workspace license.
+- [x] Make each crate inherit the workspace license.
+- [x] Generate `licenses/RUST-DEPENDENCIES.txt` from `Cargo.lock` with
+  `scripts/dependency-notices.py`.
 
 ### Windows portability
 
@@ -130,20 +130,23 @@ These must be resolved before any release workflow is enabled:
 
 ## Phase 1 — CI
 
-Add `.github/workflows/ci.yml` for pushes and pull requests:
+`.github/workflows/ci.yml` runs for pushes to `master` and pull requests:
 
-- `cargo fmt --all --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace --locked` on:
-  - Linux x86_64
-  - Linux aarch64
-  - macOS x86_64
-  - macOS arm64
-  - Windows x86_64
-- `cargo check` and release builds for the remaining ARM targets
-- Optional `cargo audit` / `cargo deny`
+- [x] `cargo fmt --all --check`
+- [x] `cargo clippy --workspace --all-targets --locked -- -D warnings`
+- [x] `cargo test --workspace --locked` on:
+  - [x] Linux x86_64 (`ubuntu-22.04`)
+  - [x] Linux aarch64 (`ubuntu-22.04-arm`)
+  - [x] macOS x86_64 (`macos-15-intel`)
+  - [x] macOS arm64 (`macos-15`)
+  - [x] Windows x86_64 (`windows-2025`)
+  - [x] Windows arm64 (`windows-11-arm`)
+- [x] Dependency-notice freshness check (`scripts/dependency-notices.py --check`)
+- [ ] First CI run green on every target
+- [ ] Optional `cargo audit` / `cargo deny`
 
-Use `Swatinem/rust-cache` or equivalent and pin actions to commit SHAs.
+Actions are pinned to commit SHAs and use `Swatinem/rust-cache`. The release workflow
+adds target-specific `cargo check`/release builds for the remaining architectures.
 
 ## Phase 2 — Host jar release
 
@@ -151,15 +154,18 @@ The host jar is platform-independent, so build it once.
 
 Workflow `.github/workflows/host-release.yml`, triggered by `host-v*`:
 
-1. Check out the repository.
-2. Install JDK 21 (Temurin).
-3. Build the pinned miwayomi source with `scripts/host-patches/miwayomi-0.2.9.patch`.
-4. Cache Gradle keyed by host commit plus patch hash.
-5. Verify the patched classes:
+1. [x] Check out the repository.
+2. [x] Install JDK 21 (Temurin).
+3. [x] Build the pinned miwayomi source with `scripts/host-patches/miwayomi-0.2.9.patch`.
+4. [x] Cache Gradle keyed by the build script and patch hash.
+5. [x] Verify the patched classes:
    - `eu/kanade/tachiyomi/AppInfo.class`
    - `eu/kanade/tachiyomi/source/model/SMangaUpdate.class`
-6. Publish `miwayomi-0.2.9-patched.jar` plus its SHA-256.
-7. Tag or release as `host-v0.2.9`.
+6. [x] Publish `miwayomi-0.2.9-patched.jar` plus its SHA-256.
+7. [x] Tag or release as `host-v0.2.9`; the tag must match `HOST_VERSION` in the script.
+8. [ ] First `host-v0.2.9` workflow run green.
+
+`TSUIYOMI_HOST_SKIP_JRE=1` builds only the jar; each release target creates its own JRE.
 
 Bump the host tag whenever the host commit or patch changes. The Nix package pins this
 artifact.
@@ -338,7 +344,7 @@ Update before bumping the version:
 
 ## Release checklist
 
-- [ ] MIT `LICENSE`, Cargo metadata, notices, and changelog committed.
+- [x] MIT `LICENSE`, Cargo metadata, notices, and changelog committed.
 - [ ] Windows portability tests green.
 - [ ] CI green on all desktop platforms.
 - [ ] `host-v0.2.9` jar release exists and has a stable hash.

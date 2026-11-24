@@ -1,8 +1,15 @@
 [package]
 name = "tsuiyomi"
+description = "Terminal UI for a local Mihon-compatible manga library."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "tsuiyomi"

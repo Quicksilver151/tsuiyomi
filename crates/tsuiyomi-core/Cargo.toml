@@ -1,8 +1,15 @@
 [package]
 name = "tsuiyomi-core"
+description = "UI-agnostic backend for tsuiyomi: Mihon-compatible libraries, metadata, downloads, backups, and the extension host."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 base64.workspace = true
