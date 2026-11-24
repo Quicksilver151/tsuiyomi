@@ -39,3 +39,11 @@ host-runtime-windows:
 # Build an optimized binary with the extension host embedded
 dist: host-runtime
     cargo build --release
+
+# Regenerate the Rust dependency license inventory
+notices:
+    python3 scripts/dependency-notices.py
+
+# Package the local release binary: just package x86_64-unknown-linux-gnu 0.2.0
+package target version:
+    TSUIYOMI_TARGET="{{target}}" TSUIYOMI_VERSION="{{version}}" ./scripts/package-release.sh

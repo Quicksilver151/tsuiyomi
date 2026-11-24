@@ -202,7 +202,8 @@ Per target:
 1. Download `host-runtime-<target>.zip`.
 2. Copy it to `crates/tsuiyomi-core/runtime/host.zip`.
 3. Run `cargo build --release --locked`.
-4. Package the binary with the license, readme, changelog, notices, and install notes.
+4. Package the binary with `scripts/package-release.sh`, which adds the license, readme,
+   changelog, notices, install notes, and bundled license texts.
 5. Run smoke tests.
 6. Upload the archive as a workflow artifact.
 

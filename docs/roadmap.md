@@ -21,8 +21,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| [Publishing](#publishing) | 4 | 3 | 8 | 1 | 36.7% |
-| **All categories** | **255** | **13** | **9** | **11** | **94.4%** |
+| [Publishing](#publishing) | 5 | 3 | 7 | 1 | 43.3% |
+| **All categories** | **256** | **13** | **8** | **11** | **94.8%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -382,7 +382,7 @@ table below.
 | Nix | Cachix binary cache | Yes | No | ❌ | No cache, public key, CI push, or pins yet. |
 | Release | `v0.2.0` test release | Yes | No | ❌ | Planned as the first end-to-end release exercise. |
 | Release | `v1.0.0` public release | Yes | No | ❌ | Planned after the test release and documentation pass. |
-| Docs | Release and install documentation | Yes | No | ❌ | README install/release sections are not written yet. |
+| Docs | Release and install documentation | Yes | Yes | ✅ | `INSTALL.md` covers archive layout, checksum verification, unsigned-binary warnings, data paths, source builds, and release packaging. |
 | Distribution | Code signing | No | No | ➖ | Deliberately omitted; unsigned archives with SHA-256 checksums only. |
 
 ## Verification snapshot

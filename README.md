@@ -62,9 +62,9 @@ devshell sources it automatically.
 Documentation: [`docs/plan.md`](docs/plan.md), the
 [`docs/roadmap.md`](docs/roadmap.md) parity tables, the
 [`docs/publishing.md`](docs/publishing.md) release plan, the
-[`docs/history.md`](docs/history.md) historical development log, and the
-[`CHANGELOG.md`](CHANGELOG.md). Category design plans live under
-[`docs/parity/`](docs/parity/).
+[`docs/history.md`](docs/history.md) historical development log, the
+[`CHANGELOG.md`](CHANGELOG.md), and the [`INSTALL.md`](INSTALL.md) install guide.
+Category design plans live under [`docs/parity/`](docs/parity/).
 
 ## Library layout
 
