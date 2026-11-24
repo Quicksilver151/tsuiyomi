@@ -141,6 +141,7 @@ These must be resolved before any release workflow is enabled:
   - [x] macOS arm64 (`macos-15`)
   - [x] Windows x86_64 (`windows-2025`)
   - [x] Windows arm64 (`windows-11-arm`)
+- [x] MSRV check on Rust 1.90.0 (`cargo check --workspace --locked`)
 - [x] Dependency-notice freshness check (`scripts/dependency-notices.py --check`)
 - [ ] First CI run green on every target
 - [ ] Optional `cargo audit` / `cargo deny`
@@ -195,7 +196,7 @@ Triggered by `v*` tags.
 | `host-runtime` × 6 | host-jar | Native `host.zip` per target |
 | `build` × 6 | host-runtime | Binary and archive per target |
 | `nix-cache` × 4 | validate | Cached Nix package per system |
-| `publish` | build, nix-cache | GitHub release, archives, `SHA256SUMS` |
+| `publish` | build | GitHub release, archives, `SHA256SUMS` |
 
 Per target:
 
@@ -207,14 +208,16 @@ Per target:
 5. Run smoke tests.
 6. Upload the archive as a workflow artifact.
 
-`publish` waits for the Nix cache, so a release is not visible before its Nix outputs are
-available. Use `permissions: contents: write`. No signing steps.
+`publish` currently depends on the native builds. Add the `nix-cache` job and make
+`publish` depend on it once the flake package lands, so a release is not visible before
+its Nix outputs are available. Use `permissions: contents: write`. No signing steps.
 
 Release behavior:
 
-- Tags with `-rc`/`-beta`/`-alpha` are GitHub pre-releases.
-- Only stable `v1.0.0` is marked latest.
+- `0.x` tags and tags with `-rc`/`-beta`/`-alpha` are GitHub pre-releases.
+- Stable `v1.x` tags are marked latest.
 - Missing target artifacts fail the release.
+- `.github/workflows/release.yml` is committed; the first tag run is still pending.
 
 ## Phase 5 — Nix flake and Cachix
 

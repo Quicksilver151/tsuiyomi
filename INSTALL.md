@@ -83,7 +83,7 @@ nix develop
 just run
 ```
 
-A plain Rust toolchain (1.88 or newer) works too. A normal `cargo build --release`
+A plain Rust toolchain (1.90 or newer) works too. A normal `cargo build --release`
 produces a binary that looks for `java` on `PATH`. To embed the extension host and JRE:
 
 ```sh

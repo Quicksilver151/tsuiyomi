@@ -1,0 +1,248 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: validate tag and host release
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      host_version: ${{ steps.version.outputs.host_version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check the tag and workspace version
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          workspace_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [[ "${version}" != "${workspace_version}" ]]; then
+            echo "Tag ${tag} does not match workspace version ${workspace_version}" >&2
+            exit 1
+          fi
+          host_version="$(sed -n 's/^HOST_VERSION="\(.*\)"/\1/p' scripts/build-host-runtime.sh)"
+          prerelease=false
+          if [[ "${version}" == 0.* || "${version}" == *-* ]]; then
+            prerelease=true
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+          echo "host_version=${host_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check required files and the host release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOST_VERSION: ${{ steps.version.outputs.host_version }}
+        run: |
+          for file in LICENSE THIRD_PARTY_NOTICES CHANGELOG.md INSTALL.md README.md; do
+            test -f "${file}" || { echo "missing ${file}" >&2; exit 1; }
+          done
+          gh release view "host-v${HOST_VERSION}" >/dev/null || {
+            echo "host-v${HOST_VERSION} release is missing" >&2
+            exit 1
+          }
+
+  host-jar:
+    name: download patched host jar
+    needs: validate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download and verify the host jar
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOST_VERSION: ${{ needs.validate.outputs.host_version }}
+        run: |
+          mkdir -p host
+          gh release download "host-v${HOST_VERSION}" \
+            --pattern "miwayomi-${HOST_VERSION}-patched.jar*" \
+            --dir host
+          (cd host && sha256sum -c "miwayomi-${HOST_VERSION}-patched.jar.sha256")
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: host-jar
+          path: host/miwayomi-*.jar
+          if-no-files-found: error
+
+  host-runtime:
+    name: host runtime (${{ matrix.target }})
+    needs: [validate, host-jar]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            java_arch: x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+            java_arch: aarch64
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            java_arch: x64
+          - target: aarch64-apple-darwin
+            os: macos-15
+            java_arch: aarch64
+          - target: x86_64-pc-windows-msvc
+            os: windows-2025
+            java_arch: x64
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+            java_arch: aarch64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: host-jar
+          path: host
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          architecture: ${{ matrix.java_arch }}
+
+      - name: Build the host runtime (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          HOST_VERSION: ${{ needs.validate.outputs.host_version }}
+        run: |
+          export TSUIYOMI_HOST_JAR_PATH="${GITHUB_WORKSPACE}/host/miwayomi-${HOST_VERSION}-patched.jar"
+          ./scripts/build-host-runtime.sh
+
+      - name: Build the host runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOST_VERSION: ${{ needs.validate.outputs.host_version }}
+        run: |
+          $jar = Join-Path $env:GITHUB_WORKSPACE "host\miwayomi-$env:HOST_VERSION-patched.jar"
+          ./scripts/build-host-runtime.ps1 -JarPath $jar
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: host-runtime-${{ matrix.target }}
+          path: crates/tsuiyomi-core/runtime/host.zip
+          if-no-files-found: error
+
+  build:
+    name: build and package (${{ matrix.target }})
+    needs: [validate, host-runtime]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: aarch64-apple-darwin
+            os: macos-15
+          - target: x86_64-pc-windows-msvc
+            os: windows-2025
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: host-runtime-${{ matrix.target }}
+          path: crates/tsuiyomi-core/runtime
+
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          binary="target/${{ matrix.target }}/release/tsuiyomi"
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            binary="${binary}.exe"
+          fi
+          "${binary}" --help
+          TSUIYOMI_HOST_SELFTEST=1 "${binary}"
+
+      - name: Package
+        shell: bash
+        env:
+          TSUIYOMI_VERSION: ${{ needs.validate.outputs.version }}
+          TSUIYOMI_TARGET: ${{ matrix.target }}
+        run: ./scripts/package-release.sh
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish the GitHub release
+    needs: [validate, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Build and verify SHA256SUMS
+        shell: bash
+        run: |
+          cd dist
+          cat ./*.sha256 | sort > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+        run: |
+          args=(--title "tsuiyomi ${VERSION}" --generate-notes --verify-tag)
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            args+=(--prerelease)
+          else
+            args+=(--latest)
+          fi
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
+            "${args[@]}"

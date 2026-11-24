@@ -54,18 +54,19 @@ case "${TARGET}" in
     *windows*)
         ARCHIVE="${OUT_DIR}/${ARCHIVE_BASE}.zip"
         rm -f "${ARCHIVE}"
-        python3 - "${STAGE}" "${ARCHIVE}" <<'PY'
-import pathlib
-import sys
-import zipfile
-
-stage = pathlib.Path(sys.argv[1])
-archive = pathlib.Path(sys.argv[2])
-with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
-    for path in sorted(stage.rglob("*")):
-        if path.is_file():
-            bundle.write(path, path.relative_to(stage.parent))
-PY
+        if command -v zip >/dev/null 2>&1; then
+            (cd "${OUT_DIR}" && zip -qr "$(basename "${ARCHIVE}")" "${ARCHIVE_BASE}")
+        else
+            # Git Bash on Windows does not always ship zip; Compress-Archive is native.
+            stage_path="${STAGE}"
+            archive_path="${ARCHIVE}"
+            if command -v cygpath >/dev/null 2>&1; then
+                stage_path="$(cygpath -w "${STAGE}")"
+                archive_path="$(cygpath -w "${ARCHIVE}")"
+            fi
+            powershell.exe -NoProfile -NonInteractive -Command \
+                "Compress-Archive -Path '${stage_path}' -DestinationPath '${archive_path}' -Force"
+        fi
         ;;
     *)
         ARCHIVE="${OUT_DIR}/${ARCHIVE_BASE}.tar.gz"

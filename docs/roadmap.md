@@ -21,8 +21,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| [Publishing](#publishing) | 5 | 3 | 7 | 1 | 43.3% |
-| **All categories** | **256** | **13** | **8** | **11** | **94.8%** |
+| [Publishing](#publishing) | 5 | 6 | 4 | 1 | 53.3% |
+| **All categories** | **256** | **16** | **5** | **11** | **95.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -374,10 +374,10 @@ table below.
 | Portability | Windows portability gate | Yes | Partial | 🟡 | Shared openers, `java.exe`/`PATHEXT` discovery, `taskkill`, reserved-name sanitizing, a native clipboard, PowerShell toasts, and a PowerShell runtime packager are implemented; execution on Windows CI is still pending. |
 | Host | Bundled host runtime build | Yes | Yes | ✅ | The Bash script builds the patched jar and a `jlink` JRE; `build-host-runtime.ps1` packages the published jar with a native Windows JRE. ARM64 release packaging is untested. |
 | CI | Formatting, lint, and test workflows | Yes | Yes | 🟡 | `.github/workflows/ci.yml` covers fmt, clippy, notices, and tests on six desktop targets; the first GitHub run is pending. |
-| CI | Host jar and per-target runtime artifacts | Yes | Partial | 🟡 | `.github/workflows/host-release.yml` publishes the patched jar and checksum from a `host-v*` tag; per-target runtime artifacts wait on the release workflow. |
-| Release | Six-target binary matrix | Yes | No | ❌ | Linux/macOS/Windows x86_64 and ARM64 releases are not built. |
-| Release | SHA-256 checksums | Yes | No | ❌ | No release checksums are generated or verified. |
-| Release | GitHub release automation | Yes | No | ❌ | Tag-driven build and publish workflows do not exist. |
+| CI | Host jar and per-target runtime artifacts | Yes | Partial | 🟡 | `host-release.yml` publishes the patched jar and checksum; `release.yml` builds and uploads six native host runtimes. First workflow runs are pending. |
+| Release | Six-target binary matrix | Yes | Yes | 🟡 | `.github/workflows/release.yml` builds all six targets with native host runtimes; the first tag run is pending. |
+| Release | SHA-256 checksums | Yes | Yes | 🟡 | The release workflow combines per-archive checksums into `SHA256SUMS` and verifies them before publishing; the first run is pending. |
+| Release | GitHub release automation | Yes | Yes | 🟡 | Tag-driven release workflow creates pre-releases for 0.x/`-suffix` tags and marks stable releases latest; the first run is pending. |
 | Nix | Flake package and app outputs | Yes | No | ❌ | The flake only exposes the devshell and formatter. |
 | Nix | Cachix binary cache | Yes | No | ❌ | No cache, public key, CI push, or pins yet. |
 | Release | `v0.2.0` test release | Yes | No | ❌ | Planned as the first end-to-end release exercise. |
@@ -393,6 +393,7 @@ table below.
 | TUI tests | 224 pass |
 | Binary integration test | 1 pass (`backup-info`) |
 | Windows target check | `cargo check --target x86_64-pc-windows-gnu` passes; runtime CI is still pending |
+| MSRV | Rust 1.90.0 `cargo check --workspace --locked` passes |
 | Clippy | Passes with `-D warnings` |
 | Release build | Passes |
 | Bundled host | Patched, rebuilt, embedded archive |

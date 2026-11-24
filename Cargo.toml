@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.90"
 license = "MIT"
 repository = "https://github.com/Quicksilver151/tsuiyomi"
 homepage = "https://github.com/Quicksilver151/tsuiyomi"

@@ -576,8 +576,8 @@ The phased plan and full parity tables live in [`docs/roadmap.md`](docs/roadmap.
 - [x] Mihon backup import/export, `backup-info`, and an import report.
 - [ ] Page-level download concurrency, custom reader color filters, Kitty placement-only
       zoom, and DNS-over-HTTPS.
-- [ ] Windows execution in CI and the GitHub/Nix release pipeline (see the Publishing
-      category in the roadmap).
+- [ ] Windows execution in CI, the Nix package/cache, and the `v0.2.0` test release (see
+      the Publishing category in the roadmap).
 - [ ] Verify live OAuth/token tracking and a real Android Mihon restore.
 - [ ] Publish to `crates.io` and release `v1.0.0`.
 
