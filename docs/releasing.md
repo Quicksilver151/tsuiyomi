@@ -97,32 +97,34 @@ release job.
 
 ### Cachix setup
 
-1. Create the cache at <https://cachix.org/> or with the CLI:
+1. Sign in at <https://app.cachix.org/> with GitHub and create a public cache named
+   `tsuiyomi` from the dashboard. The CLI cannot create caches.
+
+2. Copy the cache's public key from the dashboard, and create an auth token on the
+   account/token page. Configure it locally:
 
    ```sh
    nix profile install nixpkgs#cachix
    cachix authtoken <auth-token-from-cachix>
-   cachix create tsuiyomi
-   cachix info tsuiyomi
    ```
 
-2. Copy the cache public key (`tsuiyomi.cachix.org-1:...`) into the flake's
+3. Copy the cache public key (`tsuiyomi.cachix.org-1:...`) into the flake's
    `nixConfig.extra-trusted-public-keys`.
 
-3. Add the Cachix auth token as a repository secret:
+4. Add the Cachix auth token as a repository secret:
 
    ```sh
    gh secret set CACHIX_AUTH_TOKEN
    ```
 
-4. After the package builds, seed the cache once:
+5. After the package builds, seed the cache once:
 
    ```sh
    nix build .# -L
    cachix push tsuiyomi ./result
    ```
 
-5. Verify substitution from a clean profile or store path:
+6. Verify substitution from a clean profile or store path:
 
    ```sh
    nix run .# -- --help

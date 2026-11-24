@@ -257,7 +257,8 @@ pinned in `flake.nix` next to the URL so host changes are explicit.
 
 ### Cachix
 
-Create a public Cachix cache named `tsuiyomi`.
+Create a public Cachix cache named `tsuiyomi` from <https://app.cachix.org/>. The CLI
+(`cachix` 1.9) can upload and configure caches but cannot create them.
 
 Add:
 
