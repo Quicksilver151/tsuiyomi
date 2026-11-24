@@ -59,9 +59,8 @@ These must be resolved before any release workflow is enabled:
 - Windows code paths are implemented but have not run on Windows CI: shared openers,
   `java.exe`/`PATHEXT` discovery, `taskkill` stale-host cleanup, reserved-name
   sanitizing, native clipboard, and PowerShell notification/runtime packaging.
-- The CI workflow's first run passed fmt, clippy, notices, Linux, and macOS arm64, and
-  found two Windows-only path-separator assertions in core tests. The fix is committed;
-  the rerun is pending. The host-jar workflow has not run.
+- CI is green on all six desktop targets, including Windows x86_64/ARM64 and the Rust
+  1.90 MSRV. The host-jar workflow has not run yet.
 - The flake has no package output and no Cachix configuration.
 - No binary release workflow exists yet.
 
@@ -353,7 +352,7 @@ Update before bumping the version:
 
 - [x] MIT `LICENSE`, Cargo metadata, notices, and changelog committed.
 - [ ] Windows portability tests green.
-- [ ] CI green on all desktop platforms.
+- [x] CI green on all desktop platforms.
 - [ ] `host-v0.2.9` jar release exists and has a stable hash.
 - [ ] All six host runtimes built natively.
 - [ ] All six binaries pass smoke tests.
