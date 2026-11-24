@@ -6,7 +6,6 @@
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    process::Command,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -308,17 +307,7 @@ fn post_form(url: &str, form: &[(&str, &str)]) -> Result<Value, CoreError> {
 }
 
 fn open_browser(url: &str) -> Result<(), CoreError> {
-    let (command, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
-        ("open", &[url])
-    } else if cfg!(target_os = "windows") {
-        ("cmd", &["/C", "start", "", url])
-    } else {
-        ("xdg-open", &[url])
-    };
-    Command::new(command)
-        .args(args)
-        .spawn()
-        .map(|_| ())
+    crate::platform::open_target(url)
         .map_err(|error| oauth_error(format!("could not open the browser: {error}")))
 }
 

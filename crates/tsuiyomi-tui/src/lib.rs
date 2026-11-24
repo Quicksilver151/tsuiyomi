@@ -66,6 +66,9 @@ pub fn run(mut app: AppState) -> io::Result<()> {
     // terminal's query responses before the event loop starts, so the first keypress
     // does not trigger a stray redraw/flash.
     let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
+        // POSIX shared memory does not exist on Windows; the picker falls back to
+        // inline (optionally zlib-compressed) Kitty transmission there.
+        #[cfg(not(windows))]
         kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
         // Shared memory avoids the transmission entirely when available. Otherwise
         // zlib shrinks the base64 payload that the UI thread has to copy and write.

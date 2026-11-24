@@ -255,8 +255,8 @@ Record only; do not block the parity pass.
 - Host-side user-agent/DoH support may require a host patch and runtime rebuild.
 - Kitty placement-only zoom is terminal-specific; the fallback must remain reliable.
 - Page-level download concurrency and custom reader color filters remain unimplemented.
-- Windows portability and the release pipeline are tracked in
-  [`publishing.md`](publishing.md).
+- Windows code paths are implemented and type-check, but Windows CI execution and the
+  release pipeline are still tracked in [`publishing.md`](publishing.md).
 - Real Mihon backup restore needs an Android environment.
 - Library layout/filter combinations can cause input and state complexity; keep
   selection/filter state centralized and tested.

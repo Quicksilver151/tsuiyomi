@@ -98,7 +98,7 @@ impl ProgressStore {
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
         let temporary = path.with_extension("json.tmp");
         fs::write(&temporary, bytes)?;
-        fs::rename(temporary, path)
+        crate::platform::replace_file(&temporary, path)
     }
 }
 

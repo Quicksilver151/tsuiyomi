@@ -121,7 +121,7 @@ fn probe_debug(message: &str) {
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/tmp/tsuiyomi-scroll.log")
+        .open(std::env::temp_dir().join("tsuiyomi-scroll.log"))
     {
         let _ = writeln!(file, "{millis} probe {message}");
     }

@@ -59,12 +59,9 @@ These must be resolved before any release workflow is enabled:
 - No `CHANGELOG.md` yet.
 - No `THIRD_PARTY_NOTICES` yet, although release binaries bundle miwayomi (Apache-2.0)
   and a Temurin/OpenJDK JRE (GPLv2 with Classpath Exception).
-- Windows external-open paths still call `xdg-open`.
-- Windows Java discovery looks for `java`, not `java.exe`.
-- Windows host cleanup uses `kill -TERM`, not `taskkill`.
-- Windows notification and clipboard paths are Unix-only.
-- Download and cover filename sanitizing does not reject Windows reserved names.
-- `scripts/build-host-runtime.sh` is Bash-only and has not been exercised on Windows.
+- Windows code paths are implemented but have not run on Windows CI: shared openers,
+  `java.exe`/`PATHEXT` discovery, `taskkill` stale-host cleanup, reserved-name
+  sanitizing, native clipboard, and PowerShell notification/runtime packaging.
 - The flake has no package output and no Cachix configuration.
 - No CI or release workflows exist.
 
@@ -99,25 +96,27 @@ These must be resolved before any release workflow is enabled:
 
 ### Windows portability
 
-- Add a shared opener helper in core with per-OS commands:
+- [x] Add a shared opener helper in core with per-OS commands:
   - Windows: `cmd /C start "" <target>`
   - macOS: `open <target>`
   - Linux/BSD: `xdg-open <target>`
-- Use it from story, store, reader-page, and external-file actions.
-- Add `.exe` handling to Java discovery:
+- [x] Use it from story, store, reader-page, and external-file actions.
+- [x] Add `.exe` handling to Java discovery:
   - cached JRE `jre\bin\java.exe`
   - `JAVA_HOME\bin\java.exe`
   - PATH search respecting `PATHEXT`
-- Replace stale-process `kill -TERM` with `taskkill /PID <pid> /T /F` on Windows.
-- Verify host runtime extraction expects `jre/bin/java.exe` and Windows DLLs.
-- Extend filename sanitizing for Windows reserved names:
+- [x] Replace stale-process `kill -TERM` with `taskkill /PID <pid> /T /F` on Windows.
+- [x] Verify host runtime extraction expects `jre/bin/java.exe` and Windows DLLs.
+- [x] Extend filename sanitizing for Windows reserved names:
   `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`,
   trailing dots, and trailing spaces.
-- Add a Windows clipboard fallback (`clip.exe`) for text copies; keep OSC 52 elsewhere.
-- Make notifications a no-op or best-effort PowerShell toast on Windows.
-- Count the platform-specific JRE path as part of the host archive contract.
-- Exercise `scripts/build-host-runtime.sh` under Git Bash on Windows x64 and ARM64.
-  If it is fragile, add `scripts/build-host-runtime.ps1` and use that on Windows.
+- [x] Add a Windows clipboard fallback for text copies; keep OSC 52 elsewhere. PowerShell
+  `Set-Clipboard` preserves non-ASCII text, unlike `clip.exe`.
+- [x] Make notifications best-effort with a PowerShell toast on Windows.
+- [x] Count the platform-specific JRE path as part of the host archive contract.
+- [x] Package Windows host runtimes with `scripts/build-host-runtime.ps1`, reusing the
+  published jar and a native JDK 21.
+- [ ] Exercise the host packaging and application on Windows x64 and ARM64 CI.
 
 ### Acceptance
 
@@ -171,7 +170,9 @@ Workflow job matrix in `.github/workflows/release.yml`:
 
 - Download the patched host jar.
 - Set `TSUIYOMI_HOST_JAR_PATH`.
-- Run the host runtime script with a native JDK 21 for each target.
+- Run the host runtime script with a native JDK 21 for each target:
+  `scripts/build-host-runtime.sh` on Unix and
+  `scripts/build-host-runtime.ps1` on Windows.
 - Upload `host-runtime-<target>.zip`.
 
 `jlink` cannot cross-compile a JRE, so each target builds its JRE natively. The Windows

@@ -24,6 +24,7 @@ pub mod library;
 pub mod migration;
 pub mod oauth;
 pub mod pages;
+pub mod platform;
 pub mod progress;
 pub mod reading_stats;
 pub mod runtime;
@@ -52,8 +53,8 @@ pub use config::{
 pub use downloads::{
     chapter_archive_path, chapter_dir, chapter_dir_name, download_chapter,
     download_chapter_with_cancel, downloads_dir, existing_chapter_path, is_downloaded,
-    move_series_downloads, remove_chapter_path, remove_series_downloads, series_dir_name,
-    source_dir_name, ChapterDownload,
+    move_series_downloads, remove_chapter_path, remove_series_downloads, sanitize_component,
+    series_dir_name, source_dir_name, ChapterDownload,
 };
 pub use error::CoreError;
 pub use extensions::merge_extensions;
@@ -75,6 +76,7 @@ pub use migration::{
 };
 pub use oauth::{login as tracker_login, refresh as tracker_refresh, TrackerService};
 pub use pages::{chapter_pages, page_dimensions, read_page, Page, PageSource};
+pub use platform::{copy_to_clipboard, notify, open_target, replace_file};
 pub use progress::{ProgressEntry, ProgressStore};
 pub use reading_stats::{date_key_for_unix, today_key, ReadingStats, SeriesReadingTime};
 pub use runtime::{

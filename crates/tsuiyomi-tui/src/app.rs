@@ -22,15 +22,16 @@ use tsuiyomi_core::{
     ensure_runtime, ensure_series_cover, existing_chapter_path, extension_fingerprint, fetch_bytes,
     host_data_dir, import_series, is_downloaded, latest_chapter_number, legacy_remote_cover_path,
     load_cached_story, merge_extensions, missing_chapter_count, move_series_downloads,
-    normalized_title, page_dimensions, parse_mihon_backup, progress_prefix, read_cover, read_page,
-    read_state, remote_cover_path, remove_chapter_path, remove_series_downloads, save_cached_story,
-    save_config, scan_library, search_anilist, series_dir_name, set_default_user_agent,
-    source_dir_name, story_cache_path, title_similarity, today_key, update_anilist_entry,
-    update_anilist_progress, update_bangumi_entry, update_hikka_entry, update_kitsu_entry,
-    update_mal_entry, update_mal_progress, update_mangabaka_entry, update_mangaupdates_entry,
-    update_shikimori_entry, visible_chapters, write_comic_info, write_mihon_backup, BackupCategory,
-    BackupChapter, BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking,
-    BookmarkStore, CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
+    normalized_title, open_target, page_dimensions, parse_mihon_backup, progress_prefix,
+    read_cover, read_page, read_state, remote_cover_path, remove_chapter_path,
+    remove_series_downloads, replace_file, sanitize_component, save_cached_story, save_config,
+    scan_library, search_anilist, series_dir_name, set_default_user_agent, source_dir_name,
+    story_cache_path, title_similarity, today_key, update_anilist_entry, update_anilist_progress,
+    update_bangumi_entry, update_hikka_entry, update_kitsu_entry, update_mal_entry,
+    update_mal_progress, update_mangabaka_entry, update_mangaupdates_entry, update_shikimori_entry,
+    visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
+    BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore,
+    CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
     ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
     HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
     LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
@@ -650,7 +651,7 @@ const NOTIFICATION_ROWS: [MoreRow; 5] = [
     MoreRow::Setting(SettingId::NotifyUpdates),
     MoreRow::Setting(SettingId::NotifyDownloads),
     MoreRow::Setting(SettingId::NotifyTrackerFailures),
-    MoreRow::Note("Uses notify-send on Linux and Notification Center on macOS."),
+    MoreRow::Note("Uses notify-send on Linux, Notification Center on macOS, and a PowerShell toast on Windows."),
 ];
 
 const TRACKING_ROWS: [MoreRow; 24] = [
@@ -5312,7 +5313,7 @@ impl AppState {
             && matches!(self.selected_source_ref(), Some(SourceRef::Local))
         {
             let path = self.library.root.display().to_string();
-            match open_external_target(&path) {
+            match open_target(&path) {
                 Ok(()) => {
                     self.remote.status = Some(format!("Opened {path}"));
                     self.remote.error = false;
@@ -5330,7 +5331,7 @@ impl AppState {
             self.remote.error = true;
             return;
         };
-        match open_external_target(&url) {
+        match open_target(&url) {
             Ok(()) => {
                 self.remote.status = Some(format!("Opened {url}"));
                 self.remote.error = false;
@@ -5346,7 +5347,7 @@ impl AppState {
         let Some(store) = self.selected_store().cloned() else {
             return;
         };
-        match write_osc52_clipboard(&store) {
+        match copy_clipboard(&store) {
             Ok(()) => self.remote.status = Some(format!("Copied {store}")),
             Err(error) => self.remote.status = Some(format!("Could not copy: {error}")),
         }
@@ -5362,13 +5363,8 @@ impl AppState {
             self.remote.error = true;
             return;
         }
-        let opener = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        };
-        match std::process::Command::new(opener).arg(&store).spawn() {
-            Ok(_) => self.remote.status = Some(format!("Opened {store}")),
+        match open_target(&store) {
+            Ok(()) => self.remote.status = Some(format!("Opened {store}")),
             Err(error) => self.remote.status = Some(format!("Could not open {store}: {error}")),
         }
         self.remote.error = false;
@@ -11254,7 +11250,7 @@ impl AppState {
         let Some(value) = self.story_reference() else {
             return;
         };
-        match write_osc52_clipboard(&value) {
+        match copy_clipboard(&value) {
             Ok(()) => self.status = Some(format!("Copied {value}")),
             Err(error) => self.status = Some(format!("Could not copy: {error}")),
         }
@@ -11275,11 +11271,9 @@ impl AppState {
             PageSource::File(path) => Some(path.display().to_string()),
             PageSource::Archive { .. } => match read_page(&page) {
                 Ok(bytes) => {
-                    let path = std::env::temp_dir().join(format!(
-                        "tsuiyomi-{}.{}",
-                        page.name.replace(['/', '\\'], "_"),
-                        page_extension(&bytes)
-                    ));
+                    let name = sanitize_component(&page.name);
+                    let path = std::env::temp_dir()
+                        .join(format!("tsuiyomi-{name}.{}", page_extension(&bytes)));
                     match std::fs::write(&path, bytes) {
                         Ok(()) => Some(path.display().to_string()),
                         Err(error) => {
@@ -11297,7 +11291,7 @@ impl AppState {
         let Some(target) = target else {
             return;
         };
-        match open_external_target(&target) {
+        match open_target(&target) {
             Ok(()) => self.status = Some(format!("Opened {target}")),
             Err(error) => self.status = Some(format!("Could not open {target}: {error}")),
         }
@@ -11315,7 +11309,7 @@ impl AppState {
                 format!("{}!{name}", path.display())
             }
         };
-        match write_osc52_clipboard(&value) {
+        match copy_clipboard(&value) {
             Ok(()) => self.status = Some(format!("Copied {value}")),
             Err(error) => self.status = Some(format!("Could not copy: {error}")),
         }
@@ -11466,13 +11460,8 @@ impl AppState {
                 Some("This source returns a relative URL; copy it with C instead.".to_owned());
             return;
         }
-        let opener = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        };
-        match std::process::Command::new(opener).arg(&value).spawn() {
-            Ok(_) => self.status = Some(format!("Opened {value}")),
+        match open_target(&value) {
+            Ok(()) => self.status = Some(format!("Opened {value}")),
             Err(error) => self.status = Some(format!("Could not open {value}: {error}")),
         }
     }
@@ -11555,7 +11544,7 @@ impl AppState {
             self.status = Some(format!("Chapter source is unavailable: {target}"));
             return;
         }
-        match open_external_target(&target) {
+        match open_target(&target) {
             Ok(()) => self.status = Some(format!("Opened {target}")),
             Err(error) => self.status = Some(format!("Could not open {target}: {error}")),
         }
@@ -11751,7 +11740,7 @@ impl AppState {
             return;
         };
         let target = path.to_string_lossy().into_owned();
-        match open_external_target(&target) {
+        match open_target(&target) {
             Ok(()) => self.status = Some(format!("Opened cover {target}")),
             Err(error) => self.status = Some(format!("Could not open cover: {error}")),
         }
@@ -11765,7 +11754,7 @@ impl AppState {
             return;
         }
         let text = tags.join(", ");
-        match write_osc52_clipboard(&text) {
+        match copy_clipboard(&text) {
             Ok(()) => self.status = Some(format!("Copied {} tags", tags.len())),
             Err(error) => self.status = Some(format!("Could not copy: {error}")),
         }
@@ -12093,19 +12082,7 @@ impl AppState {
     }
 
     fn notify(&self, title: &str, body: &str) {
-        #[cfg(target_os = "macos")]
-        let command = (
-            "osascript",
-            vec![
-                "-e".to_owned(),
-                format!("display notification \"{body}\" with title \"{title}\""),
-            ],
-        );
-        #[cfg(not(target_os = "macos"))]
-        let command = ("notify-send", vec![title.to_owned(), body.to_owned()]);
-        let _ = std::process::Command::new(command.0)
-            .args(command.1)
-            .spawn();
+        let _ = tsuiyomi_core::notify(title, body);
     }
 
     fn notify_updates(&self, count: usize, detail: &str) {
@@ -17973,7 +17950,7 @@ pub(crate) fn scroll_debug(message: &str) {
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/tmp/tsuiyomi-scroll.log")
+        .open(std::env::temp_dir().join("tsuiyomi-scroll.log"))
     {
         let _ = writeln!(file, "{millis} {message}");
     }
@@ -18135,7 +18112,7 @@ fn write_cover_atomically(path: &Path, bytes: &[u8]) {
     let id = COVER_TEMP_ID.fetch_add(1, Ordering::Relaxed);
     let temporary = path.with_extension(format!("img.{id}.tmp"));
     if std::fs::write(&temporary, bytes).is_ok() {
-        let _ = std::fs::rename(&temporary, path);
+        let _ = replace_file(&temporary, path);
     }
 }
 
@@ -18272,16 +18249,12 @@ fn unix_seconds(value: u64) -> u64 {
     }
 }
 
-fn open_external_target(target: &str) -> std::io::Result<()> {
-    let opener = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    std::process::Command::new(opener)
-        .arg(target)
-        .spawn()
-        .map(|_| ())
+/// Copy through the native clipboard, falling back to OSC 52.
+///
+/// OSC 52 is the only option on Linux terminals and also works over SSH; the native
+/// helper is preferred on Windows and macOS where the terminal may not forward it.
+fn copy_clipboard(text: &str) -> std::io::Result<()> {
+    tsuiyomi_core::copy_to_clipboard(text).or_else(|_| write_osc52_clipboard(text))
 }
 
 fn write_osc52_clipboard(text: &str) -> std::io::Result<()> {

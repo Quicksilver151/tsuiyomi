@@ -160,7 +160,7 @@ pub fn write_comic_info(path: &Path, info: &ComicInfo) -> Result<(), CoreError> 
         path: temporary.clone(),
         source,
     })?;
-    fs::rename(&temporary, path).map_err(|source| {
+    crate::platform::replace_file(&temporary, path).map_err(|source| {
         let _ = fs::remove_file(&temporary);
         CoreError::WriteFile {
             path: path.to_path_buf(),

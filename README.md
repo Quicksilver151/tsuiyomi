@@ -30,6 +30,10 @@ Anime browsing is outside the current scope; the project is manga-first.
 - `direnv` (recommended) or `nix develop`. A plain Rust toolchain also works, but the
   devshell is the supported development path.
 
+The release plan targets Linux, macOS, and Windows on x86_64 and ARM64. Windows uses
+native open/clipboard/notification helpers and ships a bundled JRE like the other
+platforms; the Nix devshell remains the supported development environment.
+
 ## Development
 
 ```sh
@@ -342,7 +346,8 @@ just dist           # embeds the archive and builds the release binary
 `scripts/host-patches/miwayomi-0.2.9.patch`, runs Gradle, and packages the jar with a
 `jlink` runtime. It needs a JDK 21 and network access and takes a few minutes. Set
 `TSUIYOMI_HOST_JAR_PATH` when running `just host-runtime` to reuse an already-built
-patched jar.
+patched jar. On Windows, `just host-runtime-windows` packages the published jar with a
+native JDK 21 through `scripts/build-host-runtime.ps1`.
 
 The patch matters: the released host implements the pre-1.6 source API and lacks
 `eu.kanade.tachiyomi.AppInfo`, so current Keiyoushi extensions load but fail on details,
@@ -570,7 +575,7 @@ The phased plan and full parity tables live in [`docs/roadmap.md`](docs/roadmap.
 - [x] Mihon backup import/export, `backup-info`, and an import report.
 - [ ] Page-level download concurrency, custom reader color filters, Kitty placement-only
       zoom, and DNS-over-HTTPS.
-- [ ] Windows portability and the GitHub/Nix release pipeline (see the Publishing
+- [ ] Windows execution in CI and the GitHub/Nix release pipeline (see the Publishing
       category in the roadmap).
 - [ ] Verify live OAuth/token tracking and a real Android Mihon restore.
 - [ ] Publish to `crates.io` and release `v1.0.0`.

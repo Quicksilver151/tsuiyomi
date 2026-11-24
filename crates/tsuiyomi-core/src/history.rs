@@ -363,7 +363,7 @@ impl HistoryStore {
             }
             file.flush()?;
         }
-        fs::rename(temporary, path)
+        crate::platform::replace_file(&temporary, path)
     }
 }
 

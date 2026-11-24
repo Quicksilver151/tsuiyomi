@@ -21,8 +21,9 @@ tsuiyomi (single Rust binary)
                  --flaresolverr <url-or-empty>
 ```
 
-The host is supervised on loopback. `host_url` can point at an external server instead.
-WebView-only sources are unsupported.
+The launcher is `jre/bin/java` on Unix and `jre/bin/java.exe` on Windows; everything else
+in the archive is platform-independent. The host is supervised on loopback. `host_url` can
+point at an external server instead. WebView-only sources are unsupported.
 
 ## API surface used by the client
 

@@ -32,6 +32,10 @@ build:
 host-runtime:
     ./scripts/build-host-runtime.sh
 
+# Package the host runtime on Windows from a published jar and a JDK 21
+host-runtime-windows:
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-host-runtime.ps1
+
 # Build an optimized binary with the extension host embedded
 dist: host-runtime
     cargo build --release

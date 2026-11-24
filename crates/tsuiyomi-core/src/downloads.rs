@@ -53,6 +53,11 @@ pub fn downloads_dir(config: &Config) -> Option<PathBuf> {
 }
 
 /// Sanitize one path component like Mihon's `DiskUtil.buildValidFilename`.
+///
+/// Windows additionally rejects reserved device names (`CON`, `PRN`, `AUX`, `NUL`,
+/// `COM1`–`COM9`, `LPT1`–`LPT9`) and trailing dots or spaces. Those rules are applied
+/// on every platform so a download tree stays identical when it is copied between
+/// operating systems.
 pub fn sanitize_component(value: &str) -> String {
     let name = value.trim_matches(|character| character == '.' || character == ' ');
     if name.is_empty() {
@@ -76,7 +81,31 @@ pub fn sanitize_component(value: &str) -> String {
             _ => sanitized.push(character),
         }
     }
-    truncate_utf8(&sanitized, MAX_NAME_BYTES)
+    finish_component(truncate_utf8(&sanitized, MAX_NAME_BYTES))
+}
+
+/// Trim characters Windows drops from the end of a name and escape reserved devices.
+fn finish_component(value: String) -> String {
+    let name = value.trim_end_matches(['.', ' ']);
+    if name.is_empty() {
+        return "(invalid)".to_owned();
+    }
+    if is_windows_reserved(name) {
+        return format!("_{name}");
+    }
+    name.to_owned()
+}
+
+fn is_windows_reserved(name: &str) -> bool {
+    // Windows compares device names case-insensitively and treats everything before the
+    // first dot as the device name, so `CON.txt` is reserved too.
+    let stem = name.split('.').next().unwrap_or(name);
+    let stem = stem.to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0')
 }
 
 fn truncate_utf8(value: &str, max_bytes: usize) -> String {
@@ -110,7 +139,7 @@ pub fn chapter_dir_name(chapter_name: &str, scanlator: Option<&str>) -> String {
         None => name.to_owned(),
     };
     let sanitized = sanitize_component(&base);
-    truncate_utf8(&sanitized, MAX_CHAPTER_NAME_BYTES)
+    finish_component(truncate_utf8(&sanitized, MAX_CHAPTER_NAME_BYTES))
 }
 
 /// Full directory for a chapter, without downloading anything.
@@ -463,6 +492,18 @@ mod tests {
         assert_eq!(sanitize_component("a/b:c?d"), "a_b_c_d");
         assert_eq!(sanitize_component("..."), "(invalid)");
         assert_eq!(sanitize_component(".hidden"), "hidden");
+    }
+
+    #[test]
+    fn sanitizes_windows_reserved_names_and_trailing_characters() {
+        assert_eq!(sanitize_component("CON"), "_CON");
+        assert_eq!(sanitize_component("con.txt"), "_con.txt");
+        assert_eq!(sanitize_component(" Aux "), "_Aux");
+        assert_eq!(sanitize_component("LPT9"), "_LPT9");
+        assert_eq!(sanitize_component("COM0"), "COM0");
+        assert_eq!(sanitize_component("COM10"), "COM10");
+        assert_eq!(sanitize_component("name.  "), "name");
+        assert_eq!(sanitize_component("name... "), "name");
     }
 
     #[test]

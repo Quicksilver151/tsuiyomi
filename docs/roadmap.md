@@ -178,7 +178,7 @@ table below.
 | Header | Edit categories | Yes | ✅ | ✅ | Saved source manga; `c`. |
 | Header | Migrate from story | Yes | ✅ | ✅ | `M`, preloads Migrate. |
 | Header | Tracking action | Yes | ✅ | ✅ | `T` searches AniList and MyAnimeList, links the story, shows progress, and unlinks after confirmation. |
-| Header | Copy/share URL | Yes | ✅ | ✅ | OSC 52 clipboard. |
+| Header | Copy/share URL | Yes | ✅ | ✅ | Native clipboard on Windows/macOS; OSC 52 elsewhere and as fallback. |
 | Header | Open source page | Yes | ✅ | ✅ | Opens absolute URLs, local folders, and relative source paths resolved through the installed extension base URL; falls back to copied text when metadata is unavailable. |
 | Header | Refresh details and chapters | Yes | ✅ | ✅ | Remote refresh; local rescan. |
 | Header | Continue reading | Yes | ✅ | ✅ | In-progress first, then first unread. |
@@ -211,7 +211,7 @@ table below.
 | Actions | Custom cover | Yes | ✅ | ✅ | Local and saved source manga; `W`. |
 | Actions | Remote cover share/delete | Yes | ✅ | ✅ | `S` opens the cached cover in the system viewer; an empty custom-cover path removes a cover. |
 | Actions | Tag search | Yes | ✅ | ✅ | `t` picker. |
-| Actions | Tag copy | Yes | ✅ | ✅ | `Y` copies the story tags through OSC 52. |
+| Actions | Tag copy | Yes | ✅ | ✅ | `Y` copies the story tags through the clipboard. |
 | Gestures | Swipe to read/bookmark/download | Yes | ➖ | ➖ | TUI uses keys and menu actions. |
 
 ### Reader
@@ -356,10 +356,10 @@ table below.
 | Android feature | TUI equivalent | Status | Notes |
 |---|---|---|---|
 | WebView source page | Copy URL (`C`) / open URL (`o`) | ✅ | Relative source URLs resolve through installed extension metadata when available. |
-| Android share sheet | OSC 52 clipboard copy / open file | ✅ | `C` on story; `S` opens the cached cover externally. |
+| Android share sheet | Clipboard copy / open file | ✅ | `C` on story copies through the native clipboard or OSC 52; `S` opens the cached cover externally. |
 | File picker | Path-entry dialog | ✅ | Custom covers and series import. |
 | Swipe actions | Keys and download menu | ➖ | Intentional terminal deviation. |
-| Android notifications | Desktop notifications + TUI status/queue markers | ✅ | Best-effort `notify-send`/Notification Center; no background daemon runs while the TUI is closed. |
+| Android notifications | Desktop notifications + TUI status/queue markers | ✅ | Best-effort `notify-send`, Notification Center, or a PowerShell toast; no background daemon runs while the TUI is closed. |
 | WebView-dependent source | None | ➖ | The host has no browser engine, so these sources stay unsupported. |
 | Mihon database categories | Portable `categories.json` sidecar | ➖ | A filesystem library cannot share the Android app database; the sidecar keeps categories portable. |
 | APK signature verification | TOFU file fingerprints | ➖ | The host cannot verify signing keys; the TUI records a SHA-256 fingerprint instead. |
@@ -371,8 +371,8 @@ table below.
 | Planning | Release plan and target matrix | Yes | Yes | ✅ | [`publishing.md`](publishing.md) defines targets, artifacts, workflows, Nix, and Cachix. |
 | Licensing | MIT `LICENSE` and Cargo metadata | Yes | No | ❌ | No license file or workspace `license`/repository metadata yet. |
 | Licensing | Third-party notices | Yes | No | ❌ | Release binaries bundle miwayomi and a JRE; notices and licenses are not packaged yet. |
-| Portability | Windows portability gate | Yes | Partial | 🟡 | Openers, `java.exe`, `taskkill`, reserved filenames, clipboard, and the host script are not finished. |
-| Host | Bundled host runtime build | Yes | Yes | ✅ | Existing script builds the patched jar and a `jlink` JRE for the embedded archive; Windows/ARM release packaging is untested. |
+| Portability | Windows portability gate | Yes | Partial | 🟡 | Shared openers, `java.exe`/`PATHEXT` discovery, `taskkill`, reserved-name sanitizing, a native clipboard, PowerShell toasts, and a PowerShell runtime packager are implemented; execution on Windows CI is still pending. |
+| Host | Bundled host runtime build | Yes | Yes | ✅ | The Bash script builds the patched jar and a `jlink` JRE; `build-host-runtime.ps1` packages the published jar with a native Windows JRE. ARM64 release packaging is untested. |
 | CI | Formatting, lint, and test workflows | Yes | No | ❌ | No `.github/workflows/ci.yml` yet. |
 | CI | Host jar and per-target runtime artifacts | Yes | No | ❌ | The jar release and per-target host zips are not published. |
 | Release | Six-target binary matrix | Yes | No | ❌ | Linux/macOS/Windows x86_64 and ARM64 releases are not built. |
@@ -389,14 +389,16 @@ table below.
 
 | Check | Result |
 |---|---|
-| Core tests | 146 pass, 1 ignored |
+| Core tests | 150 pass, 1 ignored |
 | TUI tests | 224 pass |
 | Binary integration test | 1 pass (`backup-info`) |
+| Windows target check | `cargo check --target x86_64-pc-windows-gnu` passes; runtime CI is still pending |
 | Clippy | Passes with `-D warnings` |
 | Release build | Passes |
 | Bundled host | Patched, rebuilt, embedded archive |
 | Live checks | Extension jobs, not-loaded delete, story filtering, downloads, cover overlay, history, categories, read-state mirroring |
 | Docs audit | 2026-11-24: stale phase checklists archived; parity tables reconciled with plan; Publishing category added |
+| Portability | 2026-11-24: shared opener, `java.exe`/`PATHEXT`, `taskkill`, reserved filenames, native clipboard, PowerShell notifications, Windows runtime package |
 
 ## Remaining work
 
@@ -410,7 +412,7 @@ The parity tables above are the status source of truth. Remaining gaps:
 5. Page-level download concurrency (chapter/source concurrency is implemented).
 6. Custom reader color filters (grayscale is implemented).
 7. Verbose application logging and a diagnostics log view.
-8. Windows portability and release automation; tracked in [publishing.md](publishing.md).
+8. Windows CI execution and release automation; tracked in [publishing.md](publishing.md).
 
 ## Historical record
 

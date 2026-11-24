@@ -21,7 +21,8 @@ Local libraries, remote sources, extension management, the reader, downloads, tr
 backups, history, and settings are implemented. The roadmap currently scores **93.3%**;
 the remaining rows are publishing/release work, live tracker/restore verification, Kitty
 placement zoom, DNS-over-HTTPS, page-level download concurrency, custom reader color
-filters, and verbose logging. The API and config format are still unstable, and large
+filters, and verbose logging. Windows support code is implemented; execution on Windows
+CI and release packaging remain. The API and config format are still unstable, and large
 refactors are welcome when they move the project toward the architecture below.
 
 ## Progress documentation
@@ -84,7 +85,9 @@ entry point: it uses the active devshell or falls back to `nix develop --command
 `just host-runtime` builds the extension-host archive (`miwayomi` patched + `jlink` JRE)
 and needs a JDK 21 plus network access. Release builds embed that archive, so run it
 before `just dist`; a plain `cargo build` works without it and falls back to `java` on
-`PATH`.
+`PATH`. On Windows, `just host-runtime-windows` packages the published jar with a native
+JDK 21 through `scripts/build-host-runtime.ps1`; it does not rebuild the patched jar from
+source.
 
 ## Mihon compatibility contract
 
@@ -164,6 +167,9 @@ Rules:
   API). New filesystem access belongs in core; the TUI still has known direct-filesystem
   debt around covers, downloads, and config sidecars that should be moved behind core
   rather than extended.
+- OS integration belongs in `tsuiyomi-core/src/platform.rs`: opening targets, native
+  clipboard, desktop notifications, and replacing files atomically. Do not add per-OS
+  commands to the TUI.
 - Input handling and state updates are separate from rendering. Rendering must not mutate
   application data; view state such as `ListState` scroll offset is allowed.
 - Paths come from configuration/env (`TSUIYOMI_LIBRARY`), never hardcoded. Missing or
@@ -181,7 +187,7 @@ Rules:
 - Kitty placement-only zoom with a disable toggle.
 - DNS-over-HTTPS in the host transport.
 - Page-level download concurrency and custom reader color filters.
-- Verbose application logging and Windows portability/release automation.
+- Verbose application logging, Windows CI execution, and release automation.
 
 ## Implementation notes
 

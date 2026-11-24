@@ -77,7 +77,7 @@ pub fn save_story(path: &Path, story: &CachedStory) -> io::Result<()> {
     let bytes = serde_json::to_vec(story).map_err(io::Error::other)?;
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, bytes)?;
-    fs::rename(temporary, path)
+    crate::platform::replace_file(&temporary, path)
 }
 
 fn stable_hash(source_id: &str, manga_url: &str) -> String {

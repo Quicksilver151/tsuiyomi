@@ -57,13 +57,13 @@ impl HostRuntime {
 fn java_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(dir) = cached_runtime_dir() {
-        candidates.push(dir.join("jre").join("bin").join("java"));
+        candidates.push(dir.join("jre").join("bin").join(java_binary_name()));
     }
     if let Some(java) = std::env::var_os("TSUIYOMI_JAVA") {
         candidates.push(PathBuf::from(java));
     }
     if let Some(home) = std::env::var_os("JAVA_HOME") {
-        candidates.push(PathBuf::from(home).join("bin").join("java"));
+        candidates.push(PathBuf::from(home).join("bin").join(java_binary_name()));
     }
     if let Some(java) = find_on_path("java") {
         candidates.push(java);
@@ -71,11 +71,64 @@ fn java_candidates() -> Vec<PathBuf> {
     candidates
 }
 
+/// The JVM launcher is `java.exe` on Windows and `java` everywhere else.
+fn java_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "java.exe"
+    } else {
+        "java"
+    }
+}
+
+/// Find a program on `PATH`.
+///
+/// Windows resolves executables through `PATHEXT`, so `java` must be looked up as
+/// `java.exe` (or another listed extension) rather than as a literal extensionless file.
 fn find_on_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|directory| directory.join(name))
-        .find(|candidate| candidate.is_file())
+    let names = executable_names(name);
+    for directory in std::env::split_paths(&path) {
+        for name in &names {
+            let candidate = directory.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn executable_names(name: &str) -> Vec<String> {
+    if !cfg!(target_os = "windows") {
+        return vec![name.to_owned()];
+    }
+    if Path::new(name).extension().is_some() {
+        return vec![name.to_owned()];
+    }
+
+    let pathext = std::env::var_os("PATHEXT")
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".to_owned());
+    names_for_pathext(name, &pathext)
+}
+
+fn names_for_pathext(name: &str, pathext: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for extension in pathext.split(';').filter(|value| !value.is_empty()) {
+        let extension = extension.to_ascii_lowercase();
+        let candidate = format!("{name}{extension}");
+        if !names.contains(&candidate) {
+            names.push(candidate);
+        }
+    }
+    if !names.iter().any(|candidate| {
+        candidate
+            .rsplit_once('.')
+            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("exe"))
+    }) {
+        names.push(format!("{name}.exe"));
+    }
+    names
 }
 
 /// `$XDG_CACHE_HOME/tsuiyomi/host/<version>`.
@@ -159,7 +212,20 @@ fn sync_embedded_runtime(bytes: &[u8]) -> Result<(), CoreError> {
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok());
     if cached != Some(stamp) {
+        // A host left behind by a crash can hold the cached jar or JRE open on Windows.
+        // Stop it before trying to replace the directory.
+        if let Some(data_dir) = host_data_dir() {
+            stop_stale(&data_dir);
+        }
         let _ = fs::remove_dir_all(&target);
+        if target.is_dir() {
+            return Err(CoreError::Host {
+                message: format!(
+                    "cannot replace the host runtime at {}; another process may be using it",
+                    target.display()
+                ),
+            });
+        }
     }
     if !target.is_dir() {
         extract_archive(bytes)?;
@@ -460,14 +526,26 @@ fn stop_stale(data_dir: &Path) {
         let _ = fs::remove_file(&path);
         return;
     }
-    let _ = Command::new("kill")
-        .arg("-TERM")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    stop_pid(pid);
     thread::sleep(Duration::from_millis(150));
     let _ = fs::remove_file(&path);
+}
+
+fn stop_pid(pid: u32) {
+    let pid = pid.to_string();
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("taskkill");
+        command.args(["/PID", pid.as_str(), "/T", "/F"]);
+        command
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut command = {
+        let mut command = Command::new("kill");
+        command.arg("-TERM").arg(pid.as_str());
+        command
+    };
+    let _ = command.stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
 
 #[cfg(target_os = "linux")]
@@ -480,7 +558,57 @@ fn looks_like_host(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
+fn looks_like_host(pid: u32) -> bool {
+    // Prefer the command line: after a crash the pid may belong to an unrelated Java
+    // process. CIM is available on Windows 10 and 11; tasklist is the fallback when
+    // PowerShell or WMI is disabled.
+    let script = format!("(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine");
+    if let Ok(output) = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            script.as_str(),
+        ])
+        .output()
+    {
+        if output.status.success() {
+            let command = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            return command.contains("miwayomi");
+        }
+    }
+
+    let filter = format!("PID eq {pid}");
+    Command::new("tasklist")
+        .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+        .output()
+        .map(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout)
+                    .to_ascii_lowercase()
+                    .contains("java")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn looks_like_host(pid: u32) -> bool {
+    Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .map(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout)
+                    .to_ascii_lowercase()
+                    .contains("miwayomi")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
 fn looks_like_host(_pid: u32) -> bool {
     false
 }
@@ -519,6 +647,22 @@ mod tests {
         assert_eq!(first, again);
         assert_ne!(first, other);
         assert!(first.to_string_lossy().contains("tsuiyomi/covers"));
+    }
+
+    #[test]
+    fn windows_path_extensions_are_expanded() {
+        assert_eq!(
+            names_for_pathext("java", ".COM;.EXE;.BAT;.CMD"),
+            vec!["java.com", "java.exe", "java.bat", "java.cmd"]
+        );
+        assert_eq!(
+            names_for_pathext("java", ".COM"),
+            vec!["java.com", "java.exe"]
+        );
+        assert_eq!(
+            names_for_pathext("java", ".COM;.COM"),
+            vec!["java.com", "java.exe"]
+        );
     }
 
     #[test]
