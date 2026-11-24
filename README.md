@@ -56,9 +56,10 @@ Machine-local paths and log settings live in `.env.local`, which is gitignored. 
 devshell sources it automatically.
 
 Documentation: [`docs/plan.md`](docs/plan.md), the
-[`docs/roadmap.md`](docs/roadmap.md) parity tables, and the
-[`docs/publishing.md`](docs/publishing.md) release plan. Category plans live under
-[`docs/parity/`](docs/parity/).
+[`docs/roadmap.md`](docs/roadmap.md) parity tables, the
+[`docs/publishing.md`](docs/publishing.md) release plan, and the
+[`docs/history.md`](docs/history.md) historical development log. Category design plans
+live under [`docs/parity/`](docs/parity/).
 
 ## Library layout
 
@@ -567,8 +568,11 @@ The phased plan and full parity tables live in [`docs/roadmap.md`](docs/roadmap.
 - [x] AniList, MyAnimeList, MangaUpdates, Shikimori, Bangumi, Kitsu, MangaBaka, and Hikka
       tracker adapters.
 - [x] Mihon backup import/export, `backup-info`, and an import report.
+- [ ] Page-level download concurrency, custom reader color filters, Kitty placement-only
+      zoom, and DNS-over-HTTPS.
+- [ ] Windows portability and the GitHub/Nix release pipeline.
+- [ ] Verify live OAuth/token tracking and a real Android Mihon restore.
 - [ ] Publish to `crates.io` and release `v1.0.0`.
-- [ ] Verify live OAuth apps and a real Android Mihon restore.
 
 ## AI disclosure
 

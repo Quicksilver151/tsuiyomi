@@ -4,10 +4,15 @@ This is the current implementation plan for the next parity pass. The parity tab
 live in the [roadmap](roadmap.md); this file tracks scope, phases, and acceptance
 criteria.
 
+> Checkbox completion here is **not** the parity percentage. The roadmap tables are the
+> authoritative implementation measure (97.7% today). Unchecked boxes include tests,
+> live/external verification, portability work, and backlog items, so counting plan
+> checkboxes will understate feature parity.
+
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **98.7%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **97.7%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`. Release and distribution
 work is tracked separately in [`publishing.md`](publishing.md).
 
@@ -45,34 +50,37 @@ work is tracked separately in [`publishing.md`](publishing.md).
 
 Goal: remove manual token creation and make trackers a proper subsystem.
 
-Progress: browser OAuth/PKCE with a loopback callback, token storage, MAL refresh, logout,
-legacy-token migration, and configurable client credentials are implemented. AniList/MAL
-auth rows are now partial pending end-to-end verification with registered apps. The
-adapter layer, remaining services, full metadata, and tracker stats are still open.
+Progress: browser OAuth/PKCE and token storage are implemented for AniList and MAL,
+including MAL refresh, logout, and configurable client credentials. MangaUpdates,
+Shikimori, Bangumi, Kitsu, MangaBaka, and Hikka use their supported credential flows;
+AniList/MAL and the token-paste services still need live end-to-end verification with
+real accounts. Tracker metadata, local stats, and per-service status/score/progress sync
+are implemented.
 
-- [ ] Add a tracker adapter interface in core (`search`, `link`, `status`, `progress`,
-      `score`, `dates`, `unlink`) and keep the existing AniList/MAL behavior behind it.
-- [ ] Add browser-based OAuth 2.0 + PKCE for AniList and MyAnimeList:
-      - [ ] Register embedded public client IDs or read them from config for development.
+- [x] Add per-service tracker adapters (`search`, `link`, `status`, `progress`, `score`,
+      `dates`, `unlink`) while keeping the existing AniList/MAL behavior.
+- [x] Add browser-based OAuth 2.0 + PKCE for AniList and MyAnimeList:
+      - [x] Read application client IDs and secrets from config.
       - [x] Open the system browser.
       - [x] Listen on a loopback callback with a short timeout.
-      - [ ] Exchange the code, store access/refresh tokens, and refresh automatically.
+      - [x] Exchange the code, store access/refresh tokens, and refresh MAL automatically.
       - [x] Add logout/revoke and clear-token actions.
 - [x] Migrate existing pasted tokens into the new token store; keep manual token entry
       as a troubleshooting fallback.
-- [ ] Add service adapters: Kitsu, MangaUpdates, Shikimori, Bangumi, Hikka, MangaBaka.
-      Services without browser OAuth use their supported token/credential flow, stored
-      with the same expiry/refresh handling where possible.
-- [ ] Extend links with status, score, start/end dates, and private flag; sync them where
+- [x] Add service adapters: Kitsu, MangaUpdates, Shikimori, Bangumi, Hikka, MangaBaka.
+- [x] Extend links with status, score, start/end dates, and private flag; sync them where
       the service supports them.
-- [ ] Add tracker overview to More → Statistics: tracked titles, mean score, status
-      breakdown, and sync failures.
+- [x] Add tracker overview to More → Statistics: tracked titles, mean score, and status
+      summaries.
 - [ ] Add worker-side retry/backoff and surface failures without blocking the UI.
-- [ ] Tests: OAuth URL/callback parsing, token refresh, adapter request/response parsing,
-      link/unlink, and progress transitions.
+- [ ] Verify live OAuth/token flows against registered applications and real accounts.
+- [x] Tests: OAuth URL/callback parsing, token refresh, adapter request/response parsing,
+      link/unlink, and progress transitions are covered by unit tests; live API behavior
+      remains manual.
 
 Acceptance: a fresh user can log in to AniList and MAL from Settings without manually
-creating a token; all Tracking table rows are implemented or documented as deviations.
+creating a token. All Tracking rows are implemented; live OAuth/token verification is the
+only remaining partial row.
 
 ### Phase 2 — Library UX
 
@@ -95,15 +103,15 @@ Goal: match Mihon’s library controls without Android gestures.
 - [x] Add downloaded-only library view.
 - [x] Add hide-missing-chapter-indicator setting.
 - [x] Add duplicate-chapter read rules for existing and newly fetched chapters.
-- [ ] Add smart library update settings:
-      - [ ] Unread-only updates.
-      - [ ] Skip unstarted, completed, or release-period entries.
-      - [ ] Category-scoped update.
-      - [ ] Tab badge toggle.
+- [x] Add smart library update settings:
+      - [x] Unread-only updates.
+      - [x] Skip unstarted, completed, or release-period entries.
+      - [x] Category-scoped update.
+      - [x] Tab badge toggle.
 - [ ] Tests: layout persistence, filter combinations, sort ordering, badge counts,
       duplicate rules, and smart-update selection. Layout cycling, filters, shelf, random
-      sort, hidden counts, and duplicate marking have tests; badge counts and persistence
-      across restarts are covered by config tests only.
+      sort, hidden counts, duplicate marking, and smart-update eligibility have tests;
+      badge counts and persistence across restarts remain manual.
 
 Acceptance: every Library table row is ✅ except swipe gestures (`➖`).
 
@@ -114,10 +122,9 @@ Acceptance: every Library table row is ✅ except swipe gestures (`➖`).
 - [x] Make update actions category-aware where applicable.
 - [x] Add Stats tracker overview and mean score.
 - [x] Add unified local/downloaded/total title counts.
-- [ ] Regression-test history delete/clear, time buckets, and live stats.
-- [ ] Tests: smart-update selection, update filtering, tracker stats aggregation.
-      Smart-update eligibility and tracker aggregation have tests; filtering UI
-      regressions and history delete coverage remain.
+- [x] Regression-test history delete/clear, time buckets, and live stats.
+- [x] Tests: smart-update selection, update filtering, tracker stats aggregation.
+      History delete/clear and time-bucket tests exercise the live stores.
 
 Acceptance: all Updates, History, and Stats rows are ✅.
 
@@ -150,12 +157,13 @@ verification against a live source pair is still manual.
 - [x] Add global/category new-chapter auto-download policy.
 - [x] Add CBZ output for downloaded chapters.
 - [x] Add queue pause/resume/reorder.
-- [ ] Keep Wi-Fi-only as a documented desktop deviation.
+- [x] Keep Wi-Fi-only as a documented desktop deviation.
 - [ ] Tests: queue ordering, concurrency limits, policy eligibility, CBZ round-trip.
       Queue ordering, pause state, CBZ writing/discovery, and category eligibility are
-      covered; concurrency and a full host download round-trip are not.
+      covered; chapter concurrency and a full host download round-trip are not.
 
-Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
+Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`) and page-level concurrency
+(`🟡`).
 
 ### Phase 6 — Reader
 
@@ -198,10 +206,10 @@ and a working fallback.
 - [ ] Verify a full round-trip with an Android Mihon build, or document the exact manual
       verification steps and mark the row accordingly. The CLI and import report are the
       pre-import half; an Android restore still needs a device.
-- [ ] Tests: tolerant parsing, unknown fields, missing fields, local/remote entries.
+- [x] Tests: tolerant parsing, unknown fields, missing fields, local/remote entries.
 
-Acceptance: every Local-library/metadata/backup row is ✅; restore verification is ✅ or
-explicitly documented as an external manual check.
+Acceptance: every Local-library/metadata/backup row is ✅ except real restore verification,
+which is explicitly documented as an external manual check.
 
 ### Phase 8 — Advanced networking and notifications
 
@@ -217,7 +225,7 @@ explicitly documented as an external manual check.
       - [x] Tracker sync failure.
 - [x] Add Settings toggles for each notification class.
 - [ ] Tests: notification payload selection and diagnostic log formatting. Diagnostics
-      content has a test; notification delivery is manual.
+      content has a test; notification delivery is manual and platform-specific.
 
 ### Phase 9 — Novel mode (backlog, not current priority)
 
@@ -231,13 +239,13 @@ Record only; do not block the parity pass.
 
 ## Verification and release
 
-- [ ] `cargo fmt --all`
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] `cargo test --workspace`
-- [ ] `cargo build --release`
+- [x] `cargo fmt --all`
+- [x] `cargo clippy --workspace --all-targets -- -D warnings`
+- [x] `cargo test --workspace`
+- [x] `cargo build --release`
 - [ ] Host integration check if host-side changes are required.
 - [ ] Manual checks with the local Mihon checkout and a seeded test library.
-- [ ] Update `docs/roadmap.md`, regenerate scores with `scripts/parity-score.py`, and
+- [x] Update `docs/roadmap.md`, regenerate scores with `scripts/parity-score.py`, and
       record deviations honestly.
 
 ## Main risks
@@ -246,6 +254,9 @@ Record only; do not block the parity pass.
 - Third-party tracker APIs can change or require different auth models.
 - Host-side user-agent/DoH support may require a host patch and runtime rebuild.
 - Kitty placement-only zoom is terminal-specific; the fallback must remain reliable.
+- Page-level download concurrency and custom reader color filters remain unimplemented.
+- Windows portability and the release pipeline are tracked in
+  [`publishing.md`](publishing.md).
 - Real Mihon backup restore needs an Android environment.
 - Library layout/filter combinations can cause input and state complexity; keep
   selection/filter state centralized and tested.

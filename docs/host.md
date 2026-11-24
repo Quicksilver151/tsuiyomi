@@ -84,9 +84,12 @@ patch, builds the host, creates a `jlink` JRE, and writes
 - Desktop-jar installation and async install jobs are handled by the host; the client
   restarts the bundled host when a jar swap requires it.
 
-## Remaining host work
+## Deferred host work
 
-- Nix derivation / `nix bundle` output that keeps valid JRE store paths.
-- Cached Gradle dependencies for an offline, reproducible host build.
-- Optional remote-WebView bridge for the few sources that require one.
-- Signature verification/trust for extensions.
+- Nix package/cache integration is tracked in [`publishing.md`](publishing.md); the Nix
+  package uses the platform-independent patched jar plus a nixpkgs JRE.
+- Cached Gradle dependencies for a fully offline, reproducible host build.
+- Optional remote-WebView bridge for the few sources that require one (out of scope for
+  the current parity pass).
+- APK signing-key verification; the TUI records and trusts SHA-256 fingerprints instead,
+  which is the documented deviation.

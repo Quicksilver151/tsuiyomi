@@ -2,6 +2,10 @@
 
 Current implementation plan: [`../plan.md`](../plan.md). Feature status: [`../roadmap.md`](../roadmap.md).
 
+> **Historical design plan.** The authoritative current status is the roadmap. The
+> implementation notes below record the plan and its original milestones; they are not a
+> current completion percentage.
+
 ## 1. Goal
 
 Bring tsuiyomi's History tab to functional parity with Mihon, while adding
@@ -41,13 +45,9 @@ Implemented:
 - Next-chapter resume and History-tab reselect.
 - Add-to-library, duplicate handling, and open-details actions.
 
-Remaining polish:
-
-- Mouse hit-testing for row/cover clicks.
-- Optional idle cutoff for read-time accounting.
-- Slimming persisted remote history metadata.
-- Stats scrolling on very short terminals.
-- Migration hook from history duplicates once Browse migration lands.
+Current status: every History and Stats roadmap row is ✅. Mouse row/cover hit-testing,
+idle cutoff, stats scrolling, and the duplicate-dialog migration hook are implemented.
+Slimming persisted remote history metadata remains an optional internal cleanup.
 
 ## 2. Mihon behavior summary
 
@@ -118,7 +118,7 @@ Mihon's UI does not show read duration. It is used by Statistics and tracker
 first-read calculations. Read duration accumulates active reader time between
 resume/pause and chapter switches.
 
-## 3. Current tsuiyomi behavior
+## 3. Behavior at plan time
 
 Current implementation:
 
@@ -1020,6 +1020,5 @@ Implemented:
 - Stats totals, ranges, 14-day chart, top series, streak, active days, unique-series
   count, and arrow-key scrolling.
 
-Remaining optional items:
-
-- More mouse affordances beyond row/cover selection and wheel scrolling.
+Current status: the History and Stats roadmap rows are complete. Additional mouse
+affordances beyond row/cover selection and wheel scrolling are optional.

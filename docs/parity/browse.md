@@ -2,6 +2,10 @@
 
 Current implementation plan: [`../plan.md`](../plan.md). Feature status: [`../roadmap.md`](../roadmap.md).
 
+> **Historical design plan.** The authoritative current status is the roadmap. The long
+> parity checklist in section 8 is the original milestone plan and is not a current
+> completion percentage.
+
 ## 1. Goal
 
 Bring tsuiyomi's Browse experience to functional parity with Mihon's Browse tab:
@@ -45,9 +49,10 @@ Completed in the first Browse-parity slice:
   preferences, per-extension Incognito, clear-cookies, and uninstall.
 - Global-search empty/error source rows and the persisted only-with-results filter.
 
-Still open from M0/M1: the Browse extraction and background worker, source
-options dialog, source preferences, Local source search/latest/sort, and the
-remaining M2+ work.
+Current status: every Browse roadmap row is ✅ except source preference multi-select
+(`🟡`) and the documented TUI deviations. The extraction, background workers, source
+options, preferences, Local search/latest/sort, filters, pagination, stores, extensions,
+and global search are implemented. The detailed checklist below is historical.
 
 
 ## 2. Scope and definition of done
@@ -111,7 +116,7 @@ missing Browse functionality:
   `cargo test --workspace` pass.
 - README and AGENTS.md describe the new behavior.
 
-## 3. Current baseline
+## 3. Baseline at plan time
 
 | Area | Current tsuiyomi | Gap |
 |---|---|---|
@@ -1168,9 +1173,10 @@ Implemented through the bundled host patch and TUI:
 - The host patch is regenerated with real new-file diffs, so `patch -p1` creates
   `FilterRoutes.kt` correctly.
 
-Still open: signature trust, private/shared warnings, obsolete filtering, comma-separated
-debounced search across source URLs/ids, store website/copy/open actions, and a modal
-not-loaded reason dialog.
+At plan time these were open. Since then, private/shared/orphaned warnings, filtering,
+store copy/open, and the not-loaded reason view landed; signature verification remains a
+documented deviation, and debounced search is intentionally unnecessary for local
+filtering.
 
 
 ## Browse polish status
@@ -1184,9 +1190,9 @@ Latest pass:
 - Store rows copy (`C`) and open (`o`) their index URL and refresh with `r`.
 - Saving a new remote manga opens a category chooser instead of silently using Default.
 
-Still open: debounced extension search over source URLs/ids, a full background Browse
-worker, and category migration from duplicate dialogs. Result pagination now loads
-automatically at the last row.
+Current status: the background Browse worker and category migration from the duplicate
+dialog are implemented; debounced extension search is a documented deviation. Result
+pagination loads automatically at the last row.
 
 
 ### Browse polish status (latest)

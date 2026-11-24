@@ -2,6 +2,10 @@
 
 Current implementation plan: [`../plan.md`](../plan.md). Feature status: [`../roadmap.md`](../roadmap.md).
 
+> **Historical design plan.** The authoritative current status is the roadmap. The long
+> scope and milestone sections below are retained for design context and are not a current
+> completion percentage.
+
 ## 1. Goal
 
 Bring tsuiyomi's shared story screen to functional parity with Mihon's
@@ -45,7 +49,7 @@ point.
 - Literal WebView, Android share sheet, file picker, and tracker OAuth.
 - Migration UI itself, except a story-level entry point into Migrate.
 
-## 3. Current state
+## 3. State at plan time
 
 Implemented:
 
@@ -159,7 +163,7 @@ Add a shared download queue model:
 DownloadState { NotDownloaded, Queued, Downloading(progress), Downloaded, Error }
 ```
 
-The existing worker downloads one chapter at a time. Extend it with:
+At plan time the worker downloaded one chapter at a time. The plan extended it with:
 
 - queue of chapter keys
 - state per chapter
@@ -407,11 +411,8 @@ Implemented:
   overlay, custom covers for local and saved source manga, tag search, and
   Mihon-readable `ComicInfo.xml` export for local series.
 
-Remaining or intentionally deferred:
-
-- Tracking integration (separate milestone).
-- Android swipe gestures; TUI keys and the download menu replace them.
-- Source-site WebView; `C` and `o` cover copy/open behavior instead.
-- Cover deletion is limited to removing a custom cover; there is no separate remote-cover
-  delete beyond that.
-- Per-series tracking/update fields the host does not expose.
+Current status: every shared story/chapter roadmap row is ✅. Tracking integration,
+categories, notes, migration, downloads, and copy/open actions are implemented. Android
+swipe gestures and source-site WebView remain documented TUI deviations; custom-cover
+deletion is limited to clearing the custom cover; per-series tracking/update fields the
+host does not expose remain out of reach.

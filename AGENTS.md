@@ -9,8 +9,7 @@ tsuiyomi is a terminal UI for managing and reading a **local manga library**. It
 successor to Tachiyomi): the library on disk uses the same layout Mihon's Local source
 reads, so the exact same files work in both apps.
 
-The anime browsing code currently in `src/` is legacy from the v0.x prototype. Keep it
-compiling, but do not extend it. It will be replaced by the manga library.
+The project is manga-first; anime browsing is outside the current scope.
 
 ## Status
 
@@ -19,12 +18,12 @@ plans live under `docs/parity/`. Update the affected roadmap table whenever beha
 changes or work lands, then run `python3 scripts/parity-score.py` to refresh the
 aggregate tables and percentages.
 
-Local-library and extension-host MVP: scanning, browsing, metadata, covers, reading,
-progress, settings, remote sources, extension management, and reading history work.
-Updates track new local chapters between scans, and Mihon backups import/export. Exported
-backups still need verification against a real Mihon restore. The API and config format
-are still unstable, and large refactors are welcome when they move the project toward the
-architecture below.
+Local libraries, remote sources, extension management, the reader, downloads, tracking,
+backups, history, and settings are implemented. The parity roadmap currently scores
+97.7%; the remaining rows are live tracker/restore verification, Kitty placement zoom,
+DNS-over-HTTPS, page-level download concurrency, custom reader color filters, verbose
+logging, and Windows/release work. The API and config format are still unstable, and
+large refactors are welcome when they move the project toward the architecture below.
 
 ## Environment
 
@@ -145,7 +144,9 @@ Rules:
 
 - `tsuiyomi-core` has **no** dependency on `ratatui`, `crossterm`, or any UI crate.
 - Core exposes plain data types plus commands/events (or an equivalent request/response
-  API). UI code never touches the filesystem directly.
+  API). New filesystem access belongs in core; the TUI still has known direct-filesystem
+  debt around covers, downloads, and config sidecars that should be moved behind core
+  rather than extended.
 - Input handling and state updates are separate from rendering. Rendering must not mutate
   application data; view state such as `ListState` scroll offset is allowed.
 - Paths come from configuration/env (`TSUIYOMI_LIBRARY`), never hardcoded. Missing or
@@ -156,6 +157,16 @@ Rules:
   it can be unit tested without a terminal.
 
 ## Current gaps
+
+- Live AniList/MyAnimeList OAuth and token-paste tracker verification.
+- A real Android Mihon backup restore (`backup-info` and the import report cover the
+  pre-import half).
+- Kitty placement-only zoom with a disable toggle.
+- DNS-over-HTTPS in the host transport.
+- Page-level download concurrency and custom reader color filters.
+- Verbose application logging and Windows portability/release automation.
+
+## Implementation notes
 
 - Reader renders pages with `ratatui-image`: it auto-detects Kitty/Sixel/iTerm2 and falls
   back to Unicode halfblocks. Folders, `zip`/`cbz`, `rar`/`cbr`, `7z`/`cb7`, `tar`/`cbt`,
@@ -317,9 +328,9 @@ Rules:
   host in batches and merged back when local state is missing. Browse reads, extension
   lists, migration matching, and library rescans use background workers; mutations and
   migration apply remain synchronous.
-  WebView-dependent sources are unsupported. Library itself also uses a tile grid, not a
-  list. Category keys only affect Library's series grid. There is no filesystem import
-  browser; users place folders in local/ and rescan. Browse's Local source lists only
+  WebView-dependent sources are unsupported. Library supports comfortable, compact, and
+  list layouts. Category keys only affect Library's series grid. `i` imports a series
+  through a typed path dialog; there is no graphical file picker. Browse's Local source lists only
   `series.remote.is_none()` entries; saved source manga and downloads are not mixed in.
 - Chapter downloads land in `<downloads>/<source>/<series>/<chapter>/<page>.<ext>` using
   Mihon's sanitized directory names (`downloads.rs`). `D` on a remote story screen opens
@@ -375,46 +386,28 @@ Rules:
 - Library title filtering and backup import/export are implemented. Import restores local
   entries without the host; remote entries need a matching extension source. Exported
   backups still need a real Mihon restore check.
-- Config persists `library_path`, `reading_mode`, `reader_zoom`,
-  `scroll_prefetch_behind`, `scroll_prefetch_ahead`, `scroll_cache_margin`, `theme`,
-  `accent`, `fullscreen`, `thumbnail_width`, `library_sort`, `default_category`,
-  `incognito`, `host_url`, `host_jar`, `pinned_sources`, `last_used_source`,
-  `enabled_languages`, `disabled_sources`, `incognito_extensions`, `local_source_order`,
-  `global_search_scope`, `global_search_only_results`, `source_display_mode`,
-  `browse_hide_saved`, `show_nsfw_extensions`, `flaresolverr_url`, `migration_sources`,
-  `remote_library`, `store_names`, `tracking`, `migration_transfer_chapters`,
-  `migration_transfer_categories`, `migration_transfer_notes`, `migration_transfer_cover`,
-  `migration_remove_downloads`, `download_ahead`, `delete_after_read`,
-  `keep_bookmarked_downloads`, `save_chapters_as_cbz`, `download_concurrency`,
-  `download_excluded_categories`,
-  `auto_download_new_chapters`, `auto_download_categories`, `smart_update_unread_only`,
-  `smart_update_skip_unstarted`, `smart_update_skip_completed`,
-  `smart_update_release_days`, `update_categories`, `updates_tab_badge`,
-  `notify_updates`, `notify_downloads`, `notify_tracker_failures`, `user_agent`,
-  `library_display_mode`, `category_display`, `chapter_fetched_at`,
-  `hide_missing_chapters`,
-  `mark_duplicate_chapters_read`, `reader_skip_read`, `reader_skip_duplicates`,
-  `reader_chapter_transitions`, `reader_crop_borders`, `reader_grayscale`,
-  `reader_split_wide`, `reader_rotate_wide`, `reader_dual_page`,
-  `anilist_token`, `anilist_client_id`,
-  `anilist_client_secret`, `mal_client_id`, `mal_client_secret`, `mal_token`,
-  `mangaupdates_username`,
-  `tracker_auth`, `backup_series_extra`, `trusted_extensions`, `series_added_at`,
-  `update_interval_hours`,
-  `downloads_path`, and `hidden_series`, and preserves unknown keys from existing files.
+- Config persists user settings in `crates/tsuiyomi-core/src/config.rs` and preserves
+  unknown keys from existing files. Major groups: library path/filters/layout/sort,
+  reader modes and page transforms, downloads/policies/CBZ/concurrency, smart updates,
+  notifications, host and FlareSolverr URLs, Browse/source preferences, migration flags,
+  tracker auth and links, backup extras, trusted extension fingerprints, and hidden
+  series. Treat the struct as the schema source of truth instead of duplicating the
+  field list here.
 - More follows Mihon's structure: Settings, Downloads, Categories, Statistics, Data and
   storage, About, Help. Settings is a submenu matching Mihon's categories: Appearance,
   Library, Reader, Downloads, Tracking, Browse, Data and storage, Security, Advanced,
   About. Entry pages are listed in `SettingsPage`; each page is a gray-divider grouped
-  row list. Implemented real options: appearance/theme/accent/thumbnail size, library
-  path/rescan/sort/default category, reader mode/zoom/fit/prefetch/cache, downloads
-  folder, read-ahead/delete-after-read policies, backup import, AniList/MyAnimeList
-  tracking, and Security → Incognito (stops progress writes). Tracking uses browser OAuth with configurable application client
-  credentials and syncs chapter progress through `tracker_worker`; other tracker services
-  remain. More → Downloads lists
+  row list. Implemented options cover appearance, library path/layout/filters/sort/update
+  restrictions, reader modes/page transforms, downloads and policies, notifications,
+  tracking, Browse, backup/data cleanup, Security → Incognito, Advanced diagnostics and
+  User-Agent, and About. Tracking supports AniList,
+  MyAnimeList, MangaUpdates, Shikimori, Bangumi, Kitsu, MangaBaka, and Hikka through
+  `tracker_worker`; AniList/MAL use browser OAuth, the others use session or pasted-token
+  credentials. More → Downloads lists
   downloaded series with chapter counts and sizes (`r` refreshes, `c` cancels the queue,
   `x`/Delete removes one after confirmation) and shows the live queue. More → Statistics shows
-  library/chapter counts, read states, reading-time totals, and unique series read. More
+  library/chapter counts, read states, reading-time totals, unique series, local/saved/
+  downloaded title counts, and tracker links with a mean score. More
   → Data and storage shows library/downloads/host sizes on demand (`r`) and can clear
   cached covers (`c`) or all downloads (`d`, confirmed). More has a single focus: Enter
   enters the selected section/page or activates a setting, Esc backs out one level, and
