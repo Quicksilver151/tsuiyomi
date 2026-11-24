@@ -21,8 +21,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| [Publishing](#publishing) | 6 | 6 | 3 | 1 | 60.0% |
-| **All categories** | **257** | **16** | **4** | **11** | **95.7%** |
+| [Publishing](#publishing) | 12 | 1 | 2 | 1 | 83.3% |
+| **All categories** | **263** | **11** | **3** | **11** | **96.9%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -371,16 +371,16 @@ table below.
 | Planning | Release plan and target matrix | Yes | Yes | ✅ | [`publishing.md`](publishing.md) defines targets, artifacts, workflows, Nix, and Cachix. |
 | Licensing | MIT `LICENSE` and Cargo metadata | Yes | Yes | ✅ | `LICENSE`, workspace `license`/repository/homepage/readme/keywords/categories, and per-crate inheritance are committed. |
 | Licensing | Third-party notices | Yes | Yes | ✅ | `THIRD_PARTY_NOTICES`, Apache-2.0/GPLv2+CE/UnRAR texts, and a generated Rust dependency inventory are committed. |
-| Portability | Windows portability gate | Yes | Partial | 🟡 | Shared openers, `java.exe`/`PATHEXT` discovery, `taskkill`, reserved-name sanitizing, a native clipboard, PowerShell toasts, and a PowerShell runtime packager are implemented. Windows x64/ARM64 tests pass; the release smoke test still exercises host startup, openers, and notifications. |
+| Portability | Windows portability gate | Yes | Partial | 🟡 | Windows x64/ARM64 tests and the embedded-host self-test pass in the release workflow. Shared openers, clipboard, and notifications are implemented but still need a manual Windows check. |
 | Host | Bundled host runtime build | Yes | Yes | ✅ | The Bash script builds the patched jar and a `jlink` JRE; `build-host-runtime.ps1` packages the published jar with a native Windows JRE. `host-v0.2.9` is published; ARM64 release packaging is untested. |
 | CI | Formatting, lint, and test workflows | Yes | Yes | ✅ | `.github/workflows/ci.yml` passes fmt, clippy, MSRV, notices, and tests on Linux, macOS, and Windows x86_64/ARM64. |
-| CI | Host jar and per-target runtime artifacts | Yes | Partial | 🟡 | `host-v0.2.9` published the patched jar and checksum; `release.yml` builds six native host runtimes. The first release run is pending. |
-| Release | Six-target binary matrix | Yes | Yes | 🟡 | `.github/workflows/release.yml` builds all six targets with native host runtimes; the first tag run is pending. |
-| Release | SHA-256 checksums | Yes | Yes | 🟡 | The release workflow combines per-archive checksums into `SHA256SUMS` and verifies them before publishing; the first run is pending. |
-| Release | GitHub release automation | Yes | Yes | 🟡 | Tag-driven release workflow creates pre-releases for 0.x/`-suffix` tags and marks stable releases latest; the first run is pending. |
-| Nix | Flake package and app outputs | Yes | Yes | 🟡 | The flake exposes `packages.default`, `apps.default`, and `checks.default` for four systems, fetching the published host jar and wrapping with `jdk21`; x86_64-darwin pins `nixpkgs-26.05-darwin` because unstable dropped it. The release workflow builds all four systems; the first full run is pending. |
+| CI | Host jar and per-target runtime artifacts | Yes | Yes | ✅ | `host-v0.2.9` published the patched jar and checksum; the v0.2.0 release built all six native host runtimes. |
+| Release | Six-target binary matrix | Yes | Yes | ✅ | The v0.2.0 release produced all six Linux/macOS/Windows x86_64/ARM64 archives. |
+| Release | SHA-256 checksums | Yes | Yes | ✅ | v0.2.0 published a verified `SHA256SUMS` for all six archives. |
+| Release | GitHub release automation | Yes | Yes | ✅ | v0.2.0 was published automatically as a pre-release from a tag. |
+| Nix | Flake package and app outputs | Yes | Yes | ✅ | v0.2.0 built `packages.default`/`apps.default`/`checks.default` on x86_64-linux, aarch64-linux, x86_64-darwin, and aarch64-darwin. x86_64-darwin pins `nixpkgs-26.05-darwin`. |
 | Nix | Cachix binary cache | Yes | No | ❌ | No cache, public key, CI push, or pins yet. |
-| Release | `v0.2.0` test release | Yes | No | ❌ | Planned as the first end-to-end release exercise. |
+| Release | `v0.2.0` test release | Yes | Yes | ✅ | Published as a GitHub pre-release with six archives and `SHA256SUMS`. |
 | Release | `v1.0.0` public release | Yes | No | ❌ | Planned after the test release and documentation pass. |
 | Docs | Release and install documentation | Yes | Yes | ✅ | `INSTALL.md` covers archive layout, checksum verification, unsigned-binary warnings, data paths, source builds, and release packaging. |
 | Distribution | Code signing | No | No | ➖ | Deliberately omitted; unsigned archives with SHA-256 checksums only. |
@@ -401,6 +401,7 @@ table below.
 | Docs audit | 2026-11-24: stale phase checklists archived; parity tables reconciled with plan; Publishing category added |
 | CI | 2026-11-25: green on Linux, macOS, and Windows x86_64/ARM64; Windows path assertions fixed; one macOS arm64 runner-capacity failure passed on rerun |
 | Host jar | 2026-11-25: `host-v0.2.9` published with `miwayomi-0.2.9-patched.jar` and SHA-256 `c9779f95…47c` |
+| v0.2.0 | 2026-11-25: pre-release published six archives, `SHA256SUMS`, and four Nix package builds |
 | Nix package | Flake evaluation succeeds for the four systems; derivation build and Cachix push are pending |
 | Portability | 2026-11-24: shared opener, `java.exe`/`PATHEXT`, `taskkill`, reserved filenames, native clipboard, PowerShell notifications, Windows runtime package |
 | Licensing | 2026-11-25: MIT license, workspace metadata, changelog, third-party notices, license texts, dependency inventory |

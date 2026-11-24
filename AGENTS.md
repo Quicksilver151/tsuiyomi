@@ -18,12 +18,13 @@ category design plans live under `docs/parity/`, and the release plan lives in
 `docs/publishing.md`. The roadmap tables are the completion source of truth.
 
 Local libraries, remote sources, extension management, the reader, downloads, tracking,
-backups, history, and settings are implemented. The roadmap currently scores **95.7%**;
+backups, history, and settings are implemented. The roadmap currently scores **96.9%**;
 the remaining rows are publishing/release work, live tracker/restore verification, Kitty
 placement zoom, DNS-over-HTTPS, page-level download concurrency, custom reader color
-filters, and verbose logging. Windows support code is implemented; execution on Windows
-CI and release packaging remain. The API and config format are still unstable, and large
-refactors are welcome when they move the project toward the architecture below.
+filters, and verbose logging. Windows x86_64/ARM64 builds and host self-tests pass;
+manual desktop open/clipboard/notification checks remain. The API and config format are
+still unstable, and large refactors are welcome when they move the project toward the
+architecture below.
 
 ## Progress documentation
 

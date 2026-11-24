@@ -6,8 +6,11 @@ both apps.
 
 > **Status:** local Mihon libraries and extension-backed remote sources are implemented —
 > scanning, browsing, metadata, covers, reading, progress, updates, downloads, backups,
-> tracking, and settings. The expanded parity tables in
-> [`docs/roadmap.md`](docs/roadmap.md) track the remaining external verification.
+> tracking, and settings. A
+> [v0.2.0 pre-release](https://github.com/Quicksilver151/tsuiyomi/releases/tag/v0.2.0) is
+> available for Linux, macOS, and Windows x86_64/ARM64. `v1.0.0` is the next public
+> release; the parity tables in [`docs/roadmap.md`](docs/roadmap.md) track the remaining
+> external verification.
 
 ## Goals
 
@@ -577,8 +580,8 @@ The phased plan and full parity tables live in [`docs/roadmap.md`](docs/roadmap.
 - [x] Mihon backup import/export, `backup-info`, and an import report.
 - [ ] Page-level download concurrency, custom reader color filters, Kitty placement-only
       zoom, and DNS-over-HTTPS.
-- [ ] Windows execution in CI, the Nix package/cache, and the `v0.2.0` test release (see
-      the Publishing category in the roadmap).
+- [ ] Create the Cachix cache and publish `v1.0.0` (see the Publishing category in the
+      roadmap).
 - [ ] Verify live OAuth/token tracking and a real Android Mihon restore.
 - [ ] Publish to `crates.io` and release `v1.0.0`.
 

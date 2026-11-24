@@ -3,6 +3,10 @@
 Operational steps for the `v0.2.0` test release and the `v1.0.0` public release. The
 design and acceptance criteria live in [`publishing.md`](publishing.md).
 
+**Status:** `v0.2.0` is published as a pre-release. `host-v0.2.9`, CI, six binary
+archives, checksums, and four Nix package builds are complete. The remaining work is the
+Cachix cache and `v1.0.0`.
+
 Run everything from the repository root. The GitHub CLI must be authenticated as a
 repository admin:
 

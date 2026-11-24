@@ -56,14 +56,10 @@ Archives include:
 
 These must be resolved before any release workflow is enabled:
 
-- Windows code paths are implemented but have not run on Windows CI: shared openers,
-  `java.exe`/`PATHEXT` discovery, `taskkill` stale-host cleanup, reserved-name
-  sanitizing, native clipboard, and PowerShell notification/runtime packaging.
-- CI is green on all six desktop targets, including Windows x86_64/ARM64 and the Rust
-  1.90 MSRV. The host-jar workflow has not run yet.
-- The flake package is defined but has not been built; Cachix has no cache, public key, or
-  CI push yet.
-- No binary release workflow exists yet.
+- Cachix has no cache, public key, or CI push yet.
+- The Windows opener, clipboard, and notification paths still need a manual check; CI and
+  the embedded-host self-test pass.
+- `v1.0.0` still needs the version bump, changelog, and final release.
 
 ## Implementation order
 
@@ -211,8 +207,9 @@ Per target:
 5. Run smoke tests.
 6. Upload the archive as a workflow artifact.
 
-`publish` depends on the native builds and the four Nix package builds. Add Cachix push
-to the `nix` job once the cache exists so the release also waits for cached outputs. Use
+`publish` depends on the native builds and the four Nix package builds. The `nix` job
+pushes to Cachix when `CACHIX_AUTH_TOKEN` is configured and skips the push otherwise. Add
+the cache public key to the flake once the cache exists. Use
 `permissions: contents: write`. No signing steps.
 
 Release behavior:
@@ -220,7 +217,7 @@ Release behavior:
 - `0.x` tags and tags with `-rc`/`-beta`/`-alpha` are GitHub pre-releases.
 - Stable `v1.x` tags are marked latest.
 - Missing target artifacts fail the release.
-- `.github/workflows/release.yml` is committed; the first tag run is still pending.
+- `.github/workflows/release.yml` published v0.2.0 successfully.
 
 ## Phase 5 — Nix flake and Cachix
 
@@ -251,7 +248,8 @@ Use `rustPlatform.buildRustPackage`:
 - [x] wrap the binary with `jdk21` on `PATH`
 - [x] set `TSUIYOMI_HOST_JAR` to the patched host jar
 - [ ] include license and notices in the output
-- [ ] build on all four systems (release workflow) and push to Cachix
+- [x] build on all four systems (release workflow)
+- [ ] push the four closures to Cachix
 - [x] pin `nixpkgs-26.05-darwin` for x86_64-darwin after the 26.11 removal
 
 The host jar is fetched with `fetchurl` from the `host-v0.2.9` release. Its SRI hash is
@@ -357,17 +355,17 @@ Update before bumping the version:
 ## Release checklist
 
 - [x] MIT `LICENSE`, Cargo metadata, notices, and changelog committed.
-- [ ] Windows portability tests green.
+- [x] Windows portability tests green (manual opener/clipboard check still open).
 - [x] CI green on all desktop platforms.
 - [x] `host-v0.2.9` jar release exists and has a stable hash.
 - [ ] All six host runtimes built natively (release workflow pending).
-- [ ] All six binaries pass smoke tests.
-- [ ] `SHA256SUMS` generated and verified.
+- [x] All six binaries pass smoke tests.
+- [x] `SHA256SUMS` generated and verified.
 - [ ] Cachix cache public key added to the flake.
 - [ ] Cachix secrets configured.
 - [ ] Nix cache hit verified from a clean store.
-- [ ] README install instructions updated.
-- [ ] `v0.2.0` pre-release verified.
+- [x] README install instructions updated.
+- [x] `v0.2.0` pre-release verified.
 - [ ] `1.0.0` version bump and `v1.0.0` release.
 - [ ] `v1.0.0` marked latest.
 

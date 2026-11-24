@@ -6,6 +6,13 @@ versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first publi
 
 ## [Unreleased]
 
+No changes since 0.2.0.
+
+## [0.2.0] - 2026-11-25
+
+First end-to-end pre-release. Six desktop archives, checksums, and four Nix package
+builds were published.
+
 ### Added
 
 - Mihon Local source library support: `ComicInfo.xml`, legacy `details.json`,
@@ -38,4 +45,5 @@ versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first publi
 - A real Android Mihon restore has not been exercised yet.
 - Kitty placement-only zoom, DNS-over-HTTPS, page-level download concurrency, custom
   reader color filters, and verbose application logging are not implemented.
-- Windows has not yet run in CI; ARM64 Windows packaging is untested.
+- Windows x86_64/ARM64 build and host self-tests pass in CI; desktop open, clipboard,
+  and notification actions still need a manual Windows check.
