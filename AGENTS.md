@@ -42,6 +42,8 @@ is mandatory, not a follow-up:
   "planned", "partial", or "missing" claims in place.
 - Treat `docs/parity/*` checklists and `docs/history.md` as historical design context,
   not completion metrics. Only the roadmap tables drive the percentage.
+- After updating progress docs, report the resulting roadmap score, the categories that
+  changed, and any remaining blockers in the response.
 
 ## Environment
 
