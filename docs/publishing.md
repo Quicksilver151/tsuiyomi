@@ -58,7 +58,9 @@ These must be resolved before any release workflow is enabled:
 - Windows code paths are implemented but have not run on Windows CI: shared openers,
   `java.exe`/`PATHEXT` discovery, `taskkill` stale-host cleanup, reserved-name
   sanitizing, native clipboard, and PowerShell notification/runtime packaging.
-- The CI and host-jar workflows are committed but have not had a first GitHub run.
+- The CI workflow's first run passed fmt, clippy, notices, Linux, and macOS arm64, and
+  found two Windows-only path-separator assertions in core tests. The fix is committed;
+  the rerun is pending. The host-jar workflow has not run.
 - The flake has no package output and no Cachix configuration.
 - No binary release workflow exists yet.
 

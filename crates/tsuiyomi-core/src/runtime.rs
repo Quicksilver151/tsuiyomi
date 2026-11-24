@@ -646,7 +646,9 @@ mod tests {
 
         assert_eq!(first, again);
         assert_ne!(first, other);
-        assert!(first.to_string_lossy().contains("tsuiyomi/covers"));
+        assert!(first
+            .parent()
+            .is_some_and(|parent| parent.ends_with(Path::new("tsuiyomi").join("covers"))));
     }
 
     #[test]

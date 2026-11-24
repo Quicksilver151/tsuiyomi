@@ -399,6 +399,7 @@ table below.
 | Bundled host | Patched, rebuilt, embedded archive |
 | Live checks | Extension jobs, not-loaded delete, story filtering, downloads, cover overlay, history, categories, read-state mirroring |
 | Docs audit | 2026-11-24: stale phase checklists archived; parity tables reconciled with plan; Publishing category added |
+| CI first run | 2026-11-25: fmt, clippy, notices, Linux, and macOS arm64 passed; two Windows path assertions were fixed |
 | Portability | 2026-11-24: shared opener, `java.exe`/`PATHEXT`, `taskkill`, reserved filenames, native clipboard, PowerShell notifications, Windows runtime package |
 | Licensing | 2026-11-25: MIT license, workspace metadata, changelog, third-party notices, license texts, dependency inventory |
 
