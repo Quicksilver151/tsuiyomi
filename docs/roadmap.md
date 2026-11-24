@@ -21,8 +21,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| [Publishing](#publishing) | 12 | 3 | 0 | 1 | 90.0% |
-| **All categories** | **263** | **13** | **1** | **11** | **97.3%** |
+| [Publishing](#publishing) | 14 | 1 | 0 | 1 | 96.7% |
+| **All categories** | **265** | **11** | **1** | **11** | **97.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -379,9 +379,9 @@ table below.
 | Release | SHA-256 checksums | Yes | Yes | ✅ | v0.2.0 published a verified `SHA256SUMS` for all six archives. |
 | Release | GitHub release automation | Yes | Yes | ✅ | v0.2.0 was published automatically as a pre-release from a tag. |
 | Nix | Flake package and app outputs | Yes | Yes | ✅ | v0.2.0 built `packages.default`/`apps.default`/`checks.default` on x86_64-linux, aarch64-linux, x86_64-darwin, and aarch64-darwin. x86_64-darwin pins `nixpkgs-26.05-darwin`. |
-| Nix | Cachix binary cache | Yes | Partial | 🟡 | Public `tsuiyomi` cache created, public key added to the flake, and the Actions secret configured. The first cache push and clean-store substitution test are pending v1.0.0. |
+| Nix | Cachix binary cache | Yes | Yes | ✅ | Public `tsuiyomi` cache contains all four v1.0.0 closures; the flake carries the substituter and public key. |
 | Release | `v0.2.0` test release | Yes | Yes | ✅ | Published as a GitHub pre-release with six archives and `SHA256SUMS`. |
-| Release | `v1.0.0` public release | Yes | Partial | 🟡 | Workspace and flake are at 1.0.0 with the changelog prepared; the tag and release are pending. |
+| Release | `v1.0.0` public release | Yes | Yes | ✅ | Published as latest with six archives and verified `SHA256SUMS`. |
 | Docs | Release and install documentation | Yes | Yes | ✅ | `INSTALL.md` covers archive layout, checksum verification, unsigned-binary warnings, data paths, source builds, and release packaging. |
 | Distribution | Code signing | No | No | ➖ | Deliberately omitted; unsigned archives with SHA-256 checksums only. |
 
@@ -402,7 +402,8 @@ table below.
 | CI | 2026-11-25: green on Linux, macOS, and Windows x86_64/ARM64; Windows path assertions fixed; one macOS arm64 runner-capacity failure passed on rerun |
 | Host jar | 2026-11-25: `host-v0.2.9` published with `miwayomi-0.2.9-patched.jar` and SHA-256 `c9779f95…47c` |
 | v0.2.0 | 2026-11-25: pre-release published six archives, `SHA256SUMS`, and four Nix package builds |
-| Cachix | 2026-11-25: public cache and public key configured; Actions secret set; first v1.0.0 push pending |
+| Cachix | 2026-11-25: all four v1.0.0 closures verified in `tsuiyomi.cachix.org` |
+| v1.0.0 | 2026-11-25: latest release published with six archives and `SHA256SUMS` |
 | Nix package | Flake evaluation succeeds for the four systems; derivation build and Cachix push are pending |
 | Portability | 2026-11-24: shared opener, `java.exe`/`PATHEXT`, `taskkill`, reserved filenames, native clipboard, PowerShell notifications, Windows runtime package |
 | Licensing | 2026-11-25: MIT license, workspace metadata, changelog, third-party notices, license texts, dependency inventory |

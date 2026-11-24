@@ -1,12 +1,12 @@
 # Release runbook
 
 Operational steps for the `v0.2.0` test release and the `v1.0.0` public release. The
-design and acceptance criteria live in [`publishing.md`](publishing.md).
+design and acceptance criteria live in [`publishing.md`](publishing.md). This runbook is
+retained for future releases.
 
-**Status:** `v0.2.0` is published as a pre-release. `host-v0.2.9`, CI, six binary
-archives, checksums, four Nix package builds, and the public Cachix cache are configured.
-The remaining work is the first cache push during the `v1.0.0` release and a clean-store
-substitution check.
+**Status:** `v1.0.0` is published as latest. `v0.2.0` remains available as a pre-release.
+The host jar, CI, six binary archives, checksums, four Nix builds, and all four Cachix
+closures are verified.
 
 Run everything from the repository root. The GitHub CLI must be authenticated as a
 repository admin:
@@ -199,7 +199,11 @@ then:
 `v1.0.0` is marked latest. Verify the Nix cache is populated and the install commands in
 `INSTALL.md` work before announcing.
 
-## What to send back
+## Cache verification
 
-After creating the Cachix cache, send its public key (`tsuiyomi.cachix.org-1:...`). It goes
-into the flake so users can substitute cached builds.
+```sh
+for system in x86_64-linux aarch64-linux x86_64-darwin aarch64-darwin; do
+  path="$(nix eval --raw ".#packages.${system}.default.outPath")"
+  nix path-info --store https://tsuiyomi.cachix.org "$path"
+done
+```

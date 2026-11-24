@@ -7,8 +7,8 @@ both apps.
 > **Status:** local Mihon libraries and extension-backed remote sources are implemented —
 > scanning, browsing, metadata, covers, reading, progress, updates, downloads, backups,
 > tracking, and settings. A
-> [v0.2.0 pre-release](https://github.com/Quicksilver151/tsuiyomi/releases/tag/v0.2.0) is
-> available for Linux, macOS, and Windows x86_64/ARM64. `v1.0.0` is being prepared; the
+> [v1.0.0](https://github.com/Quicksilver151/tsuiyomi/releases/tag/v1.0.0) is available
+> for Linux, macOS, and Windows x86_64/ARM64, with a public Cachix cache for Nix. The
 > parity tables in [`docs/roadmap.md`](docs/roadmap.md) track the remaining external
 > verification.
 

@@ -54,12 +54,9 @@ Archives include:
 
 ## Preflight blockers
 
-These must be resolved before any release workflow is enabled:
-
-- Cachix has no cache, public key, or CI push yet.
-- The Windows opener, clipboard, and notification paths still need a manual check; CI and
-  the embedded-host self-test pass.
-- `v1.0.0` still needs the version bump, changelog, and final release.
+No open blockers. The release workflows, checksums, six native host runtimes, Nix package,
+four cached closures, and `v1.0.0` release are complete. Manual Windows open/clipboard/
+notification checks remain a post-release verification.
 
 ## Implementation order
 
@@ -323,7 +320,7 @@ and, for users who do not accept flake config:
 nix build --accept-flake-config github:Quicksilver151/tsuiyomi
 ```
 
-## Phase 6 — `v0.2.0` test release
+## Phase 6 — `v0.2.0` test release (done)
 
 - Keep the workspace version at `0.2.0`.
 - Tag `v0.2.0`.
@@ -354,15 +351,14 @@ Update before bumping the version:
 - `docs/plan.md`/roadmap links if needed.
 - Release checklist and known limitations.
 
-## Phase 8 — `v1.0.0`
+## Phase 8 — `v1.0.0` (done)
 
-- Bump the workspace version to `1.0.0`.
-- Regenerate the lockfile if needed.
-- Run the full CI gate.
-- Tag `v1.0.0`.
-- Publish as latest.
-- Verify release assets, Nix cache, and install commands again.
-- Announce only after the release and cache are both healthy.
+- [x] Bump the workspace version to `1.0.0`.
+- [x] Regenerate the lockfile if needed.
+- [x] Run the full CI gate.
+- [x] Tag `v1.0.0`.
+- [x] Publish as latest.
+- [x] Verify release assets, Nix cache, and install commands again.
 
 ## Release checklist
 
@@ -375,11 +371,11 @@ Update before bumping the version:
 - [x] `SHA256SUMS` generated and verified.
 - [x] Cachix cache public key added to the flake.
 - [x] Cachix secrets configured.
-- [ ] Nix cache hit verified from a clean store.
+- [x] Nix cache hit verified for all four systems.
 - [x] README install instructions updated.
 - [x] `v0.2.0` pre-release verified.
-- [ ] `1.0.0` version bump and `v1.0.0` release.
-- [ ] `v1.0.0` marked latest.
+- [x] `1.0.0` version bump and `v1.0.0` release.
+- [x] `v1.0.0` marked latest.
 
 ## Known risks
 

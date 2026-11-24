@@ -5,14 +5,14 @@ live in the [roadmap](roadmap.md); this file tracks scope, phases, and acceptanc
 criteria.
 
 > Checkbox completion here is **not** the parity percentage. The roadmap tables are the
-> authoritative implementation measure (97.3% today). Unchecked boxes include tests,
+> authoritative implementation measure (97.7% today). Unchecked boxes include tests,
 > live/external verification, portability work, and backlog items, so counting plan
 > checkboxes will understate feature parity.
 
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **97.3%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **97.7%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`. Release and distribution
 work is tracked separately in [`publishing.md`](publishing.md).
 
@@ -256,8 +256,7 @@ Record only; do not block the parity pass.
 - Kitty placement-only zoom is terminal-specific; the fallback must remain reliable.
 - Page-level download concurrency and custom reader color filters remain unimplemented.
 - Windows x86_64/ARM64 builds and host self-tests pass; manual open, clipboard, and
-  notification checks remain. Cachix and `v1.0.0` are tracked in
-  [`publishing.md`](publishing.md).
+  notification checks remain. Publishing is complete; see [`publishing.md`](publishing.md).
 - Real Mihon backup restore needs an Android environment.
 - Library layout/filter combinations can cause input and state complexity; keep
   selection/filter state centralized and tested.
