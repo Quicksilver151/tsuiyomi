@@ -12,6 +12,131 @@ both apps.
 > parity tables in [`docs/roadmap.md`](docs/roadmap.md) track the remaining external
 > verification.
 
+## Install
+
+Prebuilt archives are published for Linux, macOS, and Windows on x86_64 and ARM64. See
+[`INSTALL.md`](INSTALL.md) for the full archive contents, checksum verification, and
+unsigned-binary notes.
+
+### Linux
+
+```sh
+VERSION=1.0.0
+TARGET=x86_64-unknown-linux-gnu  # or aarch64-unknown-linux-gnu
+ARCHIVE="tsuiyomi-v${VERSION}-${TARGET}.tar.gz"
+BASE="https://github.com/Quicksilver151/tsuiyomi/releases/download/v${VERSION}"
+
+curl -LO "${BASE}/${ARCHIVE}"
+curl -LO "${BASE}/SHA256SUMS"
+grep "${ARCHIVE}" SHA256SUMS > "${ARCHIVE}.sha256"
+sha256sum -c "${ARCHIVE}.sha256"
+tar -xzf "${ARCHIVE}"
+"./tsuiyomi-v${VERSION}-${TARGET}/tsuiyomi"
+```
+
+### macOS
+
+```sh
+VERSION=1.0.0
+TARGET=aarch64-apple-darwin  # or x86_64-apple-darwin
+ARCHIVE="tsuiyomi-v${VERSION}-${TARGET}.tar.gz"
+BASE="https://github.com/Quicksilver151/tsuiyomi/releases/download/v${VERSION}"
+
+curl -LO "${BASE}/${ARCHIVE}"
+curl -LO "${BASE}/SHA256SUMS"
+grep "${ARCHIVE}" SHA256SUMS > "${ARCHIVE}.sha256"
+shasum -a 256 -c "${ARCHIVE}.sha256"
+tar -xzf "${ARCHIVE}"
+"./tsuiyomi-v${VERSION}-${TARGET}/tsuiyomi"
+```
+
+macOS Gatekeeper may block the first launch because releases are unsigned. Use
+right-click → Open, or:
+
+```sh
+xattr -d com.apple.quarantine "./tsuiyomi-v${VERSION}-${TARGET}/tsuiyomi"
+```
+
+### Windows
+
+PowerShell:
+
+```powershell
+$Version = "1.0.0"
+$Target = "x86_64-pc-windows-msvc"  # or aarch64-pc-windows-msvc
+$Archive = "tsuiyomi-v$Version-$Target.zip"
+$Base = "https://github.com/Quicksilver151/tsuiyomi/releases/download/v$Version"
+
+Invoke-WebRequest "$Base/$Archive" -OutFile $Archive
+Invoke-WebRequest "$Base/SHA256SUMS" -OutFile SHA256SUMS
+
+# Compare these two hashes before extracting.
+(Get-FileHash $Archive -Algorithm SHA256).Hash
+Select-String -Path SHA256SUMS -Pattern $Archive
+
+Expand-Archive $Archive -DestinationPath .
+& ".\tsuiyomi-v$Version-$Target\tsuiyomi.exe"
+```
+
+Windows SmartScreen may warn about an unknown publisher because the archive is unsigned.
+
+### Nix
+
+With flakes enabled, run directly:
+
+```sh
+nix run github:Quicksilver151/tsuiyomi
+```
+
+Install into a profile:
+
+```sh
+nix profile install github:Quicksilver151/tsuiyomi
+```
+
+#### NixOS and Home Manager
+
+Add the flake input:
+
+```nix
+inputs.tsuiyomi = {
+  url = "github:Quicksilver151/tsuiyomi";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+Add the package and the binary cache to the system configuration:
+
+```nix
+environment.systemPackages = [
+  inputs.tsuiyomi.packages.${pkgs.stdenv.hostPlatform.system}.default
+];
+
+nix.settings = {
+  extra-substituters = [ "https://tsuiyomi.cachix.org" ];
+  extra-trusted-public-keys = [
+    "tsuiyomi.cachix.org-1:enUL7FsGLndXhMOFfoKFu/ra4gtM/RMHnCF5ai5wJGY="
+  ];
+};
+```
+
+For Home Manager, use `home.packages` instead of `environment.systemPackages`. Nix is
+not a Windows distribution channel.
+
+### Terminal requirement
+
+Use a terminal with Kitty graphics protocol support so covers and pages render as images:
+
+| Platform | Recommended terminals |
+|---|---|
+| Linux | Kitty, Ghostty, WezTerm, Konsole, Warp |
+| macOS | Kitty, Ghostty, WezTerm, iTerm2 |
+| Windows | WezTerm |
+
+Windows Terminal does not implement the Kitty graphics protocol. Without a supported
+terminal or a Sixel/iTerm2 terminal, images fall back to Unicode halfblocks. Terminal
+multiplexers such as tmux may need graphics passthrough enabled.
+
 ## Goals
 
 - Browse a local manga library from the terminal.
@@ -27,17 +152,15 @@ both apps.
 
 Anime browsing is outside the current scope; the project is manga-first.
 
-## Requirements
+## Development
+
+### Requirements
+
+Development uses Nix; prebuilt releases do not.
 
 - NixOS (or any system with Nix) with flakes enabled.
 - `direnv` (recommended) or `nix develop`. A plain Rust toolchain also works, but the
   devshell is the supported development path.
-
-The release plan targets Linux, macOS, and Windows on x86_64 and ARM64. Windows uses
-native open/clipboard/notification helpers and ships a bundled JRE like the other
-platforms; the Nix devshell remains the supported development environment.
-
-## Development
 
 ```sh
 cp .env.local.example .env.local   # adjust TSUIYOMI_LIBRARY if needed

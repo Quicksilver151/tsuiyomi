@@ -74,6 +74,13 @@ keys.
 
 `i` imports a series folder into the library without a graphical picker.
 
+## Terminal
+
+Use a terminal with graphics support for covers and pages: Kitty, Ghostty, WezTerm,
+Konsole, or Warp on Linux; Kitty, Ghostty, WezTerm, or iTerm2 on macOS; WezTerm on
+Windows. Without one, images fall back to Unicode halfblocks. See the
+[README terminal table](README.md#terminal-requirement) for details.
+
 ## Nix
 
 With flakes enabled:
