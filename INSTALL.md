@@ -86,12 +86,14 @@ Windows. Without one, images fall back to Unicode halfblocks. See the
 With flakes enabled:
 
 ```sh
-nix run github:Quicksilver151/tsuiyomi
+nix run github:Quicksilver151/tsuiyomi/v1.0.0
 ```
 
 The flake configures the public `tsuiyomi.cachix.org` substituter, so supported systems
-install prebuilt closures instead of compiling. Override with `--option substituters ""`
-to build locally.
+install prebuilt closures instead of compiling. Pin a release tag rather than `master`
+and do not make the flake follow your own nixpkgs if you want cache hits; see the
+[README Nix section](README.md#nix). Override with `--option substituters ""` to build
+locally.
 
 ## Build from source
 

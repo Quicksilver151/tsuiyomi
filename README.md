@@ -82,27 +82,38 @@ Windows SmartScreen may warn about an unknown publisher because the archive is u
 
 ### Nix
 
-With flakes enabled, run directly:
+With flakes enabled, run the released tag directly:
 
 ```sh
-nix run github:Quicksilver151/tsuiyomi
+nix run github:Quicksilver151/tsuiyomi/v1.0.0
 ```
 
 Install into a profile:
 
 ```sh
-nix profile install github:Quicksilver151/tsuiyomi
+nix profile install github:Quicksilver151/tsuiyomi/v1.0.0
 ```
+
+Pin a release tag rather than `master` so the source and lockfile match the published
+Cachix closures. Replace `v1.0.0` when a newer release is available.
 
 #### NixOS and Home Manager
 
-Add the flake input:
+Add the released tag as an input and do **not** make it follow your own nixpkgs:
 
 ```nix
-inputs.tsuiyomi = {
-  url = "github:Quicksilver151/tsuiyomi";
-  inputs.nixpkgs.follows = "nixpkgs";
-};
+inputs.tsuiyomi.url = "github:Quicksilver151/tsuiyomi/v1.0.0";
+```
+
+The Cachix closures were built against tsuiyomi's locked nixpkgs revision. Following
+your nixpkgs (for example, 25.11 while the release uses unstable) changes the
+derivation and forces a local build. The separate input adds another nixpkgs to the
+graph, but it lets Nix download the prebuilt package.
+
+Refresh the lock entry after changing the input:
+
+```sh
+nix flake update tsuiyomi
 ```
 
 Add the package and the binary cache to the system configuration:
@@ -120,8 +131,20 @@ nix.settings = {
 };
 ```
 
-For Home Manager, use `home.packages` instead of `environment.systemPackages`. Nix is
-not a Windows distribution channel.
+NixOS applies `nix.settings` during activation, so the first rebuild after adding the
+cache settings may still compile. Check with
+`nix show-config | grep -E 'substituters|trusted-public-keys'` and rebuild again if
+`tsuiyomi.cachix.org` is missing.
+
+To confirm the cache has the release closure:
+
+```sh
+nix path-info --store https://tsuiyomi.cachix.org \
+  "$(nix eval --raw 'github:Quicksilver151/tsuiyomi/v1.0.0#packages.x86_64-linux.default.outPath')"
+```
+
+Replace `x86_64-linux` with your system. For Home Manager, use `home.packages` instead
+of `environment.systemPackages`. Nix is not a Windows distribution channel.
 
 ### Terminal requirement
 
