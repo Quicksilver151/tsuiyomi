@@ -18,7 +18,7 @@ category design plans live under `docs/parity/`, and the release plan lives in
 `docs/publishing.md`. The roadmap tables are the completion source of truth.
 
 Local libraries, remote sources, extension management, the reader, downloads, tracking,
-backups, history, and settings are implemented. The roadmap currently scores **96.9%**;
+backups, history, and settings are implemented. The roadmap currently scores **97.3%**;
 the remaining rows are publishing/release work, live tracker/restore verification, Kitty
 placement zoom, DNS-over-HTTPS, page-level download concurrency, custom reader color
 filters, and verbose logging. Windows x86_64/ARM64 builds and host self-tests pass;

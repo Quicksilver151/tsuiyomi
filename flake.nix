@@ -22,6 +22,13 @@
         else nixpkgs.legacyPackages.${system};
     in
     {
+      nixConfig = {
+        extra-substituters = [ "https://tsuiyomi.cachix.org" ];
+        extra-trusted-public-keys = [
+          "tsuiyomi.cachix.org-1:enUL7FsGLndXhMOFfoKFu/ra4gtM/RMHnCF5ai5wJGY="
+        ];
+      };
+
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
@@ -32,7 +39,7 @@
           };
           tsuiyomi = pkgs.rustPlatform.buildRustPackage {
             pname = "tsuiyomi";
-            version = "0.2.0";
+            version = "1.0.0";
 
             # Only the inputs rustc and Cargo need. Documentation edits do not
             # invalidate the binary cache, and local build output or the embedded
@@ -124,9 +131,5 @@
         });
 
       formatter = forAllSystems (system: (pkgsFor system).nixfmt-rfc-style);
-
-      # After the public Cachix cache exists, add:
-      #   nixConfig.extra-substituters = [ "https://tsuiyomi.cachix.org" ];
-      #   nixConfig.extra-trusted-public-keys = [ "tsuiyomi.cachix.org-1:..." ];
     };
 }

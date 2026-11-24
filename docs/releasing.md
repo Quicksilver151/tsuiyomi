@@ -4,8 +4,9 @@ Operational steps for the `v0.2.0` test release and the `v1.0.0` public release.
 design and acceptance criteria live in [`publishing.md`](publishing.md).
 
 **Status:** `v0.2.0` is published as a pre-release. `host-v0.2.9`, CI, six binary
-archives, checksums, and four Nix package builds are complete. The remaining work is the
-Cachix cache and `v1.0.0`.
+archives, checksums, four Nix package builds, and the public Cachix cache are configured.
+The remaining work is the first cache push during the `v1.0.0` release and a clean-store
+substitution check.
 
 Run everything from the repository root. The GitHub CLI must be authenticated as a
 repository admin:
@@ -120,20 +121,20 @@ release job.
 5. After the package builds, seed the cache once:
 
    ```sh
-   nix build .# -L
+   nix build .# --accept-flake-config -L
    cachix push tsuiyomi ./result
    ```
 
 6. Verify substitution from a clean profile or store path:
 
    ```sh
-   nix run .# -- --help
+   nix run .# --accept-flake-config -- --help
    ```
 
 The release workflow needs a `nix-cache` job matrix that builds each system, pushes with
 `cachix/cachix-action`, and makes `publish` depend on it.
 
-## 4. Test release `v0.2.0`
+## 4. Test release `v0.2.0` (done)
 
 The workspace version must be `0.2.0` when tagging. The release workflow refuses a tag
 that does not match `[workspace.package] version` in `Cargo.toml`.
@@ -175,7 +176,8 @@ git push origin :refs/tags/v0.2.0
 
 ## 5. Public release `v1.0.0`
 
-After the test release is healthy:
+The workspace and flake are already at 1.0.0. Verify the cache key and secret are present,
+then:
 
 1. Set `[workspace.package] version = "1.0.0"` in `Cargo.toml`.
 2. Update `Cargo.lock` by running `cargo check --workspace`.

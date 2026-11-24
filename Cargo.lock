@@ -2496,7 +2496,7 @@ checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tsuiyomi"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "tempfile",
  "tsuiyomi-core",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "tsuiyomi-core"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "chrono",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "tsuiyomi-tui"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "crossterm",

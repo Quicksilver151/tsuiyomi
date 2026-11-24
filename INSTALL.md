@@ -74,6 +74,18 @@ keys.
 
 `i` imports a series folder into the library without a graphical picker.
 
+## Nix
+
+With flakes enabled:
+
+```sh
+nix run github:Quicksilver151/tsuiyomi
+```
+
+The flake configures the public `tsuiyomi.cachix.org` substituter, so supported systems
+install prebuilt closures instead of compiling. Override with `--option substituters ""`
+to build locally.
+
 ## Build from source
 
 The supported development environment is the Nix flake:

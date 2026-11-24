@@ -257,29 +257,30 @@ pinned in `flake.nix` next to the URL so host changes are explicit.
 
 ### Cachix
 
-Create a public Cachix cache named `tsuiyomi` from <https://app.cachix.org/>. The CLI
-(`cachix` 1.9) can upload and configure caches but cannot create them.
-
-Add:
+The public cache `tsuiyomi` exists at <https://app.cachix.org/>. The flake carries:
 
 ```nix
 nixConfig = {
   extra-substituters = [ "https://tsuiyomi.cachix.org" ];
   extra-trusted-public-keys = [
-    "tsuiyomi.cachix.org-1:REPLACE_WITH_REAL_KEY"
+    "tsuiyomi.cachix.org-1:enUL7FsGLndXhMOFfoKFu/ra4gtM/RMHnCF5ai5wJGY="
   ];
 };
 ```
 
-CI:
+CI installs Nix, configures `cachix/cachix-action` with `CACHIX_AUTH_TOKEN`, builds the
+system's package, and pushes the closure:
 
 ```yaml
 - uses: cachix/install-nix-action@v31
-- uses: cachix/cachix-action@v17
+- uses: cachix/cachix-action@v15
+  if: env.CACHIX_AUTH_TOKEN != ''
   with:
     name: tsuiyomi
     authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-- run: nix build .#tsuiyomi
+- run: nix build ".#packages/${{ matrix.system }}.default" --accept-flake-config -L
+- run: cachix push tsuiyomi ./result
+  if: env.CACHIX_AUTH_TOKEN != ''
 ```
 
 Cache matrix:
@@ -359,11 +360,11 @@ Update before bumping the version:
 - [x] Windows portability tests green (manual opener/clipboard check still open).
 - [x] CI green on all desktop platforms.
 - [x] `host-v0.2.9` jar release exists and has a stable hash.
-- [ ] All six host runtimes built natively (release workflow pending).
+- [x] All six host runtimes built natively.
 - [x] All six binaries pass smoke tests.
 - [x] `SHA256SUMS` generated and verified.
-- [ ] Cachix cache public key added to the flake.
-- [ ] Cachix secrets configured.
+- [x] Cachix cache public key added to the flake.
+- [x] Cachix secrets configured.
 - [ ] Nix cache hit verified from a clean store.
 - [x] README install instructions updated.
 - [x] `v0.2.0` pre-release verified.

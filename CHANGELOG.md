@@ -4,9 +4,13 @@ All notable changes to tsuiyomi are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use semantic
 versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first public release.
 
-## [Unreleased]
+## [1.0.0] - 2026-11-25
 
-No changes since 0.2.0.
+First stable release. No code changes since 0.2.0.
+
+### Added
+
+- Public Cachix binary cache at `https://tsuiyomi.cachix.org` for the four Nix systems.
 
 ## [0.2.0] - 2026-11-25
 
