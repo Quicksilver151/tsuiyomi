@@ -235,18 +235,27 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc # v15
+      - name: Install cachix
         if: env.CACHIX_AUTH_TOKEN != ''
-        with:
-          name: tsuiyomi
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [[ "${{ matrix.system }}" == "x86_64-darwin" ]]; then
+            nix profile install github:NixOS/nixpkgs/nixpkgs-26.05-darwin#cachix
+          else
+            nix profile install nixpkgs#cachix
+          fi
+          "$HOME/.nix-profile/bin/cachix" --version
 
       - name: Build the flake package
         run: nix build ".#packages.${{ matrix.system }}.default" --accept-flake-config -L
 
       - name: Push the closure to Cachix
         if: env.CACHIX_AUTH_TOKEN != ''
-        run: cachix push tsuiyomi ./result
+        shell: bash
+        run: |
+          export PATH="$HOME/.nix-profile/bin:$PATH"
+          printf '%s' "$CACHIX_AUTH_TOKEN" | cachix authtoken --stdin
+          cachix push tsuiyomi "$(nix path-info ./result)"
 
   publish:
     name: publish the GitHub release

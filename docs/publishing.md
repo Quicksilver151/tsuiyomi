@@ -268,20 +268,30 @@ nixConfig = {
 };
 ```
 
-CI installs Nix, configures `cachix/cachix-action` with `CACHIX_AUTH_TOKEN`, builds the
-system's package, and pushes the closure:
+CI installs Nix, builds the system's package, and pushes the closure with the Cachix CLI.
+x86_64-darwin installs cachix from the 26.05-darwin input because unstable no longer
+supports that system:
 
 ```yaml
 - uses: cachix/install-nix-action@v31
-- uses: cachix/cachix-action@v15
+- name: Install cachix
   if: env.CACHIX_AUTH_TOKEN != ''
-  with:
-    name: tsuiyomi
-    authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+  run: |
+    if [[ "${{ matrix.system }}" == "x86_64-darwin" ]]; then
+      nix profile install github:NixOS/nixpkgs/nixpkgs-26.05-darwin#cachix
+    else
+      nix profile install nixpkgs#cachix
+    fi
 - run: nix build ".#packages/${{ matrix.system }}.default" --accept-flake-config -L
-- run: cachix push tsuiyomi ./result
+- name: Push
   if: env.CACHIX_AUTH_TOKEN != ''
+  run: |
+    printf '%s' "$CACHIX_AUTH_TOKEN" | cachix authtoken --stdin
+    cachix push tsuiyomi "$(nix path-info ./result)"
 ```
+
+`cachix/cachix-action` is not used: it evaluates the flake before the build and trips
+over the removed x86_64-darwin nixpkgs. The CLI push works on every system.
 
 Cache matrix:
 
