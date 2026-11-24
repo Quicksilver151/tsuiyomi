@@ -234,7 +234,9 @@ Add to `flake.nix`:
 - [x] existing `devShells`
 - [x] existing `formatter`
 
-Systems: `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`.
+Systems: `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`. Nixpkgs
+26.11 dropped `x86_64-darwin`; that system pins the `nixpkgs-26.05-darwin` input while the
+others use `nixos-unstable`.
 
 ### Package derivation
 
@@ -250,6 +252,7 @@ Use `rustPlatform.buildRustPackage`:
 - [x] set `TSUIYOMI_HOST_JAR` to the patched host jar
 - [ ] include license and notices in the output
 - [ ] build on all four systems (release workflow) and push to Cachix
+- [x] pin `nixpkgs-26.05-darwin` for x86_64-darwin after the 26.11 removal
 
 The host jar is fetched with `fetchurl` from the `host-v0.2.9` release. Its SRI hash is
 pinned in `flake.nix` next to the URL so host changes are explicit.

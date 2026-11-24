@@ -85,7 +85,8 @@ https://github.com/Quicksilver151/tsuiyomi/releases/download/host-v0.2.9/miwayom
 It builds with `rustPlatform.buildRustPackage` and `Cargo.lock`, wraps `tsuiyomi` with
 `jdk21` and `TSUIYOMI_HOST_JAR`, and exposes `packages.<system>.default`,
 `apps.<system>.default`, and `checks.<system>.default` for `x86_64-linux`,
-`aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`.
+`aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`. Nixpkgs 26.11 dropped
+`x86_64-darwin`, so that system uses the pinned `nixpkgs-26.05-darwin` input.
 
 What remains is building the derivation, creating the cache, and adding the `nix-cache`
 release job.

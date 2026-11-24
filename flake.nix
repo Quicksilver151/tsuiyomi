@@ -1,9 +1,13 @@
 {
   description = "tsuiyomi - a TUI manga library for Mihon-compatible local libraries";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # nixpkgs 26.11 dropped x86_64-darwin; the 26.05 branch still supports it.
+    nixpkgs-darwin.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, nixpkgs-darwin }:
     let
       systems = [
         "x86_64-linux"
@@ -12,11 +16,15 @@
         "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      pkgsFor = system:
+        if system == "x86_64-darwin"
+        then nixpkgs-darwin.legacyPackages.${system}
+        else nixpkgs.legacyPackages.${system};
     in
     {
       packages = forAllSystems (system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = pkgsFor system;
           # Platform-independent patched host jar, published once per host version.
           hostJar = pkgs.fetchurl {
             url = "https://github.com/Quicksilver151/tsuiyomi/releases/download/host-v0.2.9/miwayomi-0.2.9-patched.jar";
@@ -80,7 +88,7 @@
 
       devShells = forAllSystems (system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = pkgsFor system;
         in
         {
           default = pkgs.mkShell {
@@ -115,7 +123,7 @@
           };
         });
 
-      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-rfc-style);
+      formatter = forAllSystems (system: (pkgsFor system).nixfmt-rfc-style);
 
       # After the public Cachix cache exists, add:
       #   nixConfig.extra-substituters = [ "https://tsuiyomi.cachix.org" ];

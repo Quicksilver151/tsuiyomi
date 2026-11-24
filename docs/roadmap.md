@@ -378,7 +378,7 @@ table below.
 | Release | Six-target binary matrix | Yes | Yes | 🟡 | `.github/workflows/release.yml` builds all six targets with native host runtimes; the first tag run is pending. |
 | Release | SHA-256 checksums | Yes | Yes | 🟡 | The release workflow combines per-archive checksums into `SHA256SUMS` and verifies them before publishing; the first run is pending. |
 | Release | GitHub release automation | Yes | Yes | 🟡 | Tag-driven release workflow creates pre-releases for 0.x/`-suffix` tags and marks stable releases latest; the first run is pending. |
-| Nix | Flake package and app outputs | Yes | Yes | 🟡 | The flake exposes `packages.default`, `apps.default`, and `checks.default` for four systems, fetching the published host jar and wrapping with `jdk21`; the release workflow builds all four systems, but the first run is pending. |
+| Nix | Flake package and app outputs | Yes | Yes | 🟡 | The flake exposes `packages.default`, `apps.default`, and `checks.default` for four systems, fetching the published host jar and wrapping with `jdk21`; x86_64-darwin pins `nixpkgs-26.05-darwin` because unstable dropped it. The release workflow builds all four systems; the first full run is pending. |
 | Nix | Cachix binary cache | Yes | No | ❌ | No cache, public key, CI push, or pins yet. |
 | Release | `v0.2.0` test release | Yes | No | ❌ | Planned as the first end-to-end release exercise. |
 | Release | `v1.0.0` public release | Yes | No | ❌ | Planned after the test release and documentation pass. |
