@@ -2,7 +2,8 @@
 
 This is the release plan for shipping tsuiyomi as open-source, unsigned binaries on
 GitHub Releases and as a Nix flake backed by a public binary cache. Completion is tracked
-as the Publishing category in [`roadmap.md`](roadmap.md).
+as the Publishing category in [`roadmap.md`](roadmap.md). Operational commands live in
+[`releasing.md`](releasing.md).
 
 ## Decisions
 
