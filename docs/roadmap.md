@@ -21,7 +21,8 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
-| **All categories** | **251** | **10** | **1** | **10** | **97.7%** |
+| [Publishing](#publishing) | 2 | 1 | 12 | 1 | 16.7% |
+| **All categories** | **253** | **11** | **13** | **11** | **93.3%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -363,6 +364,27 @@ table below.
 | Mihon database categories | Portable `categories.json` sidecar | ➖ | A filesystem library cannot share the Android app database; the sidecar keeps categories portable. |
 | APK signature verification | TOFU file fingerprints | ➖ | The host cannot verify signing keys; the TUI records a SHA-256 fingerprint instead. |
 
+### Publishing
+
+| Area | Feature | Required | tsuiyomi | Status | Notes |
+|---|---|---|---|---|---|
+| Planning | Release plan and target matrix | Yes | Yes | ✅ | [`publishing.md`](publishing.md) defines targets, artifacts, workflows, Nix, and Cachix. |
+| Licensing | MIT `LICENSE` and Cargo metadata | Yes | No | ❌ | No license file or workspace `license`/repository metadata yet. |
+| Licensing | Third-party notices | Yes | No | ❌ | Release binaries bundle miwayomi and a JRE; notices and licenses are not packaged yet. |
+| Portability | Windows portability gate | Yes | Partial | 🟡 | Openers, `java.exe`, `taskkill`, reserved filenames, clipboard, and the host script are not finished. |
+| Host | Bundled host runtime build | Yes | Yes | ✅ | Existing script builds the patched jar and a `jlink` JRE for the embedded archive; Windows/ARM release packaging is untested. |
+| CI | Formatting, lint, and test workflows | Yes | No | ❌ | No `.github/workflows/ci.yml` yet. |
+| CI | Host jar and per-target runtime artifacts | Yes | No | ❌ | The jar release and per-target host zips are not published. |
+| Release | Six-target binary matrix | Yes | No | ❌ | Linux/macOS/Windows x86_64 and ARM64 releases are not built. |
+| Release | SHA-256 checksums | Yes | No | ❌ | No release checksums are generated or verified. |
+| Release | GitHub release automation | Yes | No | ❌ | Tag-driven build and publish workflows do not exist. |
+| Nix | Flake package and app outputs | Yes | No | ❌ | The flake only exposes the devshell and formatter. |
+| Nix | Cachix binary cache | Yes | No | ❌ | No cache, public key, CI push, or pins yet. |
+| Release | `v0.2.0` test release | Yes | No | ❌ | Planned as the first end-to-end release exercise. |
+| Release | `v1.0.0` public release | Yes | No | ❌ | Planned after the test release and documentation pass. |
+| Docs | Release and install documentation | Yes | No | ❌ | README install/release sections are not written yet. |
+| Distribution | Code signing | No | No | ➖ | Deliberately omitted; unsigned archives with SHA-256 checksums only. |
+
 ## Verification snapshot
 
 | Check | Result |
@@ -374,7 +396,7 @@ table below.
 | Release build | Passes |
 | Bundled host | Patched, rebuilt, embedded archive |
 | Live checks | Extension jobs, not-loaded delete, story filtering, downloads, cover overlay, history, categories, read-state mirroring |
-| Docs audit | 2026-11-24: stale phase checklists archived; parity tables reconciled with plan |
+| Docs audit | 2026-11-24: stale phase checklists archived; parity tables reconciled with plan; Publishing category added |
 
 ## Remaining work
 

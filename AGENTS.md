@@ -13,17 +13,34 @@ The project is manga-first; anime browsing is outside the current scope.
 
 ## Status
 
-All parity feature tables live in `docs/roadmap.md` under `## Parity detail`; category
-plans live under `docs/parity/`. Update the affected roadmap table whenever behavior
-changes or work lands, then run `python3 scripts/parity-score.py` to refresh the
-aggregate tables and percentages.
+All completion feature tables live in `docs/roadmap.md` under `## Parity detail`;
+category design plans live under `docs/parity/`, and the release plan lives in
+`docs/publishing.md`. The roadmap tables are the completion source of truth.
 
 Local libraries, remote sources, extension management, the reader, downloads, tracking,
-backups, history, and settings are implemented. The parity roadmap currently scores
-97.7%; the remaining rows are live tracker/restore verification, Kitty placement zoom,
-DNS-over-HTTPS, page-level download concurrency, custom reader color filters, verbose
-logging, and Windows/release work. The API and config format are still unstable, and
-large refactors are welcome when they move the project toward the architecture below.
+backups, history, and settings are implemented. The roadmap currently scores **93.3%**;
+the remaining rows are publishing/release work, live tracker/restore verification, Kitty
+placement zoom, DNS-over-HTTPS, page-level download concurrency, custom reader color
+filters, and verbose logging. The API and config format are still unstable, and large
+refactors are welcome when they move the project toward the architecture below.
+
+## Progress documentation
+
+Keep progress documentation current in the same commit as the work that changes it. This
+is mandatory, not a follow-up:
+
+- Update the affected rows in `docs/roadmap.md` immediately, then run
+  `python3 scripts/parity-score.py` so the summary counts and percentages match.
+- Update `docs/plan.md` checkboxes, remaining work, and risks when a planned item lands or
+  a new gap is discovered.
+- Update `docs/publishing.md` when release, CI, Nix, Cachix, Windows-portability, or
+  documentation work changes.
+- Update `README.md` and this file when user-facing or agent-facing behavior, commands,
+  configuration, limitations, or status change.
+- Keep comments and doc comments beside behavior changes accurate; do not leave stale
+  "planned", "partial", or "missing" claims in place.
+- Treat `docs/parity/*` checklists and `docs/history.md` as historical design context,
+  not completion metrics. Only the roadmap tables drive the percentage.
 
 ## Environment
 
