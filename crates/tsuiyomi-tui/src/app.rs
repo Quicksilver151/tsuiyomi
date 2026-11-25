@@ -16850,6 +16850,15 @@ impl AppState {
 
     fn load_page(&mut self) {
         self.start_reading_session();
+        // Scroll mode never renders a full source image. Encoding a long webtoon
+        // strip as one protocol is what made first opens appear to freeze before
+        // the sliced layout was ready; the scroll worker loads bounded blocks.
+        if self.reader_mode == ReaderMode::Scroll {
+            if let Some(reader) = self.reader.as_mut() {
+                reader.protocol = None;
+            }
+            return;
+        }
         let Some(reader) = self.reader.as_mut() else {
             return;
         };

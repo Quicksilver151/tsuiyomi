@@ -5799,13 +5799,10 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     }
                 }
                 scroll.deferred_transmits = deferred;
-            } else if let Some(protocol) = reader.protocol.as_mut() {
-                frame.render_stateful_widget(
-                    StatefulImage::new().resize(Resize::Fit(None)),
-                    chunks[1],
-                    protocol,
-                );
             } else {
+                // Never fall back to the full source image here. A long webtoon
+                // strip encoded as one protocol stalls the UI before the sliced
+                // scroll layout is available.
                 draw_loading(frame, chunks[1], app.reader_animation_frame);
             }
         }
