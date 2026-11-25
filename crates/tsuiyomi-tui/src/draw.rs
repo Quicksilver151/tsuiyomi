@@ -5814,12 +5814,135 @@ fn spinner(frame: u8) -> &'static str {
     FRAMES[usize::from(frame) % FRAMES.len()]
 }
 
+/// The katakana ツ (tsu) in white blocks, revealed one block at a time.
+///
+/// Each stroke is a separate sequence. A stroke finishes and holds before the
+/// next one begins, so the three strokes never animate in parallel.
+const TSU_WIDTH: usize = 13;
+const TSU_HEIGHT: usize = 6;
+/// The first two strokes get 80 ms per block at the 40 ms loader tick.
+const TSU_FAST_STROKE_TICKS: usize = 2;
+/// The long final stroke gets 40 ms per block.
+const TSU_FINAL_STROKE_TICKS: usize = 1;
+/// Pause after the first two strokes so they stay sequential.
+const TSU_STROKE_HOLD_TICKS: usize = 4;
+/// Hold the completed glyph for 320 ms before restarting.
+const TSU_FINAL_HOLD_TICKS: usize = 8;
+
+const TSU_STROKES: [&[(usize, usize)]; 3] = [
+    // First short mark: upper left, ticking down-right.
+    &[(0, 2), (1, 3)],
+    // Second short mark beside it.
+    &[(0, 7), (1, 8)],
+    // Long sweep from the upper right down to the rounded bottom.
+    &[
+        (0, 12),
+        (1, 12),
+        (1, 11),
+        (2, 11),
+        (2, 10),
+        (3, 9),
+        (4, 8),
+        (4, 7),
+        (4, 6),
+        (5, 5),
+        (5, 4),
+        (5, 3),
+        (5, 2),
+    ],
+];
+
+fn tsu_stroke_ticks(stroke: usize) -> usize {
+    if stroke < 2 {
+        TSU_FAST_STROKE_TICKS
+    } else {
+        TSU_FINAL_STROKE_TICKS
+    }
+}
+
+fn tsu_cycle_len() -> usize {
+    TSU_STROKES
+        .iter()
+        .enumerate()
+        .map(|(index, stroke)| stroke.len() * tsu_stroke_ticks(index))
+        .sum::<usize>()
+        + 2 * TSU_STROKE_HOLD_TICKS
+        + TSU_FINAL_HOLD_TICKS
+}
+
+fn tsu_visible_blocks(frame: u8) -> usize {
+    let mut remaining = usize::from(frame) % tsu_cycle_len();
+    let mut visible = 0;
+    for (index, stroke) in TSU_STROKES.iter().enumerate() {
+        let ticks = tsu_stroke_ticks(index);
+        let span = stroke.len() * ticks;
+        if remaining < span {
+            return visible + (remaining / ticks) + 1;
+        }
+        remaining -= span;
+        visible += stroke.len();
+        if index == TSU_STROKES.len() - 1 {
+            return visible;
+        }
+        if remaining < TSU_STROKE_HOLD_TICKS {
+            return visible;
+        }
+        remaining -= TSU_STROKE_HOLD_TICKS;
+    }
+    visible
+}
+
+fn tsu_frame(frame: u8) -> Vec<String> {
+    let visible = tsu_visible_blocks(frame);
+    let mut grid = vec![vec![' '; TSU_WIDTH]; TSU_HEIGHT];
+    for &(row, column) in TSU_STROKES
+        .iter()
+        .flat_map(|stroke| stroke.iter())
+        .take(visible)
+    {
+        grid[row][column] = '█';
+    }
+    grid.into_iter()
+        .map(|row| row.into_iter().collect())
+        .collect()
+}
+
 fn draw_loading(frame: &mut Frame, area: Rect, frame_index: u8) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+
+    // Keep the loader inside small scroll blocks and narrow terminals. The
+    // block sprite needs thirteen columns and seven rows including the label;
+    // otherwise use a compact one-line spinner.
+    if area.width >= TSU_WIDTH as u16 && area.height >= 7 {
+        let mut lines: Vec<Line> = tsu_frame(frame_index)
+            .iter()
+            .map(|line| {
+                Line::from(Span::styled(
+                    format!("{line:<TSU_WIDTH$}"),
+                    Style::default().fg(Color::White),
+                ))
+            })
+            .collect();
+        lines.push(Line::from(Span::styled(
+            "loading",
+            Style::default().fg(c_overlay1()),
+        )));
+        let padding = area.height.saturating_sub(lines.len() as u16) / 2;
+        let mut content = vec![Line::from(""); usize::from(padding)];
+        content.extend(lines);
+        frame.render_widget(
+            Paragraph::new(Text::from(content))
+                .alignment(Alignment::Center)
+                .style(Style::default().bg(c_base())),
+            area,
+        );
+        return;
+    }
+
     frame.render_widget(
-        Paragraph::new(format!("{} Loading…", spinner(frame_index)))
+        Paragraph::new(format!("{} Loading…", spinner(frame_index / 2)))
             .alignment(Alignment::Center)
             .style(Style::default().fg(c_overlay1())),
         area,
@@ -8536,6 +8659,34 @@ mod tests {
             spans.last().map(|span| span.content.as_ref()),
             Some("2024-01-01")
         );
+    }
+
+    #[test]
+    fn tsu_loading_animation_adds_blocks_in_order() {
+        let total: usize = TSU_STROKES.iter().map(|stroke| stroke.len()).sum();
+        let mut previous = 0;
+        for frame in 0..tsu_cycle_len() {
+            let count = tsu_visible_blocks(frame as u8);
+            assert!(count >= previous, "frame {frame}");
+            previous = count;
+        }
+        assert_eq!(previous, total);
+
+        // First stroke: one new block every two 40 ms ticks.
+        assert_eq!(tsu_visible_blocks(0), 1);
+        assert_eq!(tsu_visible_blocks(1), 1);
+        assert_eq!(tsu_visible_blocks(2), 2);
+        assert_eq!(tsu_visible_blocks(3), 2);
+        assert_eq!(tsu_visible_blocks(4), 2);
+
+        // Final stroke: one new block every 40 ms tick.
+        let final_start = TSU_STROKES[0].len() * TSU_FAST_STROKE_TICKS
+            + TSU_STROKE_HOLD_TICKS
+            + TSU_STROKES[1].len() * TSU_FAST_STROKE_TICKS
+            + TSU_STROKE_HOLD_TICKS;
+        assert_eq!(tsu_visible_blocks(final_start as u8), 5);
+        assert_eq!(tsu_visible_blocks((final_start + 1) as u8), 6);
+        assert_eq!(tsu_visible_blocks((final_start + 2) as u8), 7);
     }
 
     #[test]

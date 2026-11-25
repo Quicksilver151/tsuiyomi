@@ -610,7 +610,8 @@ Chapter transitions are on by default. Continuous scroll keeps the previous, cur
 next chapters in one strip and draws a boundary card between them with the chapter names,
 scanlators, download state, and any missing-chapter gap. Page mode shows a blank boundary
 card naming the adjacent chapter; the same page-turn key continues into it. Images that
-are still loading show an ASCII spinner instead of a frozen frame.
+are still loading show an animated white-block ツ, revealed one block at a time in
+stroke order, instead of a frozen frame.
 
 Library sort, layout, default category, missing-chapter display, duplicate-chapter
 marking, and update restrictions live under **More → Settings → Library**. Incognito is

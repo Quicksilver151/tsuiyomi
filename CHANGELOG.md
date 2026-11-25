@@ -11,7 +11,8 @@ versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first publi
 - Continuous previous/next chapter scrolling with chapter-name boundary cards and
   missing-gap information.
 - A blank page-mode chapter boundary page that continues with the same page-turn key.
-- ASCII loading indicators for images that have not finished loading.
+- An animated white-block katakana ツ loading indicator, revealed one block at a time
+  in stroke order for images that have not finished loading.
 - Scroll mode no longer encodes a full webtoon strip before its sliced layout is ready;
   first chapter opens and chapter changes show the loader instead of freezing.
 

@@ -6022,7 +6022,7 @@ impl AppState {
         let now = Instant::now();
         if self
             .reader_animation_at
-            .is_none_or(|last| now.duration_since(last) >= Duration::from_millis(110))
+            .is_none_or(|last| now.duration_since(last) >= Duration::from_millis(40))
         {
             self.reader_animation_at = Some(now);
             self.reader_animation_frame = self.reader_animation_frame.wrapping_add(1);
