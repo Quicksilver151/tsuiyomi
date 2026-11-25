@@ -6804,6 +6804,34 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
                 "Off".to_owned()
             },
         ),
+        SettingId::ReaderColorFilter => (
+            "Color filter".to_owned(),
+            if app.config.reader_color_filter {
+                "On".to_owned()
+            } else {
+                "Off".to_owned()
+            },
+        ),
+        SettingId::ReaderColorFilterR => (
+            "Filter red".to_owned(),
+            app.config.reader_color_filter_rgba[0].to_string(),
+        ),
+        SettingId::ReaderColorFilterG => (
+            "Filter green".to_owned(),
+            app.config.reader_color_filter_rgba[1].to_string(),
+        ),
+        SettingId::ReaderColorFilterB => (
+            "Filter blue".to_owned(),
+            app.config.reader_color_filter_rgba[2].to_string(),
+        ),
+        SettingId::ReaderColorFilterA => (
+            "Filter alpha".to_owned(),
+            app.config.reader_color_filter_rgba[3].to_string(),
+        ),
+        SettingId::ReaderColorFilterMode => (
+            "Filter mode".to_owned(),
+            app.config.reader_color_filter_mode.label().to_owned(),
+        ),
         SettingId::ReaderSkipRead => (
             "Skip read chapters".to_owned(),
             if app.config.reader_skip_read {
@@ -8535,8 +8563,8 @@ mod tests {
         let text = render(&mut app, 80, 30);
         assert!(text.contains("Settings · Reader"));
         assert!(text.contains("Reading mode"));
-        assert!(text.contains("Zoom"));
-        assert!(text.contains("Prefetch behind"));
+        assert!(text.contains("Color filter"));
+        assert!(text.contains("Grayscale"));
 
         app.settings_page = SettingsPage::Library;
         let text = render(&mut app, 80, 30);

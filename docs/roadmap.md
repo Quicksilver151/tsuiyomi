@@ -14,7 +14,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
-| [Reader](#reader) | 23 | 2 | 0 | 0 | 96.0% |
+| [Reader](#reader) | 24 | 1 | 0 | 0 | 98.0% |
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 10 | 3 | 0 | 0 | 88.5% |
@@ -22,7 +22,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
 | [Publishing](#publishing) | 14 | 1 | 0 | 1 | 96.7% |
-| **All categories** | **267** | **10** | **1** | **11** | **97.8%** |
+| **All categories** | **268** | **9** | **1** | **11** | **98.0%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -231,7 +231,7 @@ table below.
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
 | Zoom | Page and scroll zoom | Yes | ✅ | ✅ | `+`/`-`; page zoom crops/pads and pans with `h/l`/`j/k`, scroll zoom rebuilds rows, no upscaling at 100%. |
 | Display | Crop borders | Yes | ✅ | ✅ | Uniform borders are trimmed; Reader setting. |
-| Display | Color filters / grayscale | Yes | 🟡 | 🟡 | Grayscale is implemented; custom color filters remain. |
+| Display | Color filters / grayscale | Yes | ✅ | ✅ | Grayscale plus RGBA overlay, multiply, and screen filters. |
 | Display | Dual-page, split wide pages, rotate wide pages | Yes | ✅ | ✅ | Paged mode supports dual spreads, half-page navigation for split wide pages, and 90° rotation. |
 | Zoom | Kitty placement-only zoom with disable toggle | Yes | 🟡 | 🟡 | Page zoom works by re-encoding; placement-only scaling and its disable setting are planned. |
 | Progress | Resume last page | Yes | ✅ | ✅ | Debounced save. |

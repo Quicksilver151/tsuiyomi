@@ -10,7 +10,7 @@ use std::{
 
 use image::DynamicImage;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
-use tsuiyomi_core::{page_dimensions, read_page, Page, PageSource};
+use tsuiyomi_core::{page_dimensions, read_page, ColorFilterMode, Page, PageSource};
 
 use crate::app::{build_scroll_block, ScrollPageLayout};
 
@@ -22,6 +22,7 @@ pub(crate) struct BuildRequest {
     pub picker: Picker,
     pub crop_borders: bool,
     pub grayscale: bool,
+    pub color_filter: Option<([u8; 4], ColorFilterMode)>,
 }
 
 pub(crate) struct BuildResult {
@@ -54,8 +55,16 @@ impl PageCache {
         page: &Page,
         crop_borders: bool,
         grayscale: bool,
+        color_filter: Option<([u8; 4], ColorFilterMode)>,
     ) -> Result<Arc<DynamicImage>, String> {
-        let key = format!("{crop_borders}:{grayscale}:{}", page_cache_key(page));
+        let filter_key = match color_filter {
+            Some((color, mode)) => format!("{color:?}:{mode:?}"),
+            None => "none".to_owned(),
+        };
+        let key = format!(
+            "{crop_borders}:{grayscale}:{filter_key}:{}",
+            page_cache_key(page)
+        );
         if let Some(position) = self.entries.iter().position(|(entry, _)| entry == &key) {
             // Refresh the entry's position so it is the last one evicted.
             let entry = self.entries.remove(position);
@@ -71,6 +80,7 @@ impl PageCache {
             image,
             crop_borders,
             grayscale,
+            color_filter,
         ));
         if self.entries.len() >= self.capacity {
             self.entries.remove(0);
@@ -122,8 +132,12 @@ impl ScrollWorker {
                 if !in_window(&request, &worker_generation, &worker_window) {
                     continue;
                 }
-                let Ok(image) = cache.get(&request.page, request.crop_borders, request.grayscale)
-                else {
+                let Ok(image) = cache.get(
+                    &request.page,
+                    request.crop_borders,
+                    request.grayscale,
+                    request.color_filter,
+                ) else {
                     // Report the failure only if the request is still relevant.
                     if in_window(&request, &worker_generation, &worker_window) {
                         let _ = result_tx.send(BuildResult {

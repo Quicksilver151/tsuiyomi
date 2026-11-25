@@ -559,6 +559,9 @@ reader_skip_duplicates = true
 reader_chapter_transitions = true
 reader_crop_borders = false
 reader_grayscale = false
+reader_color_filter = false       # RGBA page overlay
+reader_color_filter_rgba = [0, 0, 0, 64]
+reader_color_filter_mode = "src_over"  # src_over, multiply, screen
 reader_split_wide = false
 reader_rotate_wide = false
 reader_dual_page = false
@@ -612,7 +615,8 @@ next chapters in one strip and draws a boundary card between them with the chapt
 scanlators, download state, and any missing-chapter gap. Page mode shows a blank boundary
 card naming the adjacent chapter; the same page-turn key continues into it. Images that
 are still loading show an animated white-block ツ, revealed one block at a time in
-stroke order, instead of a frozen frame.
+stroke order, instead of a frozen frame. Reader color filters combine an RGBA overlay
+with overlay, multiply, or screen blending.
 
 Library sort, layout, default category, missing-chapter display, duplicate-chapter
 marking, and update restrictions live under **More → Settings → Library**. Incognito is

@@ -9,6 +9,7 @@ versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first publi
 ### Added
 
 - Page-level download concurrency, configurable from 1–15 pages per chapter.
+- Reader RGBA color filters with overlay, multiply, and screen modes.
 
 - Continuous previous/next chapter scrolling with chapter-name boundary cards and
   missing-gap information.

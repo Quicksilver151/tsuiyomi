@@ -32,14 +32,14 @@ use tsuiyomi_core::{
     visible_chapters, write_comic_info, write_mihon_backup, BackupCategory, BackupChapter,
     BackupHistory, BackupManga, BackupSeriesExtra, BackupSource, BackupTracking, BookmarkStore,
     CachedStory, CategoryDisplay, Chapter, ChapterDisplay, ChapterKind, ChapterMeta,
-    ChapterSettings, ChapterSort, ComicInfo, Config, ExtensionInfo, GlobalSearchScope,
-    HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library, LibraryDisplayMode,
-    LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup, NotLoadedExtension,
-    Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats, RemoteChapter,
-    RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries, RemoteSource,
-    RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference, SourcePreferenceKind,
-    SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth, TrackerEntry, TrackerLink,
-    TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
+    ChapterSettings, ChapterSort, ColorFilterMode, ComicInfo, Config, ExtensionInfo,
+    GlobalSearchScope, HistoryEntry, HistoryStore, HostClient, HostProcess, InstallJob, Library,
+    LibraryDisplayMode, LibraryFilters, LibrarySort, LocalSourceOrder, MigrationMatch, MihonBackup,
+    NotLoadedExtension, Page, PageSource, ProgressStore, ReadState, ReadingMode, ReadingStats,
+    RemoteChapter, RemoteFavorite, RemoteManga, RemoteMangaPage, RemoteReadState, RemoteSeries,
+    RemoteSource, RemoteUpdate, Series, SourceDisplayMode, SourceFilter, SourcePreference,
+    SourcePreferenceKind, SourcePreferenceValue, SourcePreferences, Theme, TrackerAuth,
+    TrackerEntry, TrackerLink, TrackerMedia, TrackerStatus, TriState, UpdateEntry, UpdateStore,
 };
 
 use crate::{
@@ -489,6 +489,12 @@ pub enum SettingId {
     ReaderChapterTransitions,
     ReaderCropBorders,
     ReaderGrayscale,
+    ReaderColorFilter,
+    ReaderColorFilterR,
+    ReaderColorFilterG,
+    ReaderColorFilterB,
+    ReaderColorFilterA,
+    ReaderColorFilterMode,
     ReaderSplitWide,
     ReaderRotateWide,
     ReaderDualPage,
@@ -612,7 +618,7 @@ const LIBRARY_ROWS: [MoreRow; 17] = [
     MoreRow::Setting(SettingId::UpdatesTabBadge),
 ];
 
-const READER_ROWS: [MoreRow; 16] = [
+const READER_ROWS: [MoreRow; 23] = [
     MoreRow::Divider("Reading"),
     MoreRow::Setting(SettingId::ReadingMode),
     MoreRow::Setting(SettingId::ReaderFit),
@@ -621,6 +627,13 @@ const READER_ROWS: [MoreRow; 16] = [
     MoreRow::Setting(SettingId::ReaderChapterTransitions),
     MoreRow::Setting(SettingId::ReaderCropBorders),
     MoreRow::Setting(SettingId::ReaderGrayscale),
+    MoreRow::Divider("Color filter"),
+    MoreRow::Setting(SettingId::ReaderColorFilter),
+    MoreRow::Setting(SettingId::ReaderColorFilterR),
+    MoreRow::Setting(SettingId::ReaderColorFilterG),
+    MoreRow::Setting(SettingId::ReaderColorFilterB),
+    MoreRow::Setting(SettingId::ReaderColorFilterA),
+    MoreRow::Setting(SettingId::ReaderColorFilterMode),
     MoreRow::Setting(SettingId::ReaderSplitWide),
     MoreRow::Setting(SettingId::ReaderRotateWide),
     MoreRow::Setting(SettingId::ReaderDualPage),
@@ -16052,6 +16065,43 @@ impl AppState {
                     }
                 }
             }
+            SettingId::ReaderColorFilter => {
+                self.config.reader_color_filter = !self.config.reader_color_filter;
+                if self.reader.is_some() {
+                    match self.reader_mode {
+                        ReaderMode::Page => self.load_page(),
+                        ReaderMode::Scroll => self.build_scroll(terminal_width()),
+                    }
+                }
+            }
+            SettingId::ReaderColorFilterR
+            | SettingId::ReaderColorFilterG
+            | SettingId::ReaderColorFilterB
+            | SettingId::ReaderColorFilterA => {
+                let channel = match setting {
+                    SettingId::ReaderColorFilterR => 0,
+                    SettingId::ReaderColorFilterG => 1,
+                    SettingId::ReaderColorFilterB => 2,
+                    _ => 3,
+                };
+                let value = i32::from(self.config.reader_color_filter_rgba[channel]) + delta * 8;
+                self.config.reader_color_filter_rgba[channel] = value.clamp(0, 255) as u8;
+                if self.reader.is_some() {
+                    match self.reader_mode {
+                        ReaderMode::Page => self.load_page(),
+                        ReaderMode::Scroll => self.build_scroll(terminal_width()),
+                    }
+                }
+            }
+            SettingId::ReaderColorFilterMode => {
+                self.config.reader_color_filter_mode = self.config.reader_color_filter_mode.next();
+                if self.reader.is_some() {
+                    match self.reader_mode {
+                        ReaderMode::Page => self.load_page(),
+                        ReaderMode::Scroll => self.build_scroll(terminal_width()),
+                    }
+                }
+            }
             SettingId::ReaderSplitWide => {
                 self.config.reader_split_wide = !self.config.reader_split_wide;
                 if self.reader.is_some() && self.reader_mode == ReaderMode::Page {
@@ -16855,6 +16905,13 @@ impl AppState {
         }
     }
 
+    pub(crate) fn reader_color_filter(&self) -> Option<([u8; 4], ColorFilterMode)> {
+        self.config.reader_color_filter.then_some((
+            self.config.reader_color_filter_rgba,
+            self.config.reader_color_filter_mode,
+        ))
+    }
+
     fn load_page(&mut self) {
         self.start_reading_session();
         // Scroll mode never renders a full source image. Encoding a long webtoon
@@ -16866,6 +16923,7 @@ impl AppState {
             }
             return;
         }
+        let color_filter = self.reader_color_filter();
         let Some(reader) = self.reader.as_mut() else {
             return;
         };
@@ -16900,6 +16958,7 @@ impl AppState {
             image,
             self.config.reader_crop_borders,
             self.config.reader_grayscale,
+            color_filter,
         );
         let (image, split_wide) = layout_reader_page(
             image,
@@ -16917,6 +16976,7 @@ impl AppState {
                             next_image,
                             self.config.reader_crop_borders,
                             self.config.reader_grayscale,
+                            color_filter,
                         );
                         image = combine_dual_pages(image, next_image);
                     }
@@ -17617,6 +17677,7 @@ impl AppState {
                             picker: picker.clone(),
                             crop_borders: self.config.reader_crop_borders,
                             grayscale: self.config.reader_grayscale,
+                            color_filter: self.reader_color_filter(),
                         });
                     }
                 }
@@ -17688,6 +17749,7 @@ impl AppState {
             layout,
             self.config.reader_crop_borders,
             self.config.reader_grayscale,
+            self.reader_color_filter(),
         );
         if let Some(reader) = self.reader.as_mut() {
             let scroll = if pending {
@@ -18747,6 +18809,7 @@ pub(crate) fn build_scroll_protocol(
     layout: ScrollPageLayout,
     crop_borders: bool,
     grayscale: bool,
+    color_filter: Option<([u8; 4], ColorFilterMode)>,
 ) -> Result<SlicedProtocol, String> {
     let started = std::time::Instant::now();
     scroll_debug(&format!(
@@ -18756,7 +18819,7 @@ pub(crate) fn build_scroll_protocol(
     let bytes = read_page(page).map_err(|error| error.to_string())?;
     let image =
         image::load_from_memory(&bytes).map_err(|error| format!("{}: {error}", page.name))?;
-    let image = prepare_page_image(image, crop_borders, grayscale);
+    let image = prepare_page_image(image, crop_borders, grayscale, color_filter);
     let result = build_scroll_block(picker, &image, &page.name, layout);
     scroll_debug(&format!(
         "build end {} {:?} ok={}",
@@ -19445,17 +19508,51 @@ pub(crate) fn prepare_page_image(
     image: image::DynamicImage,
     crop_borders: bool,
     grayscale: bool,
+    color_filter: Option<([u8; 4], ColorFilterMode)>,
 ) -> image::DynamicImage {
     let image = if crop_borders {
         crop_uniform_borders(&image)
     } else {
         image
     };
-    if grayscale {
-        image.grayscale()
-    } else {
-        image
+    let image = if grayscale { image.grayscale() } else { image };
+    match color_filter {
+        Some((color, mode)) => apply_color_filter(image, color, mode),
+        None => image,
     }
+}
+
+fn apply_color_filter(
+    image: image::DynamicImage,
+    [red, green, blue, alpha]: [u8; 4],
+    mode: ColorFilterMode,
+) -> image::DynamicImage {
+    if alpha == 0 {
+        return image;
+    }
+    let mut image = image.to_rgba8();
+    let opacity = f32::from(alpha) / 255.0;
+    for pixel in image.pixels_mut() {
+        let [r, g, b, a] = pixel.0;
+        let blend = match mode {
+            ColorFilterMode::SrcOver => [red, green, blue],
+            ColorFilterMode::Multiply => [
+                (u16::from(r) * u16::from(red) / 255) as u8,
+                (u16::from(g) * u16::from(green) / 255) as u8,
+                (u16::from(b) * u16::from(blue) / 255) as u8,
+            ],
+            ColorFilterMode::Screen => [
+                255 - (u16::from(255 - r) * u16::from(255 - red) / 255) as u8,
+                255 - (u16::from(255 - g) * u16::from(255 - green) / 255) as u8,
+                255 - (u16::from(255 - b) * u16::from(255 - blue) / 255) as u8,
+            ],
+        };
+        let mix = |source: u8, target: u8| {
+            (f32::from(source) * (1.0 - opacity) + f32::from(target) * opacity).round() as u8
+        };
+        *pixel = image::Rgba([mix(r, blend[0]), mix(g, blend[1]), mix(b, blend[2]), a]);
+    }
+    image::DynamicImage::ImageRgba8(image)
 }
 
 /// Trim near-uniform borders, capped at a quarter of each edge.
@@ -20840,14 +20937,30 @@ mod tests {
                 page.put_pixel(x, y, image::Rgba([0, 0, 0, 255]));
             }
         }
-        let cropped = prepare_page_image(image::DynamicImage::ImageRgba8(page), true, false);
+        let cropped = prepare_page_image(image::DynamicImage::ImageRgba8(page), true, false, None);
         assert_eq!((cropped.width(), cropped.height()), (20, 20));
 
         let red = image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255]));
-        let gray = prepare_page_image(image::DynamicImage::ImageRgba8(red), false, true);
+        let gray = prepare_page_image(
+            image::DynamicImage::ImageRgba8(red.clone()),
+            false,
+            true,
+            None,
+        );
         let pixel = gray.to_rgba8().get_pixel(0, 0).0;
         assert_eq!(pixel[0], pixel[1]);
         assert_eq!(pixel[1], pixel[2]);
+
+        let blue = prepare_page_image(
+            image::DynamicImage::ImageRgba8(red),
+            false,
+            false,
+            Some(([0, 0, 255, 255], ColorFilterMode::SrcOver)),
+        );
+        let pixel = blue.to_rgba8().get_pixel(0, 0).0;
+        assert_eq!(pixel[0], 0);
+        assert_eq!(pixel[1], 0);
+        assert_eq!(pixel[2], 255);
     }
 
     #[test]

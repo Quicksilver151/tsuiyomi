@@ -5,14 +5,14 @@ live in the [roadmap](roadmap.md); this file tracks scope, phases, and acceptanc
 criteria.
 
 > Checkbox completion here is **not** the parity percentage. The roadmap tables are the
-> authoritative implementation measure (97.8% today). Unchecked boxes include tests,
+> authoritative implementation measure (98.0% today). Unchecked boxes include tests,
 > live/external verification, portability work, and backlog items, so counting plan
 > checkboxes will understate feature parity.
 
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **97.8%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **98.0%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`. Release and distribution
 work is tracked separately in [`publishing.md`](publishing.md).
 
@@ -178,8 +178,8 @@ Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
             text when no base URL exists.
 - [x] Add reader page actions: copy/save page, set as cover, open externally.
 - [x] Add skip rules: read, filtered, duplicate chapters, and chapter transitions.
-- [x] Add display extras: crop borders, grayscale, dual-page spreads, and split/rotate
-      wide pages.
+- [x] Add display extras: crop borders, grayscale, RGBA color filters, dual-page
+      spreads, and split/rotate wide pages.
 - [ ] Kitty placement-only zoom:
       - [ ] Explain: Kitty can reposition/resize an already transmitted image without
             resending pixels. The current page zoom crops/pads and re-encodes.

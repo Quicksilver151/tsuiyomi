@@ -91,6 +91,35 @@ pub enum LocalSourceOrder {
     TitleDesc,
 }
 
+/// How the custom reader color overlay blends with page pixels.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorFilterMode {
+    /// Paint the overlay over the page.
+    #[default]
+    SrcOver,
+    Multiply,
+    Screen,
+}
+
+impl ColorFilterMode {
+    pub fn next(self) -> Self {
+        match self {
+            Self::SrcOver => Self::Multiply,
+            Self::Multiply => Self::Screen,
+            Self::Screen => Self::SrcOver,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::SrcOver => "overlay",
+            Self::Multiply => "multiply",
+            Self::Screen => "screen",
+        }
+    }
+}
+
 /// Built-in color themes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -392,6 +421,12 @@ pub struct Config {
     pub reader_crop_borders: bool,
     /// Render pages in grayscale.
     pub reader_grayscale: bool,
+    /// Blend a custom RGBA color over reader pages.
+    pub reader_color_filter: bool,
+    /// Custom reader color filter RGBA values.
+    pub reader_color_filter_rgba: [u8; 4],
+    /// Blend mode for the custom reader color filter.
+    pub reader_color_filter_mode: ColorFilterMode,
     /// Split landscape pages into left and right halves in paged mode.
     pub reader_split_wide: bool,
     /// Rotate landscape pages to portrait in paged mode.
@@ -494,6 +529,9 @@ impl Default for Config {
             reader_chapter_transitions: true,
             reader_crop_borders: false,
             reader_grayscale: false,
+            reader_color_filter: false,
+            reader_color_filter_rgba: [0, 0, 0, 64],
+            reader_color_filter_mode: ColorFilterMode::SrcOver,
             reader_split_wide: false,
             reader_rotate_wide: false,
             reader_dual_page: false,
