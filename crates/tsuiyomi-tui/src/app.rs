@@ -21527,6 +21527,12 @@ mod tests {
         let reader = app.reader.as_ref().unwrap();
         assert_eq!(reader.chapter_title, "Chapter 2");
         assert_eq!(reader.strip.as_ref().unwrap().current, 1);
+
+        app.toggle_reader_mode();
+        assert_eq!(app.reader_mode, ReaderMode::Page);
+        let reader = app.reader.as_ref().unwrap();
+        assert_eq!(reader.pages.len(), 2);
+        assert!(reader.strip.is_none());
     }
 
     #[test]
