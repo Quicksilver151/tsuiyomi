@@ -313,6 +313,8 @@ pub struct ChapterDownload<'a> {
     pub pages: &'a [Page],
     /// Write a single CBZ archive instead of a page directory.
     pub as_cbz: bool,
+    /// Maximum pages fetched at once. At least one.
+    pub page_concurrency: usize,
 }
 
 /// Download every remote page of a chapter.
@@ -337,6 +339,7 @@ pub fn download_chapter_with_cancel(
         scanlator,
         pages,
         as_cbz,
+        page_concurrency,
     } = request;
     if cancelled() {
         return Err(CoreError::Cancelled);
@@ -352,25 +355,62 @@ pub fn download_chapter_with_cancel(
     })?;
 
     let digits = pages.len().max(1).to_string().len().max(3);
-    for (index, page) in pages.iter().enumerate() {
+    let page_concurrency = page_concurrency.max(1);
+    let remote: Vec<(usize, &str)> = pages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, page)| match &page.source {
+            PageSource::Remote { url } => Some((index, url.as_str())),
+            _ => None,
+        })
+        .collect();
+
+    // Fetch pages in bounded batches. The batch barrier keeps the temporary
+    // directory deterministic and lets cancellation remove it between batches;
+    // page writes still happen in page order.
+    for batch in remote.chunks(page_concurrency) {
         if cancelled() {
             let _ = fs::remove_dir_all(&temporary);
             return Err(CoreError::Cancelled);
         }
-        let PageSource::Remote { url } = &page.source else {
-            continue;
-        };
-        let bytes = crate::host::fetch_bytes(url)?;
-        if cancelled() {
-            let _ = fs::remove_dir_all(&temporary);
-            return Err(CoreError::Cancelled);
+        let results: Vec<(usize, Result<Vec<u8>, CoreError>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = batch
+                .iter()
+                .map(|(index, url)| scope.spawn(move || (*index, crate::host::fetch_bytes(url))))
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle.join().unwrap_or_else(|_| {
+                        (
+                            usize::MAX,
+                            Err(CoreError::Host {
+                                message: "download page worker panicked".to_owned(),
+                            }),
+                        )
+                    })
+                })
+                .collect()
+        });
+        for (index, result) in results {
+            if cancelled() {
+                let _ = fs::remove_dir_all(&temporary);
+                return Err(CoreError::Cancelled);
+            }
+            let bytes = match result {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    let _ = fs::remove_dir_all(&temporary);
+                    return Err(error);
+                }
+            };
+            let extension = image_extension(&bytes);
+            let name = format!("{:0width$}.{extension}", index + 1, width = digits);
+            fs::write(temporary.join(name), bytes).map_err(|source| CoreError::WriteFile {
+                path: temporary.clone(),
+                source,
+            })?;
         }
-        let extension = image_extension(&bytes);
-        let name = format!("{:0width$}.{extension}", index + 1, width = digits);
-        fs::write(temporary.join(name), bytes).map_err(|source| CoreError::WriteFile {
-            path: temporary.clone(),
-            source,
-        })?;
     }
 
     if !as_cbz {
@@ -548,6 +588,51 @@ mod tests {
     }
 
     #[test]
+    fn downloads_remote_pages_with_page_concurrency() {
+        use tiny_http::{Response, Server};
+
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", server.server_addr());
+        let server_thread = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let Ok(request) = server.recv() else {
+                    break;
+                };
+                let _ = request.respond(Response::from_string("page"));
+            }
+        });
+
+        let root = tempfile::tempdir().unwrap();
+        let pages: Vec<Page> = (1..=3)
+            .map(|index| Page {
+                name: format!("{index:03}.jpg"),
+                source: PageSource::Remote {
+                    url: format!("{address}/page-{index}.jpg"),
+                },
+            })
+            .collect();
+        let target = download_chapter_with_cancel(
+            ChapterDownload {
+                root: root.path(),
+                source_name: "Source",
+                series_title: "Series",
+                chapter_name: "Chapter 1",
+                scanlator: None,
+                pages: &pages,
+                as_cbz: false,
+                page_concurrency: 3,
+            },
+            || false,
+        )
+        .unwrap();
+        server_thread.join().unwrap();
+
+        assert!(target.join("001.jpg").is_file());
+        assert!(target.join("002.jpg").is_file());
+        assert!(target.join("003.jpg").is_file());
+    }
+
+    #[test]
     fn cancelled_downloads_do_not_create_directories() {
         let root = tempfile::tempdir().unwrap();
         let error = download_chapter_with_cancel(
@@ -559,6 +644,7 @@ mod tests {
                 scanlator: None,
                 pages: &[],
                 as_cbz: false,
+                page_concurrency: 5,
             },
             || true,
         )

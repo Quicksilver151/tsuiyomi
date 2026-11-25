@@ -7152,6 +7152,10 @@ fn setting_text(app: &AppState, setting: SettingId) -> (String, String) {
             "Concurrent downloads".to_owned(),
             format!("{}", app.config.download_concurrency),
         ),
+        SettingId::DownloadPageConcurrency => (
+            "Concurrent pages".to_owned(),
+            format!("{}", app.config.download_page_concurrency),
+        ),
         SettingId::SaveChaptersAsCbz => (
             "Save as CBZ".to_owned(),
             if app.config.save_chapters_as_cbz {

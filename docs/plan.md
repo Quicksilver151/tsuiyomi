@@ -5,14 +5,14 @@ live in the [roadmap](roadmap.md); this file tracks scope, phases, and acceptanc
 criteria.
 
 > Checkbox completion here is **not** the parity percentage. The roadmap tables are the
-> authoritative implementation measure (97.7% today). Unchecked boxes include tests,
+> authoritative implementation measure (97.8% today). Unchecked boxes include tests,
 > live/external verification, portability work, and backlog items, so counting plan
 > checkboxes will understate feature parity.
 
 ## Goal
 
 Close the selected Mihon gaps without trying to clone Android-only platform behavior.
-The expanded roadmap currently scores **97.7%**; the target is **100% of the expanded,
+The expanded roadmap currently scores **97.8%**; the target is **100% of the expanded,
 in-scope rows**, with deliberate deviations recorded as `➖`. Release and distribution
 work is tracked separately in [`publishing.md`](publishing.md).
 
@@ -147,8 +147,8 @@ verification against a live source pair is still manual.
 
 ### Phase 5 — Downloads
 
-- [x] Add chapter concurrency settings and respect them in the queue; page fetches inside
-      one chapter remain sequential.
+- [x] Add chapter concurrency settings and page concurrency inside each chapter; respect
+      both in the download queue.
 - [x] Add download-ahead and auto-download-while-reading settings.
 - [x] Add delete-after-read policies:
       - [x] After read.
@@ -159,11 +159,10 @@ verification against a live source pair is still manual.
 - [x] Add queue pause/resume/reorder.
 - [x] Keep Wi-Fi-only as a documented desktop deviation.
 - [ ] Tests: queue ordering, concurrency limits, policy eligibility, CBZ round-trip.
-      Queue ordering, pause state, CBZ writing/discovery, and category eligibility are
-      covered; chapter concurrency and a full host download round-trip are not.
+      Queue ordering, pause state, CBZ writing/discovery, category eligibility, and
+      page concurrency are covered; a full host download round-trip is not.
 
-Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`) and page-level concurrency
-(`🟡`).
+Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`).
 
 ### Phase 6 — Reader
 

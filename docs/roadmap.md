@@ -18,11 +18,11 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 10 | 3 | 0 | 0 | 88.5% |
-| [Downloads](#downloads) | 6 | 1 | 0 | 1 | 92.9% |
+| [Downloads](#downloads) | 7 | 0 | 0 | 1 | 100.0% |
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
 | [Publishing](#publishing) | 14 | 1 | 0 | 1 | 96.7% |
-| **All categories** | **266** | **11** | **1** | **11** | **97.7%** |
+| **All categories** | **267** | **10** | **1** | **11** | **97.8%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -321,7 +321,7 @@ table below.
 | Area | Feature | Mihon | tsuiyomi | Status | Notes |
 |---|---|---|---|---|---|
 | Management | Folder, queue, series list, cancel, delete | Yes | ✅ | ✅ | More → Downloads. |
-| Policies | Concurrent pages/sources settings | Yes | 🟡 | 🟡 | 1–5 chapters/sources download at once; page-level concurrency remains. |
+| Policies | Concurrent pages/sources settings | Yes | ✅ | ✅ | 1–5 chapters and 1–15 pages per chapter download at once. |
 | Policies | Download ahead / auto-download while reading | Yes | ✅ | ✅ | Queues the next N chapters when a remote chapter opens. |
 | Policies | Delete after read/bookmarked/excluded categories | Yes | ✅ | ✅ | Delete-after-read, keep-bookmarked, and keep-category exceptions. |
 | Policies | Global/category new-chapter downloads | Yes | ✅ | ✅ | Per-series toggle plus a global policy scoped to chosen categories. |
@@ -390,7 +390,7 @@ table below.
 
 | Check | Result |
 |---|---|
-| Core tests | 150 pass, 1 ignored |
+| Core tests | 151 pass, 1 ignored |
 | TUI tests | 229 pass |
 | Binary integration test | 1 pass (`backup-info`) |
 | Windows target check | `cargo check --target x86_64-pc-windows-gnu` passes; runtime CI is still pending |

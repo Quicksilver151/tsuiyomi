@@ -532,6 +532,7 @@ pub enum SettingId {
     KeepBookmarkedDownloads,
     SaveChaptersAsCbz,
     DownloadConcurrency,
+    DownloadPageConcurrency,
     DownloadExcludedCategories,
     AutoDownloadNewChapters,
     AutoDownloadCategories,
@@ -630,7 +631,7 @@ const READER_ROWS: [MoreRow; 16] = [
     MoreRow::Setting(SettingId::CacheMargin),
 ];
 
-const DOWNLOADS_ROWS: [MoreRow; 13] = [
+const DOWNLOADS_ROWS: [MoreRow; 14] = [
     MoreRow::Divider("Storage"),
     MoreRow::Setting(SettingId::DownloadsPath),
     MoreRow::Note("TSUIYOMI_DOWNLOADS overrides this for one session."),
@@ -641,6 +642,7 @@ const DOWNLOADS_ROWS: [MoreRow; 13] = [
     MoreRow::Setting(SettingId::KeepBookmarkedDownloads),
     MoreRow::Setting(SettingId::SaveChaptersAsCbz),
     MoreRow::Setting(SettingId::DownloadConcurrency),
+    MoreRow::Setting(SettingId::DownloadPageConcurrency),
     MoreRow::Setting(SettingId::DownloadExcludedCategories),
     MoreRow::Setting(SettingId::AutoDownloadNewChapters),
     MoreRow::Setting(SettingId::AutoDownloadCategories),
@@ -9371,6 +9373,7 @@ impl AppState {
                     scanlator: chapter.scanlator.clone(),
                     pages,
                     as_cbz: self.config.save_chapters_as_cbz,
+                    page_concurrency: self.config.download_page_concurrency,
                     cancel: Arc::new(AtomicBool::new(false)),
                 },
             });
@@ -16137,6 +16140,10 @@ impl AppState {
                     (self.config.download_concurrency as i32 + delta).clamp(1, 5) as usize;
                 self.pump_download_queue();
             }
+            SettingId::DownloadPageConcurrency => {
+                self.config.download_page_concurrency =
+                    (self.config.download_page_concurrency as i32 + delta).clamp(1, 15) as usize;
+            }
             SettingId::DownloadExcludedCategories => {}
             SettingId::AutoDownloadNewChapters => {
                 self.config.auto_download_new_chapters = !self.config.auto_download_new_chapters;
@@ -20371,6 +20378,7 @@ mod tests {
                 scanlator: None,
                 pages: Vec::new(),
                 as_cbz: false,
+                page_concurrency: 5,
                 cancel: Arc::new(AtomicBool::new(false)),
             },
         };

@@ -238,6 +238,8 @@ pub struct Config {
     pub save_chapters_as_cbz: bool,
     /// Maximum chapters downloaded at the same time (1–5).
     pub download_concurrency: usize,
+    /// Remote pages fetched at once inside one chapter download.
+    pub download_page_concurrency: usize,
     /// Categories whose downloaded chapters are kept when delete-after-read runs.
     pub download_excluded_categories: BTreeSet<String>,
     /// Download newly discovered chapters for every saved series.
@@ -419,6 +421,7 @@ impl Default for Config {
             keep_bookmarked_downloads: true,
             save_chapters_as_cbz: false,
             download_concurrency: 1,
+            download_page_concurrency: 5,
             download_excluded_categories: BTreeSet::new(),
             auto_download_new_chapters: false,
             auto_download_categories: BTreeSet::new(),

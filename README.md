@@ -571,6 +571,7 @@ delete_after_read = false      # remove a downloaded chapter after its last page
 keep_bookmarked_downloads = true
 save_chapters_as_cbz = false   # save downloads as .cbz archives
 download_concurrency = 1       # simultaneous chapter downloads (1-5)
+download_page_concurrency = 5  # simultaneous pages inside one chapter (1-15)
 auto_download_new_chapters = false
 # auto_download_categories = ["Reading"]
 # download_excluded_categories = ["Keep"]

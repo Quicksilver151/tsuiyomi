@@ -8,6 +8,8 @@ versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first publi
 
 ### Added
 
+- Page-level download concurrency, configurable from 1–15 pages per chapter.
+
 - Continuous previous/next chapter scrolling with chapter-name boundary cards and
   missing-gap information.
 - A blank page-mode chapter boundary page that continues with the same page-turn key.

@@ -20,6 +20,7 @@ pub(crate) struct DownloadRequest {
     pub scanlator: Option<String>,
     pub pages: Vec<Page>,
     pub as_cbz: bool,
+    pub page_concurrency: usize,
     pub cancel: Arc<AtomicBool>,
 }
 
@@ -58,6 +59,7 @@ impl DownloadWorker {
                     scanlator: request.scanlator.as_deref(),
                     pages: &request.pages,
                     as_cbz: request.as_cbz,
+                    page_concurrency: request.page_concurrency,
                 },
                 || request.cancel.load(Ordering::Relaxed),
             )
