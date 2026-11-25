@@ -30,8 +30,8 @@ use crate::{
     app::{
         AppState, BrowseTab, BrowseView, ChapterSettingRow, DownloadState, ExtensionRow, FilterRow,
         HistorySection, LibraryView, MoreFocus, MoreRow, MoreSection, PickerKind, PickerState,
-        ReaderMode, SelectionScope, SettingId, SettingsPage, SourceFilterRow, SourceRow,
-        MORE_SECTIONS, SETTINGS_PAGES,
+        ReaderMode, ReaderTransitionDirection, ReaderTransitionInfo, SelectionScope, SettingId,
+        SettingsPage, SourceFilterRow, SourceRow, MORE_SECTIONS, SETTINGS_PAGES,
     },
     layout::{
         app_layout_with_commands, grid_columns, grid_margin, grid_row_offset, grid_tile_rect,
@@ -1835,10 +1835,28 @@ fn draw_reader_bar(frame: &mut Frame, area: Rect, app: &AppState) {
         Alignment::Center,
     );
 
-    let total = reader.pages.len().max(1);
-    let current = (reader.page_index + 1).min(total);
+    let (total, current, page_in_chapter) = reader
+        .strip
+        .as_ref()
+        .and_then(|strip| {
+            let chapter = strip.chapters.get(strip.current)?;
+            let total = chapter.page_count.max(1);
+            let page = reader
+                .page_index
+                .saturating_sub(chapter.start_page)
+                .min(total - 1);
+            Some((total, page + 1, page))
+        })
+        .unwrap_or_else(|| {
+            let total = reader.pages.len().max(1);
+            (
+                total,
+                (reader.page_index + 1).min(total),
+                reader.page_index.min(total - 1),
+            )
+        });
     let ratio = if total > 1 {
-        reader.page_index.min(total - 1) as f64 / (total - 1) as f64
+        page_in_chapter as f64 / (total - 1) as f64
     } else {
         0.0
     };
@@ -5695,7 +5713,9 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     match mode {
         ReaderMode::Page => {
-            if let Some(protocol) = reader.protocol.as_mut() {
+            if let Some(transition) = reader.page_transition.as_ref() {
+                draw_reader_transition(frame, chunks[1], transition);
+            } else if let Some(protocol) = reader.protocol.as_mut() {
                 let resize = match app.config.reader_fit {
                     tsuiyomi_core::ReaderFit::Fit => Resize::Fit(None),
                     tsuiyomi_core::ReaderFit::Crop => Resize::Crop(None),
@@ -5707,7 +5727,7 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     protocol,
                 );
             } else {
-                placeholder_message(frame, chunks[1], "Loading page…");
+                draw_loading(frame, chunks[1], app.reader_animation_frame);
             }
         }
         ReaderMode::Scroll => {
@@ -5728,7 +5748,29 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     if top + i64::from(page.rows) <= 0 {
                         continue;
                     }
+                    if let Some(transition) = page
+                        .transition
+                        .and_then(|transition| reader.strip.as_ref()?.transitions.get(transition))
+                    {
+                        let card_area = Rect {
+                            x: area.x + area.width.saturating_sub(page.cell_width) / 2,
+                            y: area.y.saturating_add(top.max(0) as u16),
+                            width: page.cell_width.min(area.width),
+                            height: page.rows.min(area.height),
+                        };
+                        draw_reader_transition(frame, card_area, transition);
+                        continue;
+                    }
                     if !scroll.protocols.get(index).is_some_and(Option::is_some) {
+                        if !scroll.errors.get(index).is_some_and(Option::is_some) {
+                            let block_area = Rect {
+                                x: area.x + area.width.saturating_sub(page.cell_width) / 2,
+                                y: area.y.saturating_add(top.max(0) as u16),
+                                width: page.cell_width.min(area.width),
+                                height: page.rows.min(area.height),
+                            };
+                            draw_loading(frame, block_area, app.reader_animation_frame);
+                        }
                         continue;
                     }
                     if scroll.fresh.get(index).copied().unwrap_or(false) {
@@ -5764,17 +5806,124 @@ fn draw_reader(frame: &mut Frame, area: Rect, app: &mut AppState) {
                     protocol,
                 );
             } else {
-                placeholder_message(frame, chunks[1], "Preparing scroll view…");
+                draw_loading(frame, chunks[1], app.reader_animation_frame);
             }
         }
     }
 }
 
-fn placeholder_message(frame: &mut Frame, area: Rect, message: &str) {
+fn spinner(frame: u8) -> &'static str {
+    const FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
+    FRAMES[usize::from(frame) % FRAMES.len()]
+}
+
+fn draw_loading(frame: &mut Frame, area: Rect, frame_index: u8) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
     frame.render_widget(
-        Paragraph::new(message.to_owned())
+        Paragraph::new(format!("{} Loading…", spinner(frame_index)))
             .alignment(Alignment::Center)
             .style(Style::default().fg(c_overlay1())),
+        area,
+    );
+}
+
+fn draw_reader_transition(frame: &mut Frame, area: Rect, transition: &ReaderTransitionInfo) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let mut lines = Vec::new();
+    let (
+        top_label,
+        top_title,
+        top_scanlator,
+        top_downloaded,
+        bottom_label,
+        bottom_title,
+        bottom_scanlator,
+        bottom_downloaded,
+    ) = match transition.direction {
+        ReaderTransitionDirection::Next => (
+            "Finished",
+            &transition.from_title,
+            &transition.from_scanlator,
+            transition.from_downloaded,
+            "Next chapter",
+            &transition.to_title,
+            &transition.to_scanlator,
+            transition.to_downloaded,
+        ),
+        ReaderTransitionDirection::Previous => (
+            "Previous chapter",
+            &transition.to_title,
+            &transition.to_scanlator,
+            transition.to_downloaded,
+            "Current",
+            &transition.from_title,
+            &transition.from_scanlator,
+            transition.from_downloaded,
+        ),
+    };
+    lines.push(Line::from(Span::styled(
+        top_label,
+        Style::default().fg(c_overlay1()),
+    )));
+    lines.push(Line::from(Span::styled(
+        top_title.clone(),
+        Style::default().fg(c_text()).add_modifier(Modifier::BOLD),
+    )));
+    if let Some(scanlator) = top_scanlator {
+        lines.push(Line::from(Span::styled(
+            scanlator.clone(),
+            Style::default().fg(c_subtext1()),
+        )));
+    }
+    if top_downloaded {
+        lines.push(Line::from(Span::styled(
+            "downloaded",
+            Style::default().fg(c_green()),
+        )));
+    }
+    if transition.missing > 0 {
+        lines.push(Line::from(Span::styled(
+            format!(
+                "{} missing chapter{}",
+                transition.missing,
+                if transition.missing == 1 { "" } else { "s" }
+            ),
+            Style::default().fg(c_peach()),
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        bottom_label,
+        Style::default().fg(c_overlay1()),
+    )));
+    lines.push(Line::from(Span::styled(
+        bottom_title.clone(),
+        Style::default().fg(c_accent()).add_modifier(Modifier::BOLD),
+    )));
+    if let Some(scanlator) = bottom_scanlator {
+        lines.push(Line::from(Span::styled(
+            scanlator.clone(),
+            Style::default().fg(c_subtext1()),
+        )));
+    }
+    if bottom_downloaded {
+        lines.push(Line::from(Span::styled(
+            "downloaded",
+            Style::default().fg(c_green()),
+        )));
+    }
+    let padding = area.height.saturating_sub(lines.len() as u16) / 2;
+    let mut content = vec![Line::from(""); usize::from(padding)];
+    content.extend(lines);
+    frame.render_widget(
+        Paragraph::new(Text::from(content))
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().bg(c_base())),
         area,
     );
 }
@@ -7782,6 +7931,9 @@ mod tests {
             }],
             page_sizes: Vec::new(),
             page_index: 0,
+            page_transition: None,
+            strip: None,
+            pending_anchor: None,
             page_half: 0,
             split_wide: false,
             protocol: None,

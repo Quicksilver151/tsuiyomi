@@ -14,7 +14,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Browse, sources, and global search](#browse-sources-and-global-search) | 30 | 1 | 0 | 1 | 98.4% |
 | [Extensions and host lifecycle](#extensions-and-host-lifecycle) | 23 | 0 | 0 | 2 | 100.0% |
 | [Shared story / chapter screen](#shared-story--chapter-screen) | 46 | 0 | 0 | 1 | 100.0% |
-| [Reader](#reader) | 22 | 2 | 0 | 0 | 95.8% |
+| [Reader](#reader) | 23 | 2 | 0 | 0 | 96.0% |
 | [History and Stats](#history-and-stats) | 21 | 0 | 0 | 0 | 100.0% |
 | [Migrate](#migrate) | 23 | 0 | 0 | 0 | 100.0% |
 | [Tracking](#tracking) | 10 | 3 | 0 | 0 | 88.5% |
@@ -22,7 +22,7 @@ Scores are generated from the tables by `scripts/parity-score.py`.
 | [Settings, security, and data](#settings-security-and-data) | 15 | 2 | 1 | 0 | 88.9% |
 | [Documented TUI deviations](#documented-tui-deviations) | 4 | 0 | 0 | 4 | 100.0% |
 | [Publishing](#publishing) | 14 | 1 | 0 | 1 | 96.7% |
-| **All categories** | **265** | **11** | **1** | **11** | **97.7%** |
+| **All categories** | **266** | **11** | **1** | **11** | **97.7%** |
 
 Score = `(✅ + 0.5×🟡) / (✅ + 🟡 + ❌)`. `➖` intentional TUI deviations are
 excluded. Recompute with `python3 scripts/parity-score.py` after editing a
@@ -225,6 +225,7 @@ table below.
 | Actions | Page actions: copy/save page, set cover, open externally | Yes | ✅ | ✅ | Reader `S` opens the page, `Y` copies it, `E` saves it, and `W` sets it as the cover. |
 | Modes | Page mode | Yes | ✅ | ✅ | |
 | Modes | Webtoon/continuous scroll | Yes | ✅ | ✅ | Sliced blocks, lazy decode, caching. |
+| Modes | Continuous chapter scrolling | Yes | ✅ | ✅ | Previous/current/next window with boundary cards; page mode gets a blank adjacent-chapter page. |
 | Modes | Left-to-right / right-to-left / vertical | Yes | ✅ | ✅ | RTL reverses left/right in page mode; paged vertical uses up/down page turns. |
 | Modes | Per-series viewer mode and reset to global | Yes | ✅ | ✅ | Chapter settings store a viewer override; “Reset viewer to global” clears it. |
 | Modes | Page image fit | Yes | ✅ | ✅ | Fit, fill/crop, and stretch options. |
@@ -390,7 +391,7 @@ table below.
 | Check | Result |
 |---|---|
 | Core tests | 150 pass, 1 ignored |
-| TUI tests | 224 pass |
+| TUI tests | 228 pass |
 | Binary integration test | 1 pass (`backup-info`) |
 | Windows target check | `cargo check --target x86_64-pc-windows-gnu` passes; runtime CI is still pending |
 | MSRV | Rust 1.90.0 `cargo check --workspace --locked` passes |

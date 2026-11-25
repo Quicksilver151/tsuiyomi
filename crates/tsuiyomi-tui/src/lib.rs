@@ -165,6 +165,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut AppState) -> io::Result<
         if app.poll_scroll_results() {
             needs_draw = true;
         }
+        if app.animate_reader_loading() {
+            needs_draw = true;
+        }
         if app.poll_downloads() {
             needs_draw = true;
         }

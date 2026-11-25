@@ -4,6 +4,15 @@ All notable changes to tsuiyomi are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use semantic
 versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first public release.
 
+## [Unreleased]
+
+### Added
+
+- Continuous previous/next chapter scrolling with chapter-name boundary cards and
+  missing-gap information.
+- A blank page-mode chapter boundary page that continues with the same page-turn key.
+- ASCII loading indicators for images that have not finished loading.
+
 ## [1.0.0] - 2026-11-25
 
 First stable release. No code changes since 0.2.0.

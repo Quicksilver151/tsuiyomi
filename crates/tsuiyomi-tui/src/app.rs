@@ -828,6 +828,8 @@ pub struct ScrollPageLayout {
     pub pixel_height: u32,
     /// Source page this segment belongs to.
     pub page: usize,
+    /// Boundary card index when this block is text instead of an image.
+    pub transition: Option<usize>,
     /// Vertical crop inside the source page, in source pixels.
     pub source_y: u32,
     pub source_height: u32,
@@ -835,9 +837,10 @@ pub struct ScrollPageLayout {
 
 /// A stable position inside the source image, used to keep the viewport in place
 /// when zoom or width rebuilds the row layout.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ScrollAnchor {
-    page: usize,
+    /// Stable page identity so a rebuilt chapter window keeps the viewport.
+    page_key: String,
     /// Vertical position inside the source page, in source pixels.
     source_y: f64,
 }
@@ -1103,6 +1106,66 @@ pub struct ReadingSession {
     chapter_key: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReaderTransitionDirection {
+    Next,
+    Previous,
+}
+
+/// The inline chapter boundary shown in page mode or continuous scroll.
+#[derive(Debug, Clone)]
+pub struct ReaderTransitionInfo {
+    pub direction: ReaderTransitionDirection,
+    pub from_title: String,
+    pub from_scanlator: Option<String>,
+    pub from_downloaded: bool,
+    pub to_title: String,
+    pub to_scanlator: Option<String>,
+    pub to_downloaded: bool,
+    /// Number of chapter numbers missing between the two chapters.
+    pub missing: usize,
+    /// Story chapter index to open when the page-mode transition is committed.
+    pub target_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReaderStripChapter {
+    pub story_index: usize,
+    pub key: String,
+    pub title: String,
+    pub scanlator: Option<String>,
+    pub downloaded: bool,
+    pub pages: Vec<Page>,
+    pub start_page: usize,
+    pub page_count: usize,
+}
+
+/// A flattened window of previous/current/next chapters plus boundary cards.
+#[derive(Clone)]
+pub struct ReaderStrip {
+    pub chapters: Vec<ReaderStripChapter>,
+    /// Index into `chapters` for the chapter currently being read.
+    pub current: usize,
+    /// Boundary cards, indexed by `ScrollPageLayout::transition`.
+    pub transitions: Vec<ReaderTransitionInfo>,
+    /// transition index to place before the page at this index.
+    pub transition_before: Vec<Option<usize>>,
+}
+
+impl ReaderStrip {
+    pub fn chapter_for_page(&self, page: usize) -> Option<&ReaderStripChapter> {
+        self.chapters.iter().find(|chapter| {
+            page >= chapter.start_page && page < chapter.start_page + chapter.page_count
+        })
+    }
+
+    pub fn chapter_position_for_page(&self, page: usize) -> Option<usize> {
+        self.chapters.iter().position(|chapter| {
+            page >= chapter.start_page && page < chapter.start_page + chapter.page_count
+        })
+    }
+}
+
 pub struct ReaderState {
     pub series_title: String,
     pub chapter_title: String,
@@ -1111,6 +1174,12 @@ pub struct ReaderState {
     /// Cached pixel dimensions, filled on first scroll layout.
     pub page_sizes: Vec<(u32, u32)>,
     pub page_index: usize,
+    /// A blank page-mode page naming the adjacent chapter.
+    pub page_transition: Option<ReaderTransitionInfo>,
+    /// Flattened previous/current/next chapters for continuous scroll.
+    pub strip: Option<ReaderStrip>,
+    /// Viewport anchor saved before a chapter-window rebuild.
+    pub(crate) pending_anchor: Option<ScrollAnchor>,
     /// Left/right half when a wide page is split in paged mode.
     pub page_half: usize,
     /// Whether the current page is displayed as two halves.
@@ -1192,6 +1261,8 @@ pub struct AppState {
     pub chapter_list_state: ListState,
     pub reader: Option<ReaderState>,
     pub reader_origin: ReaderOrigin,
+    pub reader_animation_frame: u8,
+    reader_animation_at: Option<Instant>,
     pub page_pan: (f32, f32),
     pub image_picker: Option<Picker>,
     pub progress: ProgressStore,
@@ -1373,6 +1444,8 @@ impl AppState {
             chapter_list_state: ListState::default(),
             reader: None,
             reader_origin: ReaderOrigin::Library,
+            reader_animation_frame: 0,
+            reader_animation_at: None,
             page_pan: (0.0, 0.0),
             image_picker: None,
             progress: ProgressStore::default(),
@@ -5910,6 +5983,9 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_transition: None,
+            strip: None,
+            pending_anchor: None,
             page_half: 0,
             split_wide: false,
             protocol: None,
@@ -5931,6 +6007,52 @@ impl AppState {
             }
         }
         self.download_read_ahead();
+    }
+
+    /// Advance the ASCII loading indicator while reader images are missing.
+    ///
+    /// The event loop calls this on its idle tick; returning true forces a redraw
+    /// without waking the reader workers or decoding an image.
+    pub fn animate_reader_loading(&mut self) -> bool {
+        if !self.reader_loading_active() {
+            self.reader_animation_at = None;
+            self.reader_animation_frame = 0;
+            return false;
+        }
+        let now = Instant::now();
+        if self
+            .reader_animation_at
+            .is_none_or(|last| now.duration_since(last) >= Duration::from_millis(110))
+        {
+            self.reader_animation_at = Some(now);
+            self.reader_animation_frame = self.reader_animation_frame.wrapping_add(1);
+            return true;
+        }
+        false
+    }
+
+    fn reader_loading_active(&self) -> bool {
+        let Some(reader) = self.reader.as_ref() else {
+            return false;
+        };
+        if reader.page_transition.is_some() || reader.error.is_some() {
+            return false;
+        }
+        if self.reader_mode == ReaderMode::Page {
+            return reader.protocol.is_none();
+        }
+        let Some(scroll) = reader.scroll.as_ref() else {
+            return true;
+        };
+        let top = scroll.offset;
+        let bottom = top.saturating_add(u32::from(scroll.viewport_height));
+        scroll.layout.iter().enumerate().any(|(index, block)| {
+            block.transition.is_none()
+                && block.start.saturating_add(u32::from(block.rows)) > top
+                && block.start < bottom
+                && !scroll.protocols.get(index).is_some_and(Option::is_some)
+                && !scroll.errors.get(index).is_some_and(Option::is_some)
+        })
     }
 
     pub fn close_remote_reader(&mut self) {
@@ -8153,6 +8275,9 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_transition: None,
+            strip: None,
+            pending_anchor: None,
             page_half: 0,
             split_wide: false,
             protocol: None,
@@ -14663,6 +14788,9 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_transition: None,
+            strip: None,
+            pending_anchor: None,
             page_half: 0,
             split_wide: false,
             protocol: None,
@@ -16238,14 +16366,38 @@ impl AppState {
         }
 
         match self.reader_mode {
-            ReaderMode::Page => self.load_page(),
+            ReaderMode::Page => {
+                // Collapse the continuous strip back to the current chapter before
+                // page mode starts indexing `reader.pages`.
+                let restored = self.reader.as_ref().and_then(|reader| {
+                    let strip = reader.strip.as_ref()?;
+                    let chapter = strip.chapters.get(strip.current)?.clone();
+                    let page_in_chapter = reader.page_index.saturating_sub(chapter.start_page);
+                    Some((chapter, page_in_chapter))
+                });
+                if let Some((chapter, page_in_chapter)) = restored {
+                    if let Some(reader) = self.reader.as_mut() {
+                        reader.pages = chapter.pages;
+                        reader.page_index = page_in_chapter;
+                        reader.page_sizes.clear();
+                        reader.strip = None;
+                        reader.page_transition = None;
+                        reader.scroll = None;
+                        reader.pending_scroll = None;
+                    }
+                }
+                self.load_page();
+            }
             ReaderMode::Scroll => {
                 // The old scroll layout belongs to wherever page mode was before.
                 if let Some(reader) = self.reader.as_mut() {
+                    reader.strip = None;
                     reader.scroll = None;
                     reader.pending_scroll = None;
+                    reader.page_transition = None;
+                    reader.page_sizes.clear();
                 }
-                // Show the first page while page sizes are measured in the background.
+                // Show the first page while page sizes and adjacent chapters load.
                 self.load_page();
                 self.build_scroll(terminal_width());
             }
@@ -16258,14 +16410,24 @@ impl AppState {
         }
 
         if self.reader_mode == ReaderMode::Scroll {
-            let (chapter_path, pages) = {
+            let page = self
+                .reader
+                .as_ref()
+                .map_or(0, |reader| page.min(reader.pages.len().saturating_sub(1)));
+            if let Some((story, _, _, _)) = self.reader_page_progress(page) {
+                if story != self.reader_chapter_index() {
+                    self.switch_reader_page_chapter(page, None);
+                    return;
+                }
+            }
+            let (chapter_path, pages, page_in_chapter) = {
                 let Some(reader) = self.reader.as_mut() else {
                     return;
                 };
+                reader.page_transition = None;
                 let Some(scroll) = reader.scroll.as_mut() else {
                     return;
                 };
-                let page = page.min(reader.pages.len().saturating_sub(1));
                 let start = page_start_row(&scroll.layout, page);
                 let max_scroll = scroll
                     .total_rows
@@ -16273,15 +16435,29 @@ impl AppState {
                 scroll.offset = start.min(max_scroll);
                 reader.page_index = page;
                 reader.error = None;
-                (reader.chapter_path.clone(), reader.pages.len())
+                reader
+                    .strip
+                    .as_ref()
+                    .and_then(|strip| strip.chapter_for_page(page))
+                    .map_or(
+                        (reader.chapter_path.clone(), reader.pages.len(), page),
+                        |chapter| {
+                            (
+                                PathBuf::from(&chapter.key),
+                                chapter.page_count,
+                                page.saturating_sub(chapter.start_page),
+                            )
+                        },
+                    )
             };
-            self.record_progress(&chapter_path, page, pages);
+            self.record_progress(&chapter_path, page_in_chapter, pages);
             self.sync_pending_offset();
         } else {
             let (chapter_path, pages) = {
                 let Some(reader) = self.reader.as_mut() else {
                     return;
                 };
+                reader.page_transition = None;
                 let page = page.min(reader.pages.len().saturating_sub(1));
                 reader.page_index = page;
                 (reader.chapter_path.clone(), reader.pages.len())
@@ -16347,6 +16523,9 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_transition: None,
+            strip: None,
+            pending_anchor: None,
             page_half: 0,
             split_wide: false,
             protocol: None,
@@ -16377,6 +16556,22 @@ impl AppState {
 
     fn change_page(&mut self, forward: bool) {
         self.page_pan = (0.0, 0.0);
+        if let Some(transition) = self
+            .reader
+            .as_mut()
+            .and_then(|reader| reader.page_transition.take())
+        {
+            let commit = match transition.direction {
+                ReaderTransitionDirection::Next => forward,
+                ReaderTransitionDirection::Previous => !forward,
+            };
+            if commit {
+                self.commit_page_transition(transition);
+            } else {
+                self.load_page();
+            }
+            return;
+        }
         if let Some(reader) = self.reader.as_mut() {
             if reader.split_wide {
                 if forward && reader.page_half == 0 {
@@ -16412,16 +16607,12 @@ impl AppState {
             }
         };
         if at_edge && self.config.reader_chapter_transitions {
-            let before = self
-                .reader
-                .as_ref()
-                .map(|reader| reader.chapter_path.clone());
-            self.step_reader_chapter(if forward { -1 } else { 1 });
-            let after = self
-                .reader
-                .as_ref()
-                .map(|reader| reader.chapter_path.clone());
-            if before != after {
+            if let Some(transition) = self.reader_transition_info(if forward { -1 } else { 1 }) {
+                if let Some(reader) = self.reader.as_mut() {
+                    reader.page_transition = Some(transition);
+                    reader.protocol = None;
+                    reader.error = None;
+                }
                 return;
             }
         }
@@ -16461,6 +16652,126 @@ impl AppState {
 
     pub fn previous_chapter(&mut self) {
         self.step_reader_chapter(1);
+    }
+
+    /// Metadata for one story chapter: title, scanlator, and downloaded state.
+    fn reader_chapter_meta(&self, index: usize) -> Option<(String, Option<String>, bool)> {
+        match self.reader_origin {
+            ReaderOrigin::Library => self
+                .selected_series()
+                .and_then(|series| series.chapters.get(index))
+                .map(|chapter| (chapter.title.clone(), chapter.scanlator.clone(), true)),
+            ReaderOrigin::BrowseLocal => self
+                .selected_browse_local_series()
+                .and_then(|series| series.chapters.get(index))
+                .map(|chapter| (chapter.title.clone(), chapter.scanlator.clone(), true)),
+            ReaderOrigin::Remote => self.remote.chapters.get(index).map(|chapter| {
+                (
+                    chapter.name.clone(),
+                    chapter.scanlator.clone(),
+                    self.remote.downloaded.get(index).copied().unwrap_or(false),
+                )
+            }),
+            ReaderOrigin::LibraryRemote => self.library_remote.chapters.get(index).map(|chapter| {
+                (
+                    chapter.name.clone(),
+                    chapter.scanlator.clone(),
+                    self.library_remote
+                        .downloaded
+                        .get(index)
+                        .copied()
+                        .unwrap_or(false),
+                )
+            }),
+            ReaderOrigin::History | ReaderOrigin::Updates => None,
+        }
+    }
+
+    /// Build the boundary card for the next/previous chapter in reader order.
+    fn reader_transition_info(&self, delta: isize) -> Option<ReaderTransitionInfo> {
+        if matches!(
+            self.reader_origin,
+            ReaderOrigin::History | ReaderOrigin::Updates
+        ) {
+            return None;
+        }
+        let indices = self.story_chapter_indices();
+        let current = self.reader_chapter_index();
+        let position = indices.iter().position(|index| *index == current)?;
+        let target = self.reader_chapter_target(&indices, position, current, delta)?;
+        let (from_title, from_scanlator, from_downloaded) = self.reader_chapter_meta(current)?;
+        let (to_title, to_scanlator, to_downloaded) = self.reader_chapter_meta(target)?;
+        let missing = match (
+            self.story_chapter_number(current),
+            self.story_chapter_number(target),
+        ) {
+            (Some(from), Some(to)) => ((from - to).abs().floor() as usize).saturating_sub(1),
+            _ => 0,
+        };
+        Some(ReaderTransitionInfo {
+            direction: if delta < 0 {
+                ReaderTransitionDirection::Next
+            } else {
+                ReaderTransitionDirection::Previous
+            },
+            from_title,
+            from_scanlator,
+            from_downloaded,
+            to_title,
+            to_scanlator,
+            to_downloaded,
+            missing,
+            target_index: target,
+        })
+    }
+
+    fn open_reader_chapter_index(&mut self, index: usize) {
+        match self.reader_origin {
+            ReaderOrigin::Remote => {
+                self.remote.chapter_index = index;
+                self.open_remote_chapter(index);
+            }
+            ReaderOrigin::LibraryRemote => {
+                self.library_remote.chapter_index = index;
+                self.open_library_remote_chapter(index);
+            }
+            ReaderOrigin::BrowseLocal => {
+                self.browse_local_chapter = index;
+                self.open_browse_local_chapter(index);
+            }
+            ReaderOrigin::Library => {
+                self.chapter_index = index;
+                self.open_chapter();
+            }
+            ReaderOrigin::History | ReaderOrigin::Updates => {}
+        }
+    }
+
+    /// Commit the blank page-mode transition and continue at the adjacent chapter.
+    fn commit_page_transition(&mut self, transition: ReaderTransitionInfo) {
+        let at_end = transition.direction == ReaderTransitionDirection::Previous;
+        self.open_reader_chapter_index(transition.target_index);
+        let Some(reader) = self.reader.as_mut() else {
+            return;
+        };
+        reader.page_transition = None;
+        reader.page_half = 0;
+        reader.split_wide = false;
+        reader.page_index = if at_end {
+            reader.pages.len().saturating_sub(1)
+        } else {
+            0
+        };
+        reader.protocol = None;
+        reader.scroll = None;
+        reader.pending_scroll = None;
+        let (path, page, pages) = (
+            reader.chapter_path.clone(),
+            reader.page_index,
+            reader.pages.len(),
+        );
+        self.record_progress(&path, page, pages);
+        self.load_page();
     }
 
     /// Next chapter in reader order after applying skip-read and duplicate rules.
@@ -16542,6 +16853,11 @@ impl AppState {
         let Some(reader) = self.reader.as_mut() else {
             return;
         };
+        if reader.page_transition.is_some() {
+            reader.protocol = None;
+            reader.error = None;
+            return;
+        }
         let Some(page) = reader.pages.get(reader.page_index).cloned() else {
             reader.error = Some("Page is out of range.".to_owned());
             reader.protocol = None;
@@ -16603,8 +16919,309 @@ impl AppState {
         reader.error = None;
     }
 
+    fn set_reader_story_cursor(&mut self, index: usize) {
+        match self.reader_origin {
+            ReaderOrigin::Remote => self.remote.chapter_index = index,
+            ReaderOrigin::LibraryRemote => self.library_remote.chapter_index = index,
+            ReaderOrigin::BrowseLocal => self.browse_local_chapter = index,
+            ReaderOrigin::Library => self.chapter_index = index,
+            ReaderOrigin::History | ReaderOrigin::Updates => {}
+        }
+    }
+
+    /// Chapter story index and page offset for a global strip page.
+    fn reader_page_progress(&self, page: usize) -> Option<(usize, usize, usize, String)> {
+        let reader = self.reader.as_ref()?;
+        if let Some(strip) = reader.strip.as_ref() {
+            let chapter = strip.chapter_for_page(page)?;
+            return Some((
+                chapter.story_index,
+                page.saturating_sub(chapter.start_page),
+                chapter.page_count,
+                chapter.key.clone(),
+            ));
+        }
+        Some((
+            self.reader_chapter_index(),
+            page,
+            reader.pages.len(),
+            reader.chapter_path.display().to_string(),
+        ))
+    }
+
+    /// Switch the continuous strip to the chapter owning `page`.
+    fn switch_reader_page_chapter(&mut self, page: usize, anchor: Option<ScrollAnchor>) -> bool {
+        let Some(reader) = self.reader.as_ref() else {
+            return false;
+        };
+        let Some(strip) = reader.strip.as_ref() else {
+            return false;
+        };
+        let Some(position) = strip.chapter_position_for_page(page) else {
+            return false;
+        };
+        if position == strip.current {
+            return false;
+        }
+        let old_strip = strip.clone();
+        let chapter = strip.chapters[position].clone();
+        let page_in_chapter = page.saturating_sub(chapter.start_page);
+        self.set_reader_story_cursor(chapter.story_index);
+        self.build_reader_strip(
+            chapter.story_index,
+            page_in_chapter,
+            Some(&old_strip),
+            anchor,
+        );
+        if let Some(reader) = self.reader.as_mut() {
+            reader.chapter_title = chapter.title;
+            reader.chapter_path = PathBuf::from(chapter.key);
+            reader.scroll = None;
+            reader.pending_scroll = None;
+            reader.page_sizes.clear();
+        }
+        if let Some((_, page_in_chapter, pages, key)) = self.reader_page_progress(page) {
+            self.record_progress(std::path::Path::new(&key), page_in_chapter, pages);
+        }
+        self.load_page();
+        self.build_scroll(terminal_width());
+        true
+    }
+
+    /// Load one chapter's pages for the continuous-scroll window.
+    fn load_strip_chapter(&mut self, index: usize) -> Option<ReaderStripChapter> {
+        let (title, scanlator, downloaded) = self.reader_chapter_meta(index)?;
+        let (pages, key) = match self.reader_origin {
+            ReaderOrigin::Library => {
+                let chapter = self
+                    .selected_series()
+                    .and_then(|series| series.chapters.get(index))
+                    .cloned()?;
+                let key = chapter.path.display().to_string();
+                (chapter_pages(&chapter).ok()?, key)
+            }
+            ReaderOrigin::BrowseLocal => {
+                let chapter = self
+                    .selected_browse_local_series()
+                    .and_then(|series| series.chapters.get(index))
+                    .cloned()?;
+                let key = chapter.path.display().to_string();
+                (chapter_pages(&chapter).ok()?, key)
+            }
+            ReaderOrigin::Remote => {
+                let manga = self.remote.manga.clone()?;
+                let chapter = self.remote.chapters.get(index).cloned()?;
+                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url)
+                    .display()
+                    .to_string();
+                (self.remote_chapter_pages(&manga, &chapter).ok()?, key)
+            }
+            ReaderOrigin::LibraryRemote => {
+                let manga = self.library_remote.manga.clone()?;
+                let chapter = self.library_remote.chapters.get(index).cloned()?;
+                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url)
+                    .display()
+                    .to_string();
+                (self.remote_chapter_pages(&manga, &chapter).ok()?, key)
+            }
+            ReaderOrigin::History | ReaderOrigin::Updates => return None,
+        };
+        if pages.is_empty() {
+            return None;
+        }
+        Some(ReaderStripChapter {
+            story_index: index,
+            key,
+            title,
+            scanlator,
+            downloaded,
+            pages,
+            start_page: 0,
+            page_count: 0,
+        })
+    }
+
+    fn strip_transition(
+        &self,
+        from: usize,
+        to: usize,
+        direction: ReaderTransitionDirection,
+    ) -> Option<ReaderTransitionInfo> {
+        let (from_title, from_scanlator, from_downloaded) = self.reader_chapter_meta(from)?;
+        let (to_title, to_scanlator, to_downloaded) = self.reader_chapter_meta(to)?;
+        let missing = match (
+            self.story_chapter_number(from),
+            self.story_chapter_number(to),
+        ) {
+            (Some(a), Some(b)) => ((a - b).abs().floor() as usize).saturating_sub(1),
+            _ => 0,
+        };
+        Some(ReaderTransitionInfo {
+            direction,
+            from_title,
+            from_scanlator,
+            from_downloaded,
+            to_title,
+            to_scanlator,
+            to_downloaded,
+            missing,
+            target_index: to,
+        })
+    }
+
+    fn strip_chapter_for(
+        &mut self,
+        index: usize,
+        is_current: bool,
+        pages: Option<Vec<Page>>,
+        old_chapters: &[ReaderStripChapter],
+    ) -> Option<ReaderStripChapter> {
+        if let Some(chapter) = old_chapters
+            .iter()
+            .find(|chapter| chapter.story_index == index)
+            .cloned()
+        {
+            return Some(chapter);
+        }
+        if let Some(pages) = pages {
+            let (title, scanlator, downloaded) = self.reader_chapter_meta(index)?;
+            let key = if is_current {
+                self.reader
+                    .as_ref()
+                    .map(|reader| reader.chapter_path.display().to_string())
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            return Some(ReaderStripChapter {
+                story_index: index,
+                key,
+                title,
+                scanlator,
+                downloaded,
+                pages,
+                start_page: 0,
+                page_count: 0,
+            });
+        }
+        self.load_strip_chapter(index)
+    }
+
+    /// Build the previous/current/next window used by continuous scroll.
+    fn build_reader_strip(
+        &mut self,
+        current: usize,
+        page_in_chapter: usize,
+        old_strip: Option<&ReaderStrip>,
+        anchor: Option<ScrollAnchor>,
+    ) {
+        if self.reader_mode != ReaderMode::Scroll
+            || matches!(
+                self.reader_origin,
+                ReaderOrigin::History | ReaderOrigin::Updates
+            )
+        {
+            return;
+        }
+        let Some(current_pages) = self.reader.as_ref().map(|reader| reader.pages.clone()) else {
+            return;
+        };
+        let old_chapters: Vec<ReaderStripChapter> = old_strip
+            .map(|strip| strip.chapters.clone())
+            .unwrap_or_default();
+        let indicators = self.story_chapter_indices();
+        let Some(position) = indicators.iter().position(|index| *index == current) else {
+            return;
+        };
+        let previous = self.reader_chapter_target(&indicators, position, current, 1);
+        let next = self.reader_chapter_target(&indicators, position, current, -1);
+
+        let mut chapters = Vec::new();
+        if let Some(previous) = previous {
+            if let Some(chapter) = self.strip_chapter_for(previous, false, None, &old_chapters) {
+                chapters.push(chapter);
+            }
+        }
+        let current_position = chapters.len();
+        let Some(current_chapter) =
+            self.strip_chapter_for(current, true, Some(current_pages), &old_chapters)
+        else {
+            return;
+        };
+        chapters.push(current_chapter);
+        if let Some(next) = next {
+            if let Some(chapter) = self.strip_chapter_for(next, false, None, &old_chapters) {
+                chapters.push(chapter);
+            }
+        }
+
+        let mut pages = Vec::new();
+        for chapter in &mut chapters {
+            chapter.start_page = pages.len();
+            chapter.page_count = chapter.pages.len();
+            pages.extend(chapter.pages.iter().cloned());
+        }
+        if pages.is_empty() {
+            return;
+        }
+
+        let mut transitions = Vec::new();
+        let mut transition_before = vec![None; pages.len() + 1];
+        if self.config.reader_chapter_transitions {
+            if current_position > 0 {
+                let previous = chapters[current_position - 1].story_index;
+                if let Some(info) =
+                    self.strip_transition(current, previous, ReaderTransitionDirection::Previous)
+                {
+                    transition_before[chapters[current_position].start_page] =
+                        Some(transitions.len());
+                    transitions.push(info);
+                }
+            }
+            if current_position + 1 < chapters.len() {
+                let next = chapters[current_position + 1].story_index;
+                if let Some(info) =
+                    self.strip_transition(current, next, ReaderTransitionDirection::Next)
+                {
+                    transition_before[chapters[current_position + 1].start_page] =
+                        Some(transitions.len());
+                    transitions.push(info);
+                }
+            }
+        }
+
+        let start = chapters[current_position].start_page;
+        let page_index =
+            start + page_in_chapter.min(chapters[current_position].page_count.saturating_sub(1));
+        let current_chapter = chapters[current_position].clone();
+        let Some(reader) = self.reader.as_mut() else {
+            return;
+        };
+        reader.pages = pages;
+        reader.page_sizes.clear();
+        reader.page_index = page_index;
+        reader.pending_anchor = anchor;
+        reader.chapter_title = current_chapter.title;
+        reader.chapter_path = PathBuf::from(current_chapter.key);
+        reader.strip = Some(ReaderStrip {
+            chapters,
+            current: current_position,
+            transitions,
+            transition_before,
+        });
+    }
+
     fn build_scroll(&mut self, width: u16) {
         scroll_debug(&format!("build_scroll width={width}"));
+        if self
+            .reader
+            .as_ref()
+            .is_some_and(|reader| reader.strip.is_none())
+        {
+            let current = self.reader_chapter_index();
+            let page = self.reader.as_ref().map_or(0, |reader| reader.page_index);
+            self.build_reader_strip(current, page, None, None);
+        }
         let Some(pages) = self.reader.as_ref().map(|reader| reader.pages.clone()) else {
             return;
         };
@@ -16661,9 +17278,31 @@ impl AppState {
         // so splitting into blocks costs only crop+encode.
         let block_rows = (SCROLL_BLOCK_PIXELS / font_height).clamp(16, SCROLL_BLOCK_ROWS_MAX);
 
-        let mut layout = Vec::with_capacity(sizes.len());
+        let (strip_transitions, transition_before) = self
+            .reader
+            .as_ref()
+            .and_then(|reader| reader.strip.as_ref())
+            .map(|strip| (strip.transitions.clone(), strip.transition_before.clone()))
+            .unwrap_or_default();
+
+        let mut layout = Vec::with_capacity(sizes.len() + strip_transitions.len());
         let mut total_rows = 0u32;
         for (page_index, (source_width, source_height)) in sizes.into_iter().enumerate() {
+            if let Some(transition) = transition_before.get(page_index).copied().flatten() {
+                let rows = 11u16;
+                layout.push(ScrollPageLayout {
+                    start: total_rows,
+                    rows,
+                    cell_width: width.max(1),
+                    pixel_width: available_pixel_width,
+                    pixel_height: u32::from(rows) * font_height,
+                    page: page_index,
+                    transition: Some(transition),
+                    source_y: 0,
+                    source_height: 1,
+                });
+                total_rows = total_rows.saturating_add(u32::from(rows));
+            }
             let fit_scale = (f64::from(available_pixel_width) / f64::from(source_width)).min(1.0);
             let scale = (fit_scale * zoom).max(f64::EPSILON);
             let pixel_width = (f64::from(source_width) * scale).round().max(1.0) as u32;
@@ -16699,6 +17338,7 @@ impl AppState {
                     pixel_width,
                     pixel_height: segment_px_height,
                     page: page_index,
+                    transition: None,
                     source_y: segment_source_y,
                     source_height: segment_source_height,
                 });
@@ -16708,10 +17348,12 @@ impl AppState {
         }
 
         let anchor = self.reader.as_ref().and_then(|reader| {
-            reader
-                .scroll
-                .as_ref()
-                .and_then(|scroll| scroll_anchor(scroll, scroll.offset))
+            reader.pending_anchor.clone().or_else(|| {
+                reader
+                    .scroll
+                    .as_ref()
+                    .and_then(|scroll| scroll_anchor(scroll, scroll.offset, &reader.pages))
+            })
         });
         let viewport_height = self
             .reader
@@ -16720,14 +17362,17 @@ impl AppState {
             .map_or(10, |scroll| scroll.viewport_height)
             .max(1);
         let page_index = self.reader.as_ref().map_or(0, |reader| reader.page_index);
-        let start_row = layout
-            .iter()
-            .find(|segment| segment.page == page_index)
-            .map_or(0, |segment| segment.start);
+        let start_row = page_start_row(&layout, page_index);
         let total_rows = total_rows.max(1);
         let max_scroll = total_rows.saturating_sub(u32::from(viewport_height));
+        let pages = self
+            .reader
+            .as_ref()
+            .map(|reader| reader.pages.clone())
+            .unwrap_or_default();
         let offset = anchor
-            .and_then(|anchor| offset_for_anchor(&layout, anchor))
+            .clone()
+            .and_then(|anchor| offset_for_anchor(&layout, anchor, &pages))
             .unwrap_or(start_row)
             .min(max_scroll);
         let page_count = layout.len();
@@ -16743,6 +17388,7 @@ impl AppState {
         ));
         if let Some(reader) = self.reader.as_mut() {
             reader.error = None;
+            reader.pending_anchor = None;
             let state = ScrollState {
                 generation,
                 layout,
@@ -16901,7 +17547,11 @@ impl AppState {
                         }
                     }
                     for index in load_start..=load_end {
-                        if scroll.protocols.get(index).is_some_and(Option::is_some)
+                        if scroll
+                            .layout
+                            .get(index)
+                            .is_some_and(|block| block.transition.is_some())
+                            || scroll.protocols.get(index).is_some_and(Option::is_some)
                             || scroll.requested.get(index).is_some_and(|value| *value)
                             || scroll.errors.get(index).is_some_and(Option::is_some)
                         {
@@ -17060,7 +17710,7 @@ impl AppState {
     }
 
     fn scroll_lines(&mut self, delta: i32) {
-        let (changed, chapter_path, pages, page) = {
+        let (changed, page, at_transition) = {
             let Some(reader) = self.reader.as_mut() else {
                 return;
             };
@@ -17077,29 +17727,36 @@ impl AppState {
             scroll.offset = next as u32;
             let at_end = next >= max_scroll;
 
-            let mut page = scroll
+            let index = scroll
                 .layout
                 .iter()
-                .rposition(|segment| segment.start as i32 <= next)
-                .map_or(0, |index| scroll.layout[index].page);
+                .rposition(|segment| segment.start as i32 <= next);
+            let at_transition = index
+                .and_then(|index| scroll.layout.get(index))
+                .is_some_and(|segment| segment.transition.is_some());
+            let mut page = index.map_or(0, |index| scroll.layout[index].page);
             if at_end && !reader.pages.is_empty() {
                 page = reader.pages.len() - 1;
             }
             page = page.min(reader.pages.len().saturating_sub(1));
+            if at_transition {
+                page = reader.page_index;
+            }
             let changed = reader.page_index != page;
             reader.page_index = page;
             reader.error = None;
 
-            (
-                changed,
-                reader.chapter_path.clone(),
-                reader.pages.len(),
-                page,
-            )
+            (changed, page, at_transition)
         };
 
-        if changed {
-            self.record_progress(&chapter_path, page, pages);
+        if changed && !at_transition {
+            if let Some((story, page_in_chapter, pages, key)) = self.reader_page_progress(page) {
+                if story != self.reader_chapter_index() {
+                    self.switch_reader_page_chapter(page, None);
+                    return;
+                }
+                self.record_progress(std::path::Path::new(&key), page_in_chapter, pages);
+            }
         }
         self.sync_pending_offset();
     }
@@ -17115,12 +17772,18 @@ impl AppState {
 
     /// Keep the not-yet-visible layout at the same source position as the old one.
     fn sync_pending_offset(&mut self) {
-        let anchor = self.reader.as_ref().and_then(|reader| {
-            reader
-                .scroll
-                .as_ref()
-                .and_then(|scroll| scroll_anchor(scroll, scroll.offset))
-        });
+        let (anchor, pages) = {
+            let Some(reader) = self.reader.as_ref() else {
+                return;
+            };
+            let anchor = reader.pending_anchor.clone().or_else(|| {
+                reader
+                    .scroll
+                    .as_ref()
+                    .and_then(|scroll| scroll_anchor(scroll, scroll.offset, &reader.pages))
+            });
+            (anchor, reader.pages.clone())
+        };
         let Some(anchor) = anchor else {
             return;
         };
@@ -17133,7 +17796,7 @@ impl AppState {
         let max_scroll = pending
             .total_rows
             .saturating_sub(u32::from(pending.viewport_height));
-        if let Some(offset) = offset_for_anchor(&pending.layout, anchor) {
+        if let Some(offset) = offset_for_anchor(&pending.layout, anchor, &pages) {
             pending.offset = offset.min(max_scroll);
         }
     }
@@ -17657,6 +18320,9 @@ impl AppState {
             pages,
             page_sizes: Vec::new(),
             page_index: start_page,
+            page_transition: None,
+            strip: None,
+            pending_anchor: None,
             page_half: 0,
             split_wide: false,
             protocol: None,
@@ -17975,28 +18641,43 @@ fn scroll_visible_ready(scroll: &ScrollState) -> bool {
         .unwrap_or(first);
 
     (first..=last).all(|index| {
-        scroll.protocols.get(index).is_some_and(Option::is_some)
+        scroll
+            .layout
+            .get(index)
+            .is_some_and(|block| block.transition.is_some())
+            || scroll.protocols.get(index).is_some_and(Option::is_some)
             || scroll.errors.get(index).is_some_and(Option::is_some)
     })
 }
 
-fn scroll_anchor(scroll: &ScrollState, offset: u32) -> Option<ScrollAnchor> {
+fn scroll_anchor(scroll: &ScrollState, offset: u32, pages: &[Page]) -> Option<ScrollAnchor> {
     let index = scroll
         .layout
         .iter()
-        .rposition(|segment| segment.start <= offset)?;
+        .rposition(|segment| segment.transition.is_none() && segment.start <= offset)?;
     let segment = scroll.layout.get(index)?;
+    let page_key = page_key(pages.get(segment.page)?);
     let within = f64::from(offset.saturating_sub(segment.start));
     let fraction = (within / f64::from(segment.rows.max(1))).clamp(0.0, 1.0);
     Some(ScrollAnchor {
-        page: segment.page,
+        page_key,
         source_y: f64::from(segment.source_y) + fraction * f64::from(segment.source_height),
     })
 }
 
-fn offset_for_anchor(layout: &[ScrollPageLayout], anchor: ScrollAnchor) -> Option<u32> {
+fn offset_for_anchor(
+    layout: &[ScrollPageLayout],
+    anchor: ScrollAnchor,
+    pages: &[Page],
+) -> Option<u32> {
+    let page = pages
+        .iter()
+        .position(|page| page_key(page) == anchor.page_key)?;
     let mut last = None;
-    for segment in layout.iter().filter(|segment| segment.page == anchor.page) {
+    for segment in layout
+        .iter()
+        .filter(|segment| segment.transition.is_none() && segment.page == page)
+    {
         last = Some(segment);
         let top = f64::from(segment.source_y);
         let bottom = top + f64::from(segment.source_height);
@@ -18011,10 +18692,20 @@ fn offset_for_anchor(layout: &[ScrollPageLayout], anchor: ScrollAnchor) -> Optio
     last.map(|segment| segment.start + u32::from(segment.rows).saturating_sub(1))
 }
 
+fn page_key(page: &Page) -> String {
+    match &page.source {
+        PageSource::File(path) => format!("file:{}", path.display()),
+        PageSource::Archive { path, name, .. } => {
+            format!("archive:{}:{name}", path.display())
+        }
+        PageSource::Remote { url } => format!("remote:{url}"),
+    }
+}
+
 fn page_start_row(layout: &[ScrollPageLayout], page: usize) -> u32 {
     layout
         .iter()
-        .find(|segment| segment.page == page)
+        .find(|segment| segment.transition.is_none() && segment.page == page)
         .map_or(0, |segment| segment.start)
 }
 
@@ -18023,12 +18714,17 @@ fn page_at_offset(scroll: &ScrollState) -> usize {
         .total_rows
         .saturating_sub(u32::from(scroll.viewport_height));
     if scroll.offset >= max_scroll {
-        return scroll.layout.last().map_or(0, |segment| segment.page);
+        return scroll
+            .layout
+            .iter()
+            .rev()
+            .find(|segment| segment.transition.is_none())
+            .map_or(0, |segment| segment.page);
     }
     scroll
         .layout
         .iter()
-        .rposition(|segment| segment.start <= scroll.offset)
+        .rposition(|segment| segment.transition.is_none() && segment.start <= scroll.offset)
         .map(|index| scroll.layout[index].page)
         .unwrap_or(0)
 }
@@ -20685,6 +21381,158 @@ mod tests {
         assert!(app.status.is_none());
     }
 
+    fn continuous_reader_fixture() -> (tempfile::TempDir, AppState) {
+        let root = tempfile::tempdir().unwrap();
+        for chapter in ["Chapter 2", "Chapter 1"] {
+            let dir = root.path().join(chapter);
+            std::fs::create_dir_all(&dir).unwrap();
+            for name in ["1.png", "2.png"] {
+                let image = image::RgbImage::from_pixel(100, 400, image::Rgb([180, 190, 254]));
+                image.save(dir.join(name)).unwrap();
+            }
+        }
+        let chapters = ["Chapter 2", "Chapter 1"]
+            .into_iter()
+            .map(|title| Chapter {
+                path: root.path().join(title),
+                title: title.to_owned(),
+                number: title
+                    .split(' ')
+                    .nth(1)
+                    .and_then(|value| value.parse::<f32>().ok()),
+                kind: tsuiyomi_core::ChapterKind::Directory,
+                scanlator: None,
+                date: None,
+            })
+            .collect();
+        let library = Library {
+            root: root.path().to_path_buf(),
+            series: vec![Series {
+                path: root.path().to_path_buf(),
+                remote: None,
+                title: "Continuous".to_owned(),
+                author: None,
+                artist: None,
+                description: String::new(),
+                tags: Vec::new(),
+                status: None,
+                cover: None,
+                categories: vec!["Default".to_owned()],
+                chapters,
+                warnings: Vec::new(),
+            }],
+            categories: vec!["Default".to_owned()],
+            errors: Vec::new(),
+        };
+        let mut app = AppState::new(library, None);
+        app.set_image_picker(Picker::halfblocks());
+        (root, app)
+    }
+
+    #[test]
+    fn page_mode_shows_a_blank_next_chapter_page() {
+        let (_root, mut app) = continuous_reader_fixture();
+        app.open();
+        app.select_index(1);
+        app.open();
+        app.jump_to_page(1);
+        app.next_page();
+
+        let transition = app
+            .reader
+            .as_ref()
+            .and_then(|reader| reader.page_transition.clone())
+            .expect("transition page");
+        assert_eq!(transition.to_title, "Chapter 2");
+        assert_eq!(transition.from_title, "Chapter 1");
+
+        // Reversing the page switch cancels the card instead of entering the chapter.
+        app.previous_page();
+        assert!(app.reader.as_ref().unwrap().page_transition.is_none());
+        assert_eq!(app.reader.as_ref().unwrap().chapter_title, "Chapter 1");
+
+        app.next_page();
+        assert!(app.reader.as_ref().unwrap().page_transition.is_some());
+        app.next_page();
+        let reader = app.reader.as_ref().unwrap();
+        assert_eq!(reader.chapter_title, "Chapter 2");
+        assert_eq!(reader.page_index, 0);
+        assert!(reader.page_transition.is_none());
+    }
+
+    #[test]
+    fn page_mode_shows_a_blank_previous_chapter_page() {
+        let (_root, mut app) = continuous_reader_fixture();
+        app.open();
+        app.open();
+        app.previous_page();
+
+        let transition = app
+            .reader
+            .as_ref()
+            .and_then(|reader| reader.page_transition.clone())
+            .expect("previous transition page");
+        assert_eq!(transition.to_title, "Chapter 1");
+        assert_eq!(transition.from_title, "Chapter 2");
+
+        app.previous_page();
+        let reader = app.reader.as_ref().unwrap();
+        assert_eq!(reader.chapter_title, "Chapter 1");
+        assert_eq!(reader.page_index, reader.pages.len().saturating_sub(1));
+    }
+
+    #[test]
+    fn continuous_scroll_crosses_back_into_the_previous_chapter() {
+        let (_root, mut app) = continuous_reader_fixture();
+        app.open();
+        app.open();
+        app.toggle_reader_mode();
+
+        for _ in 0..200 {
+            if app
+                .reader
+                .as_ref()
+                .is_some_and(|reader| reader.chapter_title == "Chapter 1")
+            {
+                break;
+            }
+            app.previous_screen();
+        }
+
+        let reader = app.reader.as_ref().unwrap();
+        assert_eq!(reader.chapter_title, "Chapter 1");
+    }
+
+    #[test]
+    fn continuous_scroll_crosses_into_the_next_chapter() {
+        let (_root, mut app) = continuous_reader_fixture();
+        app.open();
+        app.select_index(1);
+        app.open();
+        app.toggle_reader_mode();
+
+        let strip = app.reader.as_ref().unwrap().strip.as_ref().unwrap();
+        assert_eq!(strip.chapters.len(), 2);
+        assert_eq!(strip.transitions.len(), 1);
+        assert_eq!(strip.transitions[0].to_title, "Chapter 2");
+        assert_eq!(strip.chapters[strip.current].title, "Chapter 1");
+
+        for _ in 0..200 {
+            if app
+                .reader
+                .as_ref()
+                .is_some_and(|reader| reader.chapter_title == "Chapter 2")
+            {
+                break;
+            }
+            app.next_screen();
+        }
+
+        let reader = app.reader.as_ref().unwrap();
+        assert_eq!(reader.chapter_title, "Chapter 2");
+        assert_eq!(reader.strip.as_ref().unwrap().current, 1);
+    }
+
     #[test]
     fn opens_the_reader_and_turns_pages() {
         let root = tempfile::tempdir().unwrap();
@@ -20953,9 +21801,11 @@ mod tests {
         assert!(scroll.layout.len() > 2);
         let offset = scroll.layout[2].start + 7;
         app.reader.as_mut().unwrap().scroll.as_mut().unwrap().offset = offset;
+        let pages = app.reader.as_ref().unwrap().pages.clone();
         let before = scroll_anchor(
             app.reader.as_ref().unwrap().scroll.as_ref().unwrap(),
             offset,
+            &pages,
         )
         .unwrap();
 
@@ -20968,9 +21818,9 @@ mod tests {
             .pending_scroll
             .as_ref()
             .unwrap();
-        let after = scroll_anchor(pending, pending.offset).unwrap();
-        assert_eq!(before.page, 0);
-        assert_eq!(after.page, 0);
+        let after = scroll_anchor(pending, pending.offset, &pages).unwrap();
+        assert_eq!(before.page_key, page_key(&pages[0]));
+        assert_eq!(after.page_key, page_key(&pages[0]));
         assert!(
             (before.source_y - after.source_y).abs() < 64.0,
             "{before:?} -> {after:?}"

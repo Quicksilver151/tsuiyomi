@@ -187,8 +187,10 @@ Acceptance: all Downloads rows are ✅ except Wi-Fi-only (`➖`) and page-level 
       - [ ] Add a placement-only path for supported Kitty terminals.
       - [ ] Add a Reader setting to disable it and force the re-encode path.
       - [ ] Fall back safely for tmux/SSH/other terminals.
+- [x] Add continuous chapter scrolling: previous/current/next window, boundary cards,
+      page-mode blank boundary page, and ASCII loading indicators.
 - [ ] Tests: per-series viewer fallback/reset, URL resolution, page-action state, skip
-      ordering, and zoom mode selection.
+      ordering, continuous chapter boundaries, and zoom mode selection.
 
 Acceptance: all listed reader rows are ✅; Kitty placement zoom has an explicit toggle
 and a working fallback.

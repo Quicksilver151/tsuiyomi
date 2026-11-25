@@ -606,6 +606,12 @@ incognito = false
 Per-category sort/layout overrides, migration flags, tracker tokens, and raw Mihon
 backup flags are managed by the UI and stored alongside these keys.
 
+Chapter transitions are on by default. Continuous scroll keeps the previous, current, and
+next chapters in one strip and draws a boundary card between them with the chapter names,
+scanlators, download state, and any missing-chapter gap. Page mode shows a blank boundary
+card naming the adjacent chapter; the same page-turn key continues into it. Images that
+are still loading show an ASCII spinner instead of a frozen frame.
+
 Library sort, layout, default category, missing-chapter display, duplicate-chapter
 marking, and update restrictions live under **More → Settings → Library**. Incognito is
 under **Security** and stops writing `progress.json` while leaving existing progress

@@ -190,7 +190,7 @@ Rules:
 - Kitty placement-only zoom with a disable toggle.
 - DNS-over-HTTPS in the host transport.
 - Page-level download concurrency and custom reader color filters.
-- Verbose application logging, Windows CI execution, and release automation.
+- Verbose application logging.
 
 ## Implementation notes
 
@@ -202,6 +202,9 @@ Rules:
   scroll a screen, and
   `+`/`-` adjust zoom (no upscaling at 100%). Zoom rebuilds the row layout but anchors
   the viewport to the same source pixel, so long strips do not jump to the page start.
+  Continuous scroll loads a previous/current/next chapter window and inserts boundary
+  cards with chapter names, scanlators, download state, and missing gaps; page mode shows
+  a blank boundary page. Unloaded images render an ASCII spinner.
   Scroll mode reads page dimensions once,
   lazily decodes only visible/nearby blocks, caches their protocols, and uses Kitty shared
   memory when available. Long webtoon strips are split into small blocks (1024 px / at
