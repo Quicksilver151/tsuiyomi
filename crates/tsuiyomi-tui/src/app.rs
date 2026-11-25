@@ -1131,7 +1131,7 @@ pub struct ReaderTransitionInfo {
 #[derive(Debug, Clone)]
 pub struct ReaderStripChapter {
     pub story_index: usize,
-    pub key: String,
+    pub key: PathBuf,
     pub title: String,
     pub scanlator: Option<String>,
     pub downloaded: bool,
@@ -16443,7 +16443,7 @@ impl AppState {
                         (reader.chapter_path.clone(), reader.pages.len(), page),
                         |chapter| {
                             (
-                                PathBuf::from(&chapter.key),
+                                chapter.key.clone(),
                                 chapter.page_count,
                                 page.saturating_sub(chapter.start_page),
                             )
@@ -16930,7 +16930,7 @@ impl AppState {
     }
 
     /// Chapter story index and page offset for a global strip page.
-    fn reader_page_progress(&self, page: usize) -> Option<(usize, usize, usize, String)> {
+    fn reader_page_progress(&self, page: usize) -> Option<(usize, usize, usize, PathBuf)> {
         let reader = self.reader.as_ref()?;
         if let Some(strip) = reader.strip.as_ref() {
             let chapter = strip.chapter_for_page(page)?;
@@ -16945,7 +16945,7 @@ impl AppState {
             self.reader_chapter_index(),
             page,
             reader.pages.len(),
-            reader.chapter_path.display().to_string(),
+            reader.chapter_path.clone(),
         ))
     }
 
@@ -16975,13 +16975,13 @@ impl AppState {
         );
         if let Some(reader) = self.reader.as_mut() {
             reader.chapter_title = chapter.title;
-            reader.chapter_path = PathBuf::from(chapter.key);
+            reader.chapter_path = chapter.key;
             reader.scroll = None;
             reader.pending_scroll = None;
             reader.page_sizes.clear();
         }
         if let Some((_, page_in_chapter, pages, key)) = self.reader_page_progress(page) {
-            self.record_progress(std::path::Path::new(&key), page_in_chapter, pages);
+            self.record_progress(&key, page_in_chapter, pages);
         }
         self.load_page();
         self.build_scroll(terminal_width());
@@ -16997,7 +16997,7 @@ impl AppState {
                     .selected_series()
                     .and_then(|series| series.chapters.get(index))
                     .cloned()?;
-                let key = chapter.path.display().to_string();
+                let key = chapter.path.clone();
                 (chapter_pages(&chapter).ok()?, key)
             }
             ReaderOrigin::BrowseLocal => {
@@ -17005,23 +17005,19 @@ impl AppState {
                     .selected_browse_local_series()
                     .and_then(|series| series.chapters.get(index))
                     .cloned()?;
-                let key = chapter.path.display().to_string();
+                let key = chapter.path.clone();
                 (chapter_pages(&chapter).ok()?, key)
             }
             ReaderOrigin::Remote => {
                 let manga = self.remote.manga.clone()?;
                 let chapter = self.remote.chapters.get(index).cloned()?;
-                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url)
-                    .display()
-                    .to_string();
+                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
                 (self.remote_chapter_pages(&manga, &chapter).ok()?, key)
             }
             ReaderOrigin::LibraryRemote => {
                 let manga = self.library_remote.manga.clone()?;
                 let chapter = self.library_remote.chapters.get(index).cloned()?;
-                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url)
-                    .display()
-                    .to_string();
+                let key = remote_progress_key(&manga.source_id, &manga.url, &chapter.url);
                 (self.remote_chapter_pages(&manga, &chapter).ok()?, key)
             }
             ReaderOrigin::History | ReaderOrigin::Updates => return None,
@@ -17088,10 +17084,10 @@ impl AppState {
             let key = if is_current {
                 self.reader
                     .as_ref()
-                    .map(|reader| reader.chapter_path.display().to_string())
+                    .map(|reader| reader.chapter_path.clone())
                     .unwrap_or_default()
             } else {
-                String::new()
+                PathBuf::new()
             };
             return Some(ReaderStripChapter {
                 story_index: index,
@@ -17202,7 +17198,7 @@ impl AppState {
         reader.page_index = page_index;
         reader.pending_anchor = anchor;
         reader.chapter_title = current_chapter.title;
-        reader.chapter_path = PathBuf::from(current_chapter.key);
+        reader.chapter_path = current_chapter.key;
         reader.strip = Some(ReaderStrip {
             chapters,
             current: current_position,
@@ -17755,7 +17751,7 @@ impl AppState {
                     self.switch_reader_page_chapter(page, None);
                     return;
                 }
-                self.record_progress(std::path::Path::new(&key), page_in_chapter, pages);
+                self.record_progress(&key, page_in_chapter, pages);
             }
         }
         self.sync_pending_offset();
