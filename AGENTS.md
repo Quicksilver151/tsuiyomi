@@ -202,9 +202,10 @@ Rules:
   scroll a screen, and
   `+`/`-` adjust zoom (no upscaling at 100%). Zoom rebuilds the row layout but anchors
   the viewport to the same source pixel, so long strips do not jump to the page start.
-  Continuous scroll loads a previous/current/next chapter window and inserts boundary
-  cards with chapter names, scanlators, download state, and missing gaps; page mode shows
-  a blank boundary page. Unloaded images render an animated white-block ツ loader that
+  Continuous scroll keeps loaded chapters in a persistent strip, promotes a loaded
+  neighbor without rebuilding the scroll state, appends/prepends neighbors, and inserts
+  boundary cards with chapter names, scanlators, download state, and missing gaps; page
+  mode shows a blank boundary page. Unloaded images render an animated white-block ツ loader that
   reveals one block at a time.
   Scroll mode reads page dimensions once,
   lazily decodes only visible/nearby blocks, caches their protocols, and uses Kitty shared

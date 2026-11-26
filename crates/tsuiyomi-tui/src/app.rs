@@ -16509,6 +16509,7 @@ impl AppState {
             };
             self.record_progress(&chapter_path, page_in_chapter, pages);
             self.sync_pending_offset();
+            self.maybe_extend_reader_strip();
         } else {
             let (chapter_path, pages) = {
                 let Some(reader) = self.reader.as_mut() else {
@@ -17025,6 +17026,136 @@ impl AppState {
         ))
     }
 
+    fn maybe_prepend_reader_strip(&mut self) -> bool {
+        let (first_story, anchor) = {
+            let Some(reader) = self.reader.as_ref() else {
+                return false;
+            };
+            let Some(strip) = reader.strip.as_ref() else {
+                return false;
+            };
+            if strip.current != 0 {
+                return false;
+            }
+            let Some(first) = strip.chapters.first() else {
+                return false;
+            };
+            let anchor = reader
+                .scroll
+                .as_ref()
+                .and_then(|scroll| scroll_anchor(scroll, scroll.offset, &reader.pages));
+            (first.story_index, anchor)
+        };
+        let indices = self.story_chapter_indices();
+        let Some(position) = indices.iter().position(|index| *index == first_story) else {
+            return false;
+        };
+        let Some(previous) = self.reader_chapter_target(&indices, position, first_story, 1) else {
+            return false;
+        };
+        let Some(mut chapter) = self.load_strip_chapter(previous) else {
+            return false;
+        };
+        let Some(transition) =
+            self.strip_transition(previous, first_story, ReaderTransitionDirection::Next)
+        else {
+            return false;
+        };
+        let inserted = chapter.pages.len();
+        if inserted == 0 {
+            return false;
+        }
+        chapter.start_page = 0;
+        chapter.page_count = inserted;
+        let pages = chapter.pages.clone();
+        let Some(reader) = self.reader.as_mut() else {
+            return false;
+        };
+        reader.pages.splice(0..0, pages);
+        reader.page_index = reader.page_index.saturating_add(inserted);
+        reader.pending_anchor = anchor;
+        let Some(strip) = reader.strip.as_mut() else {
+            return false;
+        };
+        for chapter in &mut strip.chapters {
+            chapter.start_page = chapter.start_page.saturating_add(inserted);
+        }
+        let transition_index = strip.transitions.len();
+        strip.transitions.push(transition);
+        let mut before = vec![None; reader.pages.len() + 1];
+        for (index, value) in strip.transition_before.iter().enumerate() {
+            if let Some(value) = value {
+                if index + inserted < before.len() {
+                    before[index + inserted] = Some(*value);
+                }
+            }
+        }
+        before[inserted] = Some(transition_index);
+        strip.transition_before = before;
+        strip.chapters.insert(0, chapter);
+        strip.current += 1;
+        reader.page_sizes.clear();
+        self.build_scroll(terminal_width());
+        true
+    }
+
+    /// Append the next chapter when the active chapter is the end of the strip.
+    ///
+    /// Existing page indices and scroll offsets stay valid because this only adds
+    /// pages after the current strip. The new layout is measured in the background.
+    fn maybe_extend_reader_strip(&mut self) {
+        if self.maybe_prepend_reader_strip() {
+            return;
+        }
+        let (last_story, start) = {
+            let Some(reader) = self.reader.as_ref() else {
+                return;
+            };
+            let Some(strip) = reader.strip.as_ref() else {
+                return;
+            };
+            if strip.current + 1 < strip.chapters.len() {
+                return;
+            }
+            let Some(last) = strip.chapters.last() else {
+                return;
+            };
+            (last.story_index, reader.pages.len())
+        };
+        let indices = self.story_chapter_indices();
+        let Some(position) = indices.iter().position(|index| *index == last_story) else {
+            return;
+        };
+        let Some(next) = self.reader_chapter_target(&indices, position, last_story, -1) else {
+            return;
+        };
+        let Some(mut chapter) = self.load_strip_chapter(next) else {
+            return;
+        };
+        let Some(transition) =
+            self.strip_transition(last_story, next, ReaderTransitionDirection::Next)
+        else {
+            return;
+        };
+        chapter.start_page = start;
+        chapter.page_count = chapter.pages.len();
+        let pages = chapter.pages.clone();
+        let Some(reader) = self.reader.as_mut() else {
+            return;
+        };
+        reader.pages.extend(pages);
+        let page_count = reader.pages.len();
+        let Some(strip) = reader.strip.as_mut() else {
+            return;
+        };
+        let transition_index = strip.transitions.len();
+        strip.transitions.push(transition);
+        strip.transition_before.resize(page_count + 1, None);
+        strip.transition_before[start] = Some(transition_index);
+        strip.chapters.push(chapter);
+        self.build_scroll(terminal_width());
+    }
+
     /// Switch the continuous strip to the chapter owning `page`.
     fn switch_reader_page_chapter(&mut self, page: usize, anchor: Option<ScrollAnchor>) -> bool {
         let Some(reader) = self.reader.as_ref() else {
@@ -17039,28 +17170,24 @@ impl AppState {
         if position == strip.current {
             return false;
         }
-        let old_strip = strip.clone();
         let chapter = strip.chapters[position].clone();
         let page_in_chapter = page.saturating_sub(chapter.start_page);
-        self.set_reader_story_cursor(chapter.story_index);
-        self.build_reader_strip(
-            chapter.story_index,
-            page_in_chapter,
-            Some(&old_strip),
-            anchor,
-        );
+
+        // The target chapter is already in the flattened strip. Promote it in
+        // place: keep the exact scroll layout, offsets, page sizes, and decoded
+        // blocks so crossing the boundary has no loading reset.
         if let Some(reader) = self.reader.as_mut() {
+            if let Some(strip) = reader.strip.as_mut() {
+                strip.current = position;
+            }
             reader.chapter_title = chapter.title;
             reader.chapter_path = chapter.key;
-            reader.scroll = None;
-            reader.pending_scroll = None;
-            reader.page_sizes.clear();
         }
+        self.set_reader_story_cursor(chapter.story_index);
         if let Some((_, page_in_chapter, pages, key)) = self.reader_page_progress(page) {
             self.record_progress(&key, page_in_chapter, pages);
         }
-        self.load_page();
-        self.build_scroll(terminal_width());
+        let _ = (anchor, page_in_chapter);
         true
     }
 
@@ -17833,6 +17960,7 @@ impl AppState {
             }
         }
         self.sync_pending_offset();
+        self.maybe_extend_reader_strip();
     }
 
     fn scroll_page_step(&self) -> i32 {

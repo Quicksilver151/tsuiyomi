@@ -610,8 +610,9 @@ incognito = false
 Per-category sort/layout overrides, migration flags, tracker tokens, and raw Mihon
 backup flags are managed by the UI and stored alongside these keys.
 
-Chapter transitions are on by default. Continuous scroll keeps the previous, current, and
-next chapters in one strip and draws a boundary card between them with the chapter names,
+Chapter transitions are on by default. Continuous scroll keeps loaded chapters in one
+persistent strip, promotes a loaded neighbor in place, and appends/prepends further
+chapters without resetting the viewport. It draws a boundary card between chapters with the chapter names,
 scanlators, download state, and any missing-chapter gap. Page mode shows a blank boundary
 card naming the adjacent chapter; the same page-turn key continues into it. Images that
 are still loading show an animated white-block ツ, revealed one block at a time in
