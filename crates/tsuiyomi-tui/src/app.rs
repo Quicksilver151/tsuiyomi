@@ -17040,6 +17040,10 @@ impl AppState {
             let Some(first) = strip.chapters.first() else {
                 return false;
             };
+            let page_in_chapter = reader.page_index.saturating_sub(first.start_page);
+            if page_in_chapter >= 5 {
+                return false;
+            }
             let anchor = reader
                 .scroll
                 .as_ref()
@@ -17094,6 +17098,10 @@ impl AppState {
         strip.transition_before = before;
         strip.chapters.insert(0, chapter);
         strip.current += 1;
+        // The old layout indexes the pre-prepend page list. Drop it instead of
+        // letting scroll position and progress map through stale indices.
+        reader.scroll = None;
+        reader.pending_scroll = None;
         reader.page_sizes.clear();
         self.build_scroll(terminal_width());
         true
@@ -17120,6 +17128,10 @@ impl AppState {
             let Some(last) = strip.chapters.last() else {
                 return;
             };
+            let page_in_chapter = reader.page_index.saturating_sub(last.start_page);
+            if page_in_chapter + 5 < last.page_count {
+                return;
+            }
             (last.story_index, reader.pages.len())
         };
         let indices = self.story_chapter_indices();
@@ -17936,8 +17948,13 @@ impl AppState {
                 .and_then(|index| scroll.layout.get(index))
                 .is_some_and(|segment| segment.transition.is_some());
             let mut page = index.map_or(0, |index| scroll.layout[index].page);
-            if at_end && !reader.pages.is_empty() {
-                page = reader.pages.len() - 1;
+            if at_end {
+                page = scroll
+                    .layout
+                    .iter()
+                    .rev()
+                    .find(|segment| segment.transition.is_none())
+                    .map_or(page, |segment| segment.page);
             }
             page = page.min(reader.pages.len().saturating_sub(1));
             if at_transition {
@@ -21636,8 +21653,13 @@ mod tests {
     }
 
     fn continuous_reader_fixture() -> (tempfile::TempDir, AppState) {
+        continuous_reader_fixture_with(&["Chapter 2", "Chapter 1"])
+    }
+
+    /// Reader fixture with the given chapter titles, newest listed first.
+    fn continuous_reader_fixture_with(titles: &[&str]) -> (tempfile::TempDir, AppState) {
         let root = tempfile::tempdir().unwrap();
-        for chapter in ["Chapter 2", "Chapter 1"] {
+        for chapter in titles {
             let dir = root.path().join(chapter);
             std::fs::create_dir_all(&dir).unwrap();
             for name in ["1.png", "2.png"] {
@@ -21645,8 +21667,9 @@ mod tests {
                 image.save(dir.join(name)).unwrap();
             }
         }
-        let chapters = ["Chapter 2", "Chapter 1"]
-            .into_iter()
+        let chapters = titles
+            .iter()
+            .copied()
             .map(|title| Chapter {
                 path: root.path().join(title),
                 title: title.to_owned(),
@@ -21791,6 +21814,135 @@ mod tests {
         let reader = app.reader.as_ref().unwrap();
         assert_eq!(reader.pages.len(), 2);
         assert!(reader.strip.is_none());
+    }
+
+    /// The flattened page list, chapter ranges, active chapter, and progress must
+    /// agree no matter how many times the strip has appended or prepended.
+    fn assert_reader_stream_consistent(app: &AppState, context: &str) {
+        let reader = app.reader.as_ref().unwrap();
+        let strip = reader.strip.as_ref().unwrap();
+
+        let mut expected = Vec::new();
+        let mut next_start = 0;
+        for chapter in &strip.chapters {
+            assert_eq!(
+                chapter.start_page, next_start,
+                "{context}: chapter {} start_page",
+                chapter.title
+            );
+            assert_eq!(
+                chapter.page_count,
+                chapter.pages.len(),
+                "{context}: chapter {} page_count",
+                chapter.title
+            );
+            for page in &chapter.pages {
+                expected.push(page_key(page));
+            }
+            next_start += chapter.page_count;
+        }
+        let actual: Vec<_> = reader.pages.iter().map(page_key).collect();
+        assert_eq!(actual, expected, "{context}: flattened page order");
+        assert_eq!(
+            next_start,
+            reader.pages.len(),
+            "{context}: total page count"
+        );
+
+        let position = strip
+            .chapter_position_for_page(reader.page_index)
+            .unwrap_or_else(|| panic!("{context}: page_index outside the strip"));
+        assert_eq!(position, strip.current, "{context}: active strip index");
+        assert_eq!(
+            reader.chapter_title, strip.chapters[position].title,
+            "{context}: active chapter title"
+        );
+        assert_eq!(
+            app.reader_chapter_index(),
+            strip.chapters[position].story_index,
+            "{context}: story cursor"
+        );
+    }
+
+    fn record_reader_crossing(
+        app: &AppState,
+        last: &mut String,
+        titles: &mut std::collections::BTreeSet<String>,
+        max_chapters: &mut usize,
+        context: &str,
+    ) {
+        let reader = app.reader.as_ref().unwrap();
+        *max_chapters = (*max_chapters).max(reader.strip.as_ref().unwrap().chapters.len());
+        let title = reader.chapter_title.clone();
+        if title != *last {
+            *last = title.clone();
+            titles.insert(title);
+            assert_reader_stream_consistent(app, context);
+        }
+    }
+
+    #[test]
+    fn continuous_scroll_stays_consistent_across_repeated_crossings() {
+        let (_root, mut app) = continuous_reader_fixture_with(&[
+            "Chapter 5",
+            "Chapter 4",
+            "Chapter 3",
+            "Chapter 2",
+            "Chapter 1",
+        ]);
+        app.open();
+        app.select_index(2);
+        app.open();
+        app.toggle_reader_mode();
+        assert_reader_stream_consistent(&app, "open");
+
+        // Move forward and backward through the loaded strip many times. Every
+        // chapter crossing must leave page order, ranges, title, and cursor in
+        // agreement, and the strip must be able to grow past its initial window.
+        let mut titles = std::collections::BTreeSet::new();
+        let mut max_chapters = 0;
+        let mut last = app.reader.as_ref().unwrap().chapter_title.clone();
+        for _ in 0..600 {
+            app.next_screen();
+            record_reader_crossing(
+                &app,
+                &mut last,
+                &mut titles,
+                &mut max_chapters,
+                "scroll down",
+            );
+        }
+        for _ in 0..1600 {
+            app.previous_screen();
+            record_reader_crossing(&app, &mut last, &mut titles, &mut max_chapters, "scroll up");
+        }
+        for _ in 0..1600 {
+            app.next_screen();
+            record_reader_crossing(
+                &app,
+                &mut last,
+                &mut titles,
+                &mut max_chapters,
+                "scroll down again",
+            );
+        }
+
+        assert!(
+            max_chapters > 3,
+            "expected the strip to append/prepend chapters, saw at most {max_chapters}"
+        );
+        for expected in [
+            "Chapter 1",
+            "Chapter 2",
+            "Chapter 3",
+            "Chapter 4",
+            "Chapter 5",
+        ] {
+            assert!(
+                titles.contains(expected),
+                "expected to cross {expected}, saw {titles:?}"
+            );
+        }
     }
 
     #[test]

@@ -6,6 +6,13 @@ versioning. `v0.2.0` is the end-to-end release test; `v1.0.0` is the first publi
 
 ## [Unreleased]
 
+### Fixed
+
+- Continuous scroll kept the previous layout while prepending a chapter, so page
+  numbers, the progress record, and visible pages could disagree after repeated
+  chapter crossings. Prepend now rebuilds from the new page list and only triggers near
+  the start of the loaded chapter.
+
 ### Added
 
 - Page-level download concurrency, configurable from 1–15 pages per chapter.

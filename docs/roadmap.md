@@ -391,7 +391,7 @@ table below.
 | Check | Result |
 |---|---|
 | Core tests | 151 pass, 1 ignored |
-| TUI tests | 229 pass |
+| TUI tests | 230 pass |
 | Binary integration test | 1 pass (`backup-info`) |
 | Windows target check | `cargo check --target x86_64-pc-windows-gnu` passes; runtime CI is still pending |
 | MSRV | Rust 1.90.0 `cargo check --workspace --locked` passes |
